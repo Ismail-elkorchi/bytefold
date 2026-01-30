@@ -1,15 +1,11 @@
-import { createReadStream } from 'node:fs';
-import { stat } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { ZipError } from '../errors.js';
 import { mergeSignals, throwIfAborted } from '../abort.js';
-import { readableFromBytes, readableFromAsyncIterable, toWebReadable } from '../streams/adapters.js';
-import { FileSink, NodeWritableSink, WebWritableSink } from './Sink.js';
+import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
+import { WebWritableSink, type SeekableSink, type Sink } from './Sink.js';
 import { writeEntry } from './entryWriter.js';
 import { writeCentralDirectory } from './centralDirectoryWriter.js';
 import { finalizeArchive } from './finalize.js';
 import type { EntryWriteResult } from './entryWriter.js';
-import type { Sink, SeekableSink } from './Sink.js';
 import type { ZipEncryption, ZipWriterAddOptions, ZipWriterCloseOptions, ZipWriterOptions } from '../types.js';
 
 export class ZipWriter {
@@ -19,14 +15,16 @@ export class ZipWriter {
   private readonly defaultMethod: number;
   private readonly patchLocalHeaders: boolean;
   private readonly defaultEncryption: ZipEncryption;
-  private readonly progress: {
-    onProgress: (event: Parameters<NonNullable<ZipWriterOptions['onProgress']>>[0]) => void;
-    progressIntervalMs?: number;
-    progressChunkInterval?: number;
-  } | undefined;
+  private readonly progress:
+    | {
+        onProgress: (event: Parameters<NonNullable<ZipWriterOptions['onProgress']>>[0]) => void;
+        progressIntervalMs?: number;
+        progressChunkInterval?: number;
+      }
+    | undefined;
   private readonly signal: AbortSignal | undefined;
 
-  private constructor(
+  protected constructor(
     private readonly sink: Sink,
     options?: ZipWriterOptions
   ) {
@@ -49,22 +47,14 @@ export class ZipWriter {
     this.signal = options?.signal;
   }
 
-  static toWritable(
-    writable: WritableStream<Uint8Array> | NodeJS.WritableStream,
-    options?: ZipWriterOptions
-  ): ZipWriter {
-    const sink = isWebWritable(writable) ? new WebWritableSink(writable) : new NodeWritableSink(writable);
-    return new ZipWriter(sink, options);
-  }
-
-  static async toFile(path: string | URL, options?: ZipWriterOptions): Promise<ZipWriter> {
-    const sink = new FileSink(path);
+  static toWritable(writable: WritableStream<Uint8Array>, options?: ZipWriterOptions): ZipWriter {
+    const sink = new WebWritableSink(writable);
     return new ZipWriter(sink, options);
   }
 
   async add(
     name: string,
-    source: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array> | string | URL,
+    source: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
     options?: ZipWriterAddOptions & { declaredUncompressedSize?: bigint }
   ): Promise<void> {
     const signal = mergeSignals(this.signal, options?.signal);
@@ -142,18 +132,8 @@ function isSeekableSink(sink: Sink): sink is SeekableSink {
   return typeof (sink as SeekableSink).writeAt === 'function';
 }
 
-function isWebWritable(stream: WritableStream<Uint8Array> | NodeJS.WritableStream): stream is WritableStream<Uint8Array> {
-  return typeof (stream as WritableStream<Uint8Array>).getWriter === 'function';
-}
-
 async function resolveSource(
-  source:
-    | Uint8Array
-    | ArrayBuffer
-    | ReadableStream<Uint8Array>
-    | AsyncIterable<Uint8Array>
-    | string
-    | URL,
+  source: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
   mtime?: Date,
   signal?: AbortSignal
 ): Promise<{ stream: ReadableStream<Uint8Array>; sizeHint?: bigint; mtime?: Date }> {
@@ -168,16 +148,6 @@ async function resolveSource(
     return mtime
       ? { stream: readableFromBytes(view), sizeHint: BigInt(view.length), mtime }
       : { stream: readableFromBytes(view), sizeHint: BigInt(view.length) };
-  }
-  if (typeof source === 'string' || source instanceof URL) {
-    const filePath = typeof source === 'string' ? source : fileURLToPath(source);
-    const stats = await stat(filePath);
-    throwIfAborted(signal);
-    if (stats.isDirectory()) {
-      return { stream: readableFromBytes(new Uint8Array(0)), sizeHint: 0n, mtime: stats.mtime };
-    }
-    const stream = toWebReadable(createReadStream(filePath));
-    return { stream, sizeHint: BigInt(stats.size), mtime: stats.mtime };
   }
   if (isReadableStream(source)) {
     return mtime ? { stream: source, mtime } : { stream: source };
@@ -200,41 +170,12 @@ function resolveEncryption(options: ZipWriterAddOptions | undefined, fallback: Z
 function normalizeEncryption(encryption?: ZipEncryption, password?: string): ZipEncryption {
   if (!encryption) {
     if (password !== undefined) {
-      return normalizeEncryption({ type: 'zipcrypto', password });
+      throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Encryption is not supported in this runtime');
     }
     return { type: 'none' };
   }
-  switch (encryption.type) {
-    case 'none':
-      return { type: 'none' };
-    case 'zipcrypto': {
-      if (encryption.password === undefined) {
-        throw new ZipError('ZIP_PASSWORD_REQUIRED', 'Password required for ZipCrypto encryption');
-      }
-      return { type: 'zipcrypto', password: encryption.password };
-    }
-    case 'aes': {
-      if (encryption.password === undefined) {
-        throw new ZipError('ZIP_PASSWORD_REQUIRED', 'Password required for AES encryption');
-      }
-      const strength = encryption.strength ?? 256;
-      if (strength !== 128 && strength !== 192 && strength !== 256) {
-        throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', `Unsupported AES strength ${strength}`);
-      }
-      const vendorVersion = encryption.vendorVersion ?? 2;
-      if (vendorVersion !== 1 && vendorVersion !== 2) {
-        throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', `Unsupported AES vendor version ${vendorVersion}`);
-      }
-      return {
-        type: 'aes',
-        password: encryption.password,
-        strength,
-        vendorVersion
-      };
-    }
-    default: {
-      const exhaustive: never = encryption;
-      return exhaustive;
-    }
+  if (encryption.type !== 'none') {
+    throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Encryption is not supported in this runtime');
   }
+  return { type: 'none' };
 }

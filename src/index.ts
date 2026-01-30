@@ -1,33 +1,16 @@
-export { ZipReader } from './reader/ZipReader.js';
-export { ZipWriter } from './writer/ZipWriter.js';
-export { ZipError } from './errors.js';
-export type { ZipErrorCode } from './errors.js';
+export * from './archive/index.js';
+export { ArchiveError } from './archive/errors.js';
 export type {
-  CompressionMethod,
-  ZipAuditOptions,
-  ZipAuditReport,
-  ZipNormalizeConflict,
-  ZipNormalizeMode,
-  ZipNormalizeOptions,
-  ZipNormalizeReport,
-  ZipEncryption,
-  ZipEntry,
-  ZipExtractOptions,
-  ZipIssue,
-  ZipIssueSeverity,
-  ZipLimits,
-  ZipProfile,
-  ZipProgressEvent,
-  ZipProgressOptions,
-  ZipReaderIterOptions,
-  ZipReaderOpenOptions,
-  ZipReaderOptions,
-  ZipWarning,
-  ZipWriterAddOptions,
-  ZipWriterCloseOptions,
-  ZipWriterOptions
-} from './types.js';
+  ArchiveAuditReport,
+  ArchiveEntry,
+  ArchiveFormat,
+  ArchiveIssue,
+  ArchiveIssueSeverity,
+  ArchiveLimits,
+  ArchiveNormalizeReport,
+  ArchiveOpenOptions,
+  ArchiveProfile
+} from './archive/types.js';
 
-export { toWebReadable, toWebWritable, toNodeReadable, toNodeWritable } from './streams/adapters.js';
-export { registerCompressionCodec, listCompressionCodecs } from './compression/registry.js';
-export type { ZipCompressionCodec, ZipCompressionStream } from './compression/types.js';
+export * from './zip/index.js';
+export * from './tar/index.js';

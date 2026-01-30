@@ -1,16 +1,7 @@
-import { Duplex } from 'node:stream';
-import { createDeflateRaw, createInflateRaw, createZstdCompress, createZstdDecompress } from 'node:zlib';
 import { ZipError } from '../errors.js';
-import type { ZipCompressionCodec, ZipCompressionStream, ZipDecompressionOptions } from './types.js';
+import type { ZipCompressionCodec, ZipCompressionOptions, ZipCompressionStream, ZipDecompressionOptions } from './types.js';
 import { createDeflate64DecompressStream } from './deflate64.js';
-
-function nodeDuplexToWeb(duplex: Duplex): ZipCompressionStream {
-  const { readable, writable } = Duplex.toWeb(duplex);
-  return {
-    readable: readable as ReadableStream<Uint8Array>,
-    writable: writable as WritableStream<Uint8Array>
-  };
-}
+import { createCompressTransform, createDecompressTransform } from './streams.js';
 
 function passthroughStream(): ZipCompressionStream {
   return new TransformStream<Uint8Array, Uint8Array>({
@@ -36,11 +27,17 @@ export const DEFLATE_CODEC: ZipCompressionCodec = {
   methodId: 8,
   name: 'deflate',
   supportsStreaming: true,
-  createDecompressStream() {
-    return nodeDuplexToWeb(createInflateRaw());
+  async createDecompressStream(options?: ZipDecompressionOptions) {
+    return createDecompressTransform({
+      algorithm: 'deflate-raw',
+      signal: options?.signal
+    });
   },
-  createCompressStream() {
-    return nodeDuplexToWeb(createDeflateRaw());
+  async createCompressStream(options?: ZipCompressionOptions) {
+    return createCompressTransform({
+      algorithm: 'deflate-raw',
+      signal: options?.signal
+    });
   }
 };
 
@@ -48,17 +45,29 @@ export const ZSTD_CODEC: ZipCompressionCodec = {
   methodId: 93,
   name: 'zstd',
   supportsStreaming: true,
-  createDecompressStream() {
-    if (typeof createZstdDecompress !== 'function') {
-      throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this Node runtime');
+  async createDecompressStream(options?: ZipDecompressionOptions) {
+    try {
+      return await createDecompressTransform({
+        algorithm: 'zstd',
+        signal: options?.signal
+      });
+    } catch (err) {
+      throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this runtime', {
+        cause: err
+      });
     }
-    return nodeDuplexToWeb(createZstdDecompress());
   },
-  createCompressStream() {
-    if (typeof createZstdCompress !== 'function') {
-      throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this Node runtime');
+  async createCompressStream(options?: ZipCompressionOptions) {
+    try {
+      return await createCompressTransform({
+        algorithm: 'zstd',
+        signal: options?.signal
+      });
+    } catch (err) {
+      throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this runtime', {
+        cause: err
+      });
     }
-    return nodeDuplexToWeb(createZstdCompress());
   }
 };
 

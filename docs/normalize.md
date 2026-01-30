@@ -1,9 +1,8 @@
-# ZIP normalization
+# Archive normalization
 
-Normalization produces a deterministic ZIP with a single interpretation, which is ideal for untrusted uploads and agent pipelines.
-The pipeline validates names, removes ambiguity, and rewrites headers so local and central directory metadata agree.
+`archive-shield` can normalize ZIP and TAR archives into deterministic, single-interpretation outputs. This is ideal for untrusted uploads and agent pipelines.
 
-## Modes
+## ZIP modes
 
 - `mode: "safe"` (default): decrypt + decompress supported entries, verify CRC, then recompress using a chosen method (default deflate).
 - `mode: "lossless"`: preserve compressed bytes when possible and rebuild headers without changing entry payloads.
@@ -13,37 +12,15 @@ The pipeline validates names, removes ambiguity, and rewrites headers so local a
 Set `deterministic: true` to produce stable output:
 
 - entries sorted by normalized name
-- fixed timestamps (DOS epoch)
+- fixed timestamps
 - stable header fields and attributes
 
-## Conflict handling
-
-By default, duplicates and case collisions are errors. You can override:
+## Usage (auto)
 
 ```js
-await reader.normalizeToFile('out.zip', {
-  onDuplicate: 'rename',
-  onCaseCollision: 'rename'
-});
-```
+import { openArchive } from 'archive-shield';
 
-## Usage
-
-```js
-import { ZipReader } from 'zip-next';
-
-const reader = await ZipReader.fromFile('input.zip');
-const report = await reader.normalizeToFile('normalized.zip', {
-  mode: 'safe',
-  deterministic: true
-});
-
-console.log(JSON.stringify(report)); // JSON-safe
-```
-
-To stream to any writable:
-
-```js
+const reader = await openArchive(fileBytes);
 const chunks = [];
 const writable = new WritableStream({
   write(chunk) {
@@ -51,5 +28,28 @@ const writable = new WritableStream({
   }
 });
 
-const report = await reader.normalizeToWritable(writable, { mode: 'lossless' });
+const report = await reader.normalizeToWritable(writable, { deterministic: true });
+console.log(JSON.stringify(report));
+```
+
+## ZIP-only options
+
+```js
+import { ZipReader } from 'archive-shield/zip';
+
+const reader = await ZipReader.fromUint8Array(zipBytes);
+const report = await reader.normalizeToWritable(writable, {
+  mode: 'lossless',
+  onDuplicate: 'rename',
+  onCaseCollision: 'rename'
+});
+```
+
+## Node file helpers
+
+```js
+import { ZipReader } from 'archive-shield/node/zip';
+
+const reader = await ZipReader.fromFile('input.zip');
+const report = await reader.normalizeToFile('normalized.zip', { deterministic: true });
 ```

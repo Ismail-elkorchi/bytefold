@@ -1,18 +1,9 @@
-import { mkdir, symlink, mkdtemp, rm } from 'node:fs/promises';
-import { createReadStream, createWriteStream } from 'node:fs';
-import { pipeline } from 'node:stream/promises';
-import { Readable } from 'node:stream';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { tmpdir } from 'node:os';
-import { once } from 'node:events';
 import { ZipError } from '../errors.js';
 import { mergeSignals, throwIfAborted } from '../abort.js';
 import type {
   ZipAuditOptions,
   ZipAuditReport,
   ZipEntry,
-  ZipExtractOptions,
   ZipIssue,
   ZipIssueSeverity,
   ZipLimits,
@@ -26,18 +17,18 @@ import type {
   ZipReaderOptions,
   ZipWarning
 } from '../types.js';
-import { BufferRandomAccess, FileRandomAccess, HttpRandomAccess } from './RandomAccess.js';
+import { BufferRandomAccess, HttpRandomAccess } from './RandomAccess.js';
 import type { RandomAccess } from './RandomAccess.js';
 import { findEocd, type EocdResult } from './eocd.js';
 import { iterCentralDirectory, type ZipEntryRecord } from './centralDirectory.js';
-import { openEntryStream, openRawStream } from './entryStream.js';
+import { openEntryStream, openRawStream, type OpenEntryOptions } from './entryStream.js';
 import { buildAesExtra, parseAesExtra } from '../extraFields.js';
 import { readLocalHeader, type LocalHeaderInfo } from './localHeader.js';
-import { isWebWritable, readableFromBytes, toWebReadable } from '../streams/adapters.js';
+import { readableFromBytes } from '../streams/web.js';
+import { readAllBytes } from '../streams/buffer.js';
 import { createCrcTransform } from '../streams/crcTransform.js';
-import { createMeasureTransform } from '../streams/measure.js';
 import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
-import { FileSink, NodeWritableSink, WebWritableSink } from '../writer/Sink.js';
+import { WebWritableSink } from '../writer/Sink.js';
 import type { Sink } from '../writer/Sink.js';
 import { writeCentralDirectory } from '../writer/centralDirectoryWriter.js';
 import { finalizeArchive } from '../writer/finalize.js';
@@ -59,18 +50,18 @@ const AGENT_LIMITS: Required<ZipLimits> = {
 };
 
 export class ZipReader {
-  private readonly profile: ZipProfile;
-  private readonly strict: boolean;
-  private readonly limits: Required<ZipLimits>;
-  private readonly warningsList: ZipWarning[] = [];
-  private entriesList: ZipEntryRecord[] | null = null;
-  private readonly password: string | undefined;
-  private readonly storeEntries: boolean;
-  private eocd: EocdResult | null = null;
-  private readonly signal: AbortSignal | undefined;
+  protected readonly profile: ZipProfile;
+  protected readonly strict: boolean;
+  protected readonly limits: Required<ZipLimits>;
+  protected readonly warningsList: ZipWarning[] = [];
+  protected entriesList: ZipEntryRecord[] | null = null;
+  protected readonly password: string | undefined;
+  protected readonly storeEntries: boolean;
+  protected eocd: EocdResult | null = null;
+  protected readonly signal: AbortSignal | undefined;
 
-  private constructor(
-    private readonly reader: RandomAccess,
+  protected constructor(
+    protected readonly reader: RandomAccess,
     options?: ZipReaderOptions
   ) {
     const resolved = resolveReaderProfile(options);
@@ -82,13 +73,6 @@ export class ZipReader {
     this.signal = mergeSignals(options?.signal, options?.http?.signal);
   }
 
-  static async fromFile(pathLike: string | URL, options?: ZipReaderOptions): Promise<ZipReader> {
-    const reader = FileRandomAccess.fromPath(pathLike);
-    const instance = new ZipReader(reader, options);
-    await instance.init();
-    return instance;
-  }
-
   static async fromUint8Array(data: Uint8Array, options?: ZipReaderOptions): Promise<ZipReader> {
     const reader = new BufferRandomAccess(data);
     const instance = new ZipReader(reader, options);
@@ -97,60 +81,10 @@ export class ZipReader {
   }
 
   static async fromStream(
-    stream: ReadableStream<Uint8Array> | NodeJS.ReadableStream,
+    stream: ReadableStream<Uint8Array>,
     options?: ZipReaderOptions
   ): Promise<ZipReader> {
-    const signal = options?.signal ?? null;
-    const tempDir = await mkdtemp(path.join(tmpdir(), 'zip-next-'));
-    const tempPath = path.join(tempDir, 'stream.zip');
-    const writable = createWriteStream(tempPath);
-    const webReadable = toWebReadable(stream);
-    const reader = webReadable.getReader();
-
-    try {
-      while (true) {
-        throwIfAborted(signal);
-        const { value, done } = await reader.read();
-        if (done) break;
-        if (!value) continue;
-        const canWrite = writable.write(value);
-        if (!canWrite) {
-          const drain = once(writable, 'drain');
-          if (signal) {
-            await Promise.race([
-              drain,
-              new Promise<never>((_, reject) => {
-                if (signal.aborted) {
-                  reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError'));
-                  return;
-                }
-                signal.addEventListener(
-                  'abort',
-                  () => reject(signal.reason ?? new DOMException('The operation was aborted', 'AbortError')),
-                  { once: true }
-                );
-              })
-            ]);
-          } else {
-            await drain;
-          }
-        }
-      }
-      await new Promise<void>((resolve, reject) => {
-        writable.end((err?: Error | null) => (err ? reject(err) : resolve()));
-      });
-    } catch (err) {
-      writable.destroy();
-      await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      throw err;
-    } finally {
-      reader.releaseLock();
-    }
-
-    const tempReader = new TempFileRandomAccess(tempPath, tempDir);
-    const instance = new ZipReader(tempReader, options);
-    await instance.init();
-    return instance;
+    const signal = options?.signal;\n+    const data = await readAllBytes(stream, {\n+      signal,\n+      maxBytes: options?.limits?.maxTotalUncompressedBytes\n+    });\n+    return ZipReader.fromUint8Array(data, options);\n   }
   }
 
   static async fromUrl(
@@ -248,7 +182,7 @@ export class ZipReader {
     if (password !== undefined) {
       params.password = password;
     }
-    return openEntryStream(this.reader, entry as ZipEntryRecord, {
+    return this.openEntryStream(entry as ZipEntryRecord, {
       ...params,
       ...(signal ? { signal } : {}),
       ...progressParams(options),
@@ -266,80 +200,19 @@ export class ZipReader {
     return stream;
   }
 
+  protected async openEntryStream(
+    entry: ZipEntryRecord,
+    options: OpenEntryOptions
+  ): Promise<ReadableStream<Uint8Array>> {
+    return openEntryStream(this.reader, entry, options);
+  }
+
   async normalizeToWritable(
-    writable: WritableStream<Uint8Array> | NodeJS.WritableStream,
+    writable: WritableStream<Uint8Array>,
     options?: ZipNormalizeOptions
   ): Promise<ZipNormalizeReport> {
-    const sink = isWebWritable(writable) ? new WebWritableSink(writable) : new NodeWritableSink(writable);
+    const sink = new WebWritableSink(writable);
     return this.normalizeToSink(sink, options);
-  }
-
-  async normalizeToFile(pathLike: string | URL, options?: ZipNormalizeOptions): Promise<ZipNormalizeReport> {
-    const sink = new FileSink(pathLike);
-    return this.normalizeToSink(sink, options);
-  }
-
-  async extractAll(destDir: string | URL, options?: ZipExtractOptions): Promise<void> {
-    const baseDir = typeof destDir === 'string' ? destDir : fileURLToPath(destDir);
-    const strict = options?.strict ?? this.strict;
-    const password = options?.password ?? this.password;
-    const allowSymlinks = options?.allowSymlinks ?? false;
-    const limits = normalizeLimits(options?.limits ?? this.limits, this.limits);
-    const signal = this.resolveSignal(options?.signal);
-
-    let totalUncompressed = 0n;
-    const totals = { totalUncompressed: 0n };
-    await mkdir(baseDir, { recursive: true });
-
-    const iterOptions = signal ? { signal } : undefined;
-    for await (const entry of this.iterEntries(iterOptions)) {
-      throwIfAborted(signal);
-      totalUncompressed += entry.uncompressedSize;
-      if (totalUncompressed > limits.maxTotalUncompressedBytes) {
-        throw new ZipError('ZIP_LIMIT_EXCEEDED', 'Total uncompressed size exceeds limit');
-      }
-
-      const targetPath = resolveEntryPath(baseDir, entry.name);
-      if (entry.isDirectory) {
-        await mkdir(targetPath, { recursive: true });
-        continue;
-      }
-
-      if (entry.isSymlink) {
-        if (!allowSymlinks) {
-          throw new ZipError('ZIP_SYMLINK_DISALLOWED', 'Symlink entries are disabled by default', {
-            entryName: entry.name
-          });
-        }
-        await mkdir(path.dirname(targetPath), { recursive: true });
-        const stream = await openEntryStream(this.reader, entry as ZipEntryRecord, {
-          strict,
-          onWarning: (warning) => this.warningsList.push(warning),
-          ...(signal ? { signal } : {}),
-          ...progressParams(options),
-          ...(password !== undefined ? { password } : {}),
-          limits,
-          totals
-        });
-        const buf = await new Response(stream).arrayBuffer();
-        const target = new TextDecoder('utf-8').decode(buf);
-        await symlink(target, targetPath);
-        continue;
-      }
-
-      await mkdir(path.dirname(targetPath), { recursive: true });
-      const stream = await openEntryStream(this.reader, entry as ZipEntryRecord, {
-        strict,
-        onWarning: (warning) => this.warningsList.push(warning),
-        ...(signal ? { signal } : {}),
-        ...progressParams(options),
-        ...(password !== undefined ? { password } : {}),
-        limits,
-        totals
-      });
-      const nodeReadable = Readable.fromWeb(stream as any);
-      await pipeline(nodeReadable, createWriteStream(targetPath));
-    }
   }
 
   async audit(options?: ZipAuditOptions): Promise<ZipAuditReport> {
@@ -788,11 +661,6 @@ export class ZipReader {
 
     const results: EntryWriteResult[] = [];
     const totals = { totalUncompressed: 0n };
-    let outputIndex = 0;
-    let tempDir: string | null = null;
-    if (mode === 'safe') {
-      tempDir = await mkdtemp(path.join(tmpdir(), 'zip-next-normalize-'));
-    }
 
     try {
       for (const item of normalizedEntries) {
@@ -890,18 +758,19 @@ export class ZipReader {
             });
           }
 
-          if (entry.encrypted && !password) {
+          if (entry.encrypted) {
             addIssue({
-              code: 'ZIP_PASSWORD_REQUIRED',
+              code: 'ZIP_UNSUPPORTED_ENCRYPTION',
               severity: 'error',
-              message: 'Password required for encrypted entry during normalization',
+              message: 'Encrypted entries are not supported during normalization in this runtime',
               entryName: entry.name
             });
+            summary.unsupportedEntries += 1;
             if (onUnsupported === 'drop') {
               summary.droppedEntries += 1;
               continue;
             }
-            throw new ZipError('ZIP_PASSWORD_REQUIRED', 'Password required for encrypted entry', {
+            throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Encrypted entries are not supported', {
               entryName: entry.name
             });
           }
@@ -910,7 +779,7 @@ export class ZipReader {
           if (entry.isDirectory) {
             source = readableFromBytes(new Uint8Array(0));
           } else {
-            source = await openEntryStream(this.reader, entry, {
+            source = await this.openEntryStream(entry, {
               strict: true,
               onWarning: (warning) =>
                 addIssue({
@@ -927,20 +796,15 @@ export class ZipReader {
             });
           }
 
-          if (!tempDir) {
-            throw new ZipError('ZIP_UNSUPPORTED_FEATURE', 'Normalization temp directory missing');
-          }
-          const tempPath = path.join(tempDir, `entry-${outputIndex + 1}.bin`);
-          const spool = await spoolCompressedEntry({
+          const spool = await spoolCompressedEntryToMemory({
             source,
             method,
             entryName: name,
             ...(signal ? { signal } : {}),
-            progress: progressParams(options),
-            tempPath
+            progress: progressParams(options)
           });
 
-          const dataStream = toWebReadable(createReadStream(tempPath));
+          const dataStream = readableFromBytes(spool.data);
           const flags = 0x800;
           const result = await writeRawEntry(sink, {
             name,
@@ -960,9 +824,7 @@ export class ZipReader {
           });
           results.push(result);
           summary.outputEntries += 1;
-          outputIndex += 1;
           summary.recompressedEntries += entry.isDirectory ? 0 : 1;
-          await rm(tempPath, { force: true }).catch(() => {});
           continue;
         }
 
@@ -1011,7 +873,6 @@ export class ZipReader {
         });
         results.push(result);
         summary.outputEntries += 1;
-        outputIndex += 1;
         summary.preservedEntries += 1;
       }
 
@@ -1035,14 +896,7 @@ export class ZipReader {
       await sink.close();
     } catch (err) {
       await sink.close().catch(() => {});
-      if (tempDir) {
-        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      }
       throw err;
-    } finally {
-      if (tempDir) {
-        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
-      }
     }
 
     summary.entries = normalizedEntries.length;
@@ -1244,14 +1098,13 @@ function resolveConflictName(
   }
 }
 
-async function spoolCompressedEntry(options: {
+async function spoolCompressedEntryToMemory(options: {
   source: ReadableStream<Uint8Array>;
   method: number;
   entryName: string;
-  tempPath: string;
   signal?: AbortSignal;
   progress?: ZipProgressOptions;
-}): Promise<{ compressedSize: bigint; uncompressedSize: bigint; crc32: number }> {
+}): Promise<{ data: Uint8Array; compressedSize: bigint; uncompressedSize: bigint; crc32: number }> {
   const codec = getCompressionCodec(options.method);
   if (!codec || !codec.createCompressStream) {
     throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${options.method}`, {
@@ -1260,32 +1113,22 @@ async function spoolCompressedEntry(options: {
     });
   }
   const crcResult = { crc32: 0, bytes: 0n };
-  const measure = { bytes: 0n };
   const compressTracker = createProgressTracker(options.progress, {
     kind: 'compress',
-    entryName: options.entryName
-  });
-  const writeTracker = createProgressTracker(options.progress, {
-    kind: 'write',
     entryName: options.entryName
   });
   let stream = options.source;
   stream = stream.pipeThrough(createCrcTransform(crcResult, { strict: true }));
   stream = stream.pipeThrough(createProgressTransform(compressTracker));
-  stream = stream.pipeThrough(codec.createCompressStream());
-  stream = stream.pipeThrough(createMeasureTransform(measure));
-
-  const sink = new NodeWritableSink(createWriteStream(options.tempPath));
-  try {
-    await pipeToSink(stream, sink, options.signal, writeTracker);
-    await sink.close();
-  } catch (err) {
-    await sink.close().catch(() => {});
-    throw err;
-  }
+  const transform = await codec.createCompressStream();
+  stream = stream.pipeThrough(transform);
+  const data = await readAllBytes(stream, {
+    signal: options.signal
+  });
 
   return {
-    compressedSize: measure.bytes,
+    data,
+    compressedSize: BigInt(data.length),
     uncompressedSize: crcResult.bytes,
     crc32: crcResult.crc32
   };
@@ -1392,28 +1235,6 @@ function progressParams(options?: ZipProgressOptions): Partial<ZipProgressOption
 function toBigInt(value?: bigint | number): bigint | undefined {
   if (value === undefined) return undefined;
   return typeof value === 'bigint' ? value : BigInt(value);
-}
-
-function resolveEntryPath(baseDir: string, entryName: string): string {
-  if (entryName.includes('\u0000')) {
-    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Entry name contains NUL byte', { entryName });
-  }
-  const normalized = entryName.replace(/\\/g, '/');
-  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
-    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Absolute paths are not allowed in ZIP entries', {
-      entryName
-    });
-  }
-  const parts = normalized.split('/').filter((part) => part.length > 0);
-  if (parts.some((part) => part === '..')) {
-    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Path traversal detected in ZIP entry', { entryName });
-  }
-  const resolved = path.resolve(baseDir, ...parts);
-  const baseResolved = path.resolve(baseDir);
-  if (resolved !== baseResolved && !resolved.startsWith(baseResolved + path.sep)) {
-    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Entry path escapes destination directory', { entryName });
-  }
-  return resolved;
 }
 
 function entryPathIssues(entryName: string): ZipIssue[] {
@@ -1553,28 +1374,4 @@ function sanitizeDetails(value: unknown): unknown {
     return out;
   }
   return value;
-}
-
-class TempFileRandomAccess implements RandomAccess {
-  private readonly inner: FileRandomAccess;
-
-  constructor(
-    private readonly filePath: string,
-    private readonly tempDir: string
-  ) {
-    this.inner = FileRandomAccess.fromPath(filePath);
-  }
-
-  size(signal?: AbortSignal): Promise<bigint> {
-    return this.inner.size(signal);
-  }
-
-  read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
-    return this.inner.read(offset, length, signal);
-  }
-
-  async close(): Promise<void> {
-    await this.inner.close();
-    await rm(this.tempDir, { recursive: true, force: true });
-  }
 }

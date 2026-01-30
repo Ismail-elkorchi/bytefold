@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
-import { ZipReader, ZipWriter, ZipError } from 'zip-next';
+import { ZipReader, ZipWriter, ZipError } from 'archive-shield/node/zip';
 
 async function buildZip(): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];

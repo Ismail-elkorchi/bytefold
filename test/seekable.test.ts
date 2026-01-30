@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ZipReader, ZipWriter, ZipError } from 'zip-next';
+import { ZipReader, ZipWriter, ZipError } from 'archive-shield/node/zip';
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -47,7 +47,7 @@ test('seekable patch mode writes local header sizes and omits data descriptor', 
     }
   });
 
-  const filePath = path.join(tmpdir(), `zip-next-seekable-${Date.now()}.zip`);
+  const filePath = path.join(tmpdir(), `archive-shield-seekable-${Date.now()}.zip`);
   const writer = await ZipWriter.toFile(filePath, { seekable: 'on' });
   await writer.add('file.txt', stream, { method: 0 });
   await writer.close();
@@ -88,7 +88,7 @@ test('seekable patch mode requires ZIP64 when sizes exceed 4GiB', async () => {
     }
   });
 
-  const filePath = path.join(tmpdir(), `zip-next-zip64-required-${Date.now()}.zip`);
+  const filePath = path.join(tmpdir(), `archive-shield-zip64-required-${Date.now()}.zip`);
   const writer = await ZipWriter.toFile(filePath, { seekable: 'on' });
 
   try {

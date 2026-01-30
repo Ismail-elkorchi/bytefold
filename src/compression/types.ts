@@ -12,6 +12,6 @@ export interface ZipCompressionCodec {
   methodId: number;
   name: string;
   supportsStreaming: boolean;
-  createDecompressStream(options?: ZipDecompressionOptions): ZipCompressionStream;
-  createCompressStream?(options?: ZipCompressionOptions): ZipCompressionStream;
+  createDecompressStream(options?: ZipDecompressionOptions): ZipCompressionStream | Promise<ZipCompressionStream>;
+  createCompressStream?(options?: ZipCompressionOptions): ZipCompressionStream | Promise<ZipCompressionStream>;
 }

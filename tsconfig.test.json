@@ -7,7 +7,13 @@
     "declarationMap": false,
     "baseUrl": ".",
     "paths": {
-      "zip-next": ["dist/index.d.ts"]
+      "archive-shield": ["dist/index.d.ts"],
+      "archive-shield/zip": ["dist/zip/index.d.ts"],
+      "archive-shield/tar": ["dist/tar/index.d.ts"],
+      "archive-shield/node": ["dist/node/index.d.ts"],
+      "archive-shield/node/zip": ["dist/node/zip/index.d.ts"],
+      "archive-shield/deno": ["dist/deno/index.d.ts"],
+      "archive-shield/bun": ["dist/bun/index.d.ts"]
     }
   },
   "include": ["test"]

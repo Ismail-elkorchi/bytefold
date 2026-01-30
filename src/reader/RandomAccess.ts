@@ -1,5 +1,3 @@
-import { open } from 'node:fs/promises';
-import { fileURLToPath } from 'node:url';
 import { ZipError } from '../errors.js';
 import { mergeSignals, throwIfAborted } from '../abort.js';
 
@@ -7,42 +5,6 @@ export interface RandomAccess {
   size(signal?: AbortSignal): Promise<bigint>;
   read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
   close(): Promise<void>;
-}
-
-export class FileRandomAccess implements RandomAccess {
-  private readonly handlePromise: ReturnType<typeof open>;
-
-  constructor(private readonly path: string) {
-    this.handlePromise = open(this.path, 'r');
-  }
-
-  async size(signal?: AbortSignal): Promise<bigint> {
-    throwIfAborted(signal);
-    const handle = await this.handlePromise;
-    const stat = await handle.stat();
-    throwIfAborted(signal);
-    return BigInt(stat.size);
-  }
-
-  async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
-    throwIfAborted(signal);
-    const handle = await this.handlePromise;
-    const buffer = new Uint8Array(length);
-    const { bytesRead } = await handle.read(buffer, 0, length, Number(offset));
-    throwIfAborted(signal);
-    if (bytesRead === length) return buffer;
-    return buffer.subarray(0, bytesRead);
-  }
-
-  async close(): Promise<void> {
-    const handle = await this.handlePromise;
-    await handle.close();
-  }
-
-  static fromPath(path: string | URL): FileRandomAccess {
-    const filePath = typeof path === 'string' ? path : fileURLToPath(path);
-    return new FileRandomAccess(filePath);
-  }
 }
 
 export class BufferRandomAccess implements RandomAccess {
@@ -218,14 +180,11 @@ export class HttpRandomAccess implements RandomAccess {
       headers,
       signal: merged ?? null
     });
-    if (response.status === 200) {
-      throw new ZipError('ZIP_HTTP_RANGE_UNSUPPORTED', 'Server does not support HTTP range requests');
-    }
     if (response.status !== 206) {
       throw new ZipError('ZIP_HTTP_BAD_RESPONSE', `Unexpected HTTP status ${response.status}`);
     }
-    const buffer = await response.arrayBuffer();
-    return new Uint8Array(buffer);
+    const body = await response.arrayBuffer();
+    return new Uint8Array(body);
   }
 }
 

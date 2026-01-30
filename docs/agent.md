@@ -1,13 +1,14 @@
 # Agent workflow
 
-`zip-next` provides audit-first extraction designed for autonomous agents.
+`archive-shield` provides audit-first extraction designed for autonomous agents across ZIP, TAR, and GZIP.
 
-## Safe pipeline
+## Safe pipeline (auto-detect)
 
 ```js
-import { ZipReader } from 'zip-next';
+import { openArchive } from 'archive-shield';
 
-const reader = await ZipReader.fromUrl('https://example.com/archive.zip', {
+const res = await fetch('https://example.com/archive.tgz');
+const reader = await openArchive(res.body, {
   profile: 'agent',
   limits: {
     maxEntries: 2000,
@@ -20,17 +21,19 @@ console.log(JSON.stringify(report)); // JSON-safe
 
 await reader.assertSafe({ profile: 'agent' });
 // now extract selected entries
+for await (const entry of reader.entries()) {
+  if (entry.isDirectory) continue;
+  const data = await new Response(await entry.open()).arrayBuffer();
+  // write data to disk or process
+}
 ```
 
-You can do the same with a stream source:
+## Node file adapters
 
 ```js
-import { ZipReader } from 'zip-next';
+import { openArchive } from 'archive-shield/node';
 
-const res = await fetch('https://example.com/archive.zip');
-const reader = await ZipReader.fromStream(res.body!, { profile: 'agent' });
-
-const report = await reader.audit({ profile: 'agent' });
+const reader = await openArchive('/tmp/upload.zip', { profile: 'agent' });
 await reader.assertSafe({ profile: 'agent' });
 ```
 
@@ -43,27 +46,33 @@ await reader.assertSafe({ profile: 'agent' });
   - `maxUncompressedEntryBytes`: 256 MiB
   - `maxTotalUncompressedBytes`: 1 GiB
   - `maxCompressionRatio`: 200
-  - trailing bytes after EOCD are rejected in audits
-  - symlink entries are errors in audits
+  - trailing bytes after EOCD are rejected in ZIP audits
+  - symlink entries are errors in ZIP/TAR audits
 
 `assertSafe({ profile: 'agent' })` treats *any* audit warning as an error.
 
 ## Audit report JSON
 
-`ZipAuditReport` includes bigint offsets internally, but the report object has a `toJSON` method so
+Audit reports include bigint offsets internally, but each report has a `toJSON` method so
 `JSON.stringify(report)` is safe and converts bigints to strings in the output.
 
 ## Normalization for agents
 
-For untrusted uploads, normalize the ZIP into a deterministic, single-interpretation archive:
+Normalize untrusted uploads into deterministic, single-interpretation archives.
 
 ```js
-const reader = await ZipReader.fromFile('/tmp/upload.zip', { profile: 'agent' });
-const report = await reader.normalizeToFile('/tmp/normalized.zip', {
-  mode: 'safe',
-  deterministic: true,
-  onDuplicate: 'rename',
-  onCaseCollision: 'rename'
+import { openArchive } from 'archive-shield';
+
+const reader = await openArchive(fileBytes, { profile: 'agent' });
+const chunks = [];
+const writable = new WritableStream({
+  write(chunk) {
+    chunks.push(chunk);
+  }
+});
+
+const report = await reader.normalizeToWritable(writable, {
+  deterministic: true
 });
 
 console.log(JSON.stringify(report));

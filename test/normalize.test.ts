@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ZipReader, ZipWriter } from 'zip-next';
+import { ZipReader, ZipWriter } from 'archive-shield/node/zip';
 
 function concat(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, c) => sum + c.length, 0);

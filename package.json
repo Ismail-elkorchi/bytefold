@@ -1,7 +1,7 @@
 {
-  "name": "zip-next",
-  "version": "0.1.0",
-  "description": "Spec-first ZIP reader/writer for Node.js using Web Streams",
+  "name": "archive-shield",
+  "version": "0.2.0",
+  "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -10,6 +10,34 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
+    },
+    "./zip": {
+      "types": "./dist/zip/index.d.ts",
+      "default": "./dist/zip/index.js"
+    },
+    "./tar": {
+      "types": "./dist/tar/index.d.ts",
+      "default": "./dist/tar/index.js"
+    },
+    "./archive": {
+      "types": "./dist/archive/index.d.ts",
+      "default": "./dist/archive/index.js"
+    },
+    "./node": {
+      "types": "./dist/node/index.d.ts",
+      "default": "./dist/node/index.js"
+    },
+    "./node/zip": {
+      "types": "./dist/node/zip/index.d.ts",
+      "default": "./dist/node/zip/index.js"
+    },
+    "./deno": {
+      "types": "./dist/deno/index.d.ts",
+      "default": "./dist/deno/index.js"
+    },
+    "./bun": {
+      "types": "./dist/bun/index.d.ts",
+      "default": "./dist/bun/index.js"
     }
   },
   "main": "./dist/index.js",
@@ -18,6 +46,10 @@
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node --test dist-test",
+    "test:node": "npm run test",
+    "test:deno": "npm run build && deno test --allow-read --allow-write test/deno.smoke.ts",
+    "test:bun": "npm run build && bun test test/bun.smoke.ts",
+    "test:all": "npm run test:node && npm run test:deno && npm run test:bun",
     "test:interop": "node ./scripts/interop.mjs",
     "clean": "node ./scripts/clean.mjs"
   },

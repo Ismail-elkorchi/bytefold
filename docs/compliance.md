@@ -1,6 +1,6 @@
 # ZIP compliance matrix
 
-This library implements the ZIP structures and behaviors based on the local specification files in `./specs/`.
+`archive-shield` implements ZIP structures and behaviors based on the local specification files in `./specs/`.
 
 ## Feature matrix
 
@@ -21,8 +21,8 @@ This library implements the ZIP structures and behaviors based on the local spec
 | Deflate (method 8) | ✅ | ✅ | RFC 1951 |
 | Deflate64 (method 9) | ✅ | ❌ | appnote_iz.txt §X |
 | Zstandard (method 93) | ✅ | ✅ | zstd_compression_format.md |
-| Traditional PKWARE encryption (ZipCrypto) | ✅ | ✅ | APPNOTE 6.3.10 §6.1 + appnote_iz.txt |
-| WinZip AES (AE-1/AE-2) | ✅ | ✅ | winzip_aes.md + APPNOTE 6.3.10 Appendix E |
+| Traditional PKWARE encryption (ZipCrypto) | ✅ | ✅ (Node) | APPNOTE 6.3.10 §6.1 + appnote_iz.txt |
+| WinZip AES (AE-1/AE-2) | ✅ | ✅ (Node) | winzip_aes.md + APPNOTE 6.3.10 Appendix E |
 | Seekable local header patch (no data descriptor) | N/A | ✅ | APPNOTE 6.3.10 §4.3.9 |
 | HTTP Range random access | ✅ | N/A | Library feature (non-ZIP) |
 | Streaming central directory iteration | ✅ | N/A | Library feature (non-ZIP) |
