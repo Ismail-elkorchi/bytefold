@@ -3,3 +3,8 @@ import './http.test.js';
 import './unicode-extra.test.js';
 import './seekable.test.js';
 import './fuzz.test.js';
+import './encryption.test.js';
+import './iterEntries.test.js';
+import './audit.test.js';
+import './abort-progress.test.js';
+import './dispose.test.js';

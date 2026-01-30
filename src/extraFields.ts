@@ -13,6 +13,12 @@ export interface ExtendedTimestampValues {
   ctime?: Date;
 }
 
+export interface AesExtraValues {
+  vendorVersion: 1 | 2;
+  strength: 128 | 192 | 256;
+  actualMethod: number;
+}
+
 export function parseExtraFields(extra: Uint8Array): Map<number, Uint8Array> {
   const map = new Map<number, Uint8Array>();
   let offset = 0;
@@ -30,12 +36,15 @@ export function parseExtraFields(extra: Uint8Array): Map<number, Uint8Array> {
   return map;
 }
 
-export function parseZip64Extra(data: Uint8Array, present: {
-  uncompressed: boolean;
-  compressed: boolean;
-  offset: boolean;
-  diskStart: boolean;
-}): Zip64ExtraValues {
+export function parseZip64Extra(
+  data: Uint8Array,
+  present: {
+    uncompressed: boolean;
+    compressed: boolean;
+    offset: boolean;
+    diskStart: boolean;
+  }
+): Zip64ExtraValues {
   // APPNOTE 6.3.10 section 4.5.3: Zip64 extra fields appear in fixed order.
   let offset = 0;
   const values: Zip64ExtraValues = {};
@@ -146,6 +155,61 @@ export function buildExtendedTimestampExtra(values: ExtendedTimestampValues, isC
     offset += 4;
   }
   return out;
+}
+
+export function buildAesExtra(values: AesExtraValues): Uint8Array {
+  const out = new Uint8Array(4 + 7);
+  writeUint16LE(out, 0, 0x9901);
+  writeUint16LE(out, 2, 7);
+  writeUint16LE(out, 4, values.vendorVersion);
+  out[6] = 0x41; // 'A'
+  out[7] = 0x45; // 'E'
+  out[8] = strengthToCode(values.strength);
+  writeUint16LE(out, 9, values.actualMethod);
+  return out;
+}
+
+export function parseAesExtra(data: Uint8Array): AesExtraValues | undefined {
+  if (data.length < 7) return undefined;
+  const vendorVersion = readUint16LE(data, 0);
+  if (vendorVersion !== 1 && vendorVersion !== 2) return undefined;
+  if (data[2] !== 0x41 || data[3] !== 0x45) return undefined;
+  const strength = codeToStrength(data[4]!);
+  if (!strength) return undefined;
+  const actualMethod = readUint16LE(data, 5);
+  return {
+    vendorVersion: vendorVersion as 1 | 2,
+    strength,
+    actualMethod
+  };
+}
+
+function strengthToCode(strength: 128 | 192 | 256): 1 | 2 | 3 {
+  switch (strength) {
+    case 128:
+      return 1;
+    case 192:
+      return 2;
+    case 256:
+      return 3;
+    default: {
+      const exhaustive: never = strength;
+      return exhaustive;
+    }
+  }
+}
+
+function codeToStrength(code: number): 128 | 192 | 256 | undefined {
+  switch (code) {
+    case 1:
+      return 128;
+    case 2:
+      return 192;
+    case 3:
+      return 256;
+    default:
+      return undefined;
+  }
 }
 
 function concat(parts: Uint8Array[]): Uint8Array {

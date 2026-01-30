@@ -26,6 +26,29 @@ Symlink entries are rejected by default (`ZIP_SYMLINK_DISALLOWED`). If enabled, 
 
 These limits can be overridden via `ZipReaderOptions.limits` or `extractAll(..., { limits })`.
 
+## Audit-first workflows
+
+Use `reader.audit()` to get a machine-readable report before extraction, and `reader.assertSafe()` to enforce
+an agent policy. The audit checks include:
+
+- trailing bytes after EOCD
+- multi-disk archives
+- duplicate and case-colliding names
+- path traversal and NUL bytes
+- symlink entries
+- unsupported methods/encryption
+- local vs central header mismatches
+- out-of-range offsets and overlaps
+- compression ratio and size limits
+
+## Profiles
+
+- `compat`: lenient parsing (`strict: false`), warnings surfaced instead of hard failures.
+- `strict`: strict parsing (`strict: true`), default limits.
+- `agent`: strict parsing + conservative defaults; trailing bytes rejected and symlinks treated as errors in audit.
+
+`assertSafe({ profile: 'agent' })` treats any audit warning as an error.
+
 ## Remote range reading
 
 When using `ZipReader.fromUrl()`, the same limits apply to remote ZIPs. Range requests only fetch the

@@ -1,10 +1,11 @@
 import { open } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { ZipError } from '../errors.js';
+import { mergeSignals, throwIfAborted } from '../abort.js';
 
 export interface RandomAccess {
-  size(): Promise<bigint>;
-  read(offset: bigint, length: number): Promise<Uint8Array>;
+  size(signal?: AbortSignal): Promise<bigint>;
+  read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array>;
   close(): Promise<void>;
 }
 
@@ -15,16 +16,20 @@ export class FileRandomAccess implements RandomAccess {
     this.handlePromise = open(this.path, 'r');
   }
 
-  async size(): Promise<bigint> {
+  async size(signal?: AbortSignal): Promise<bigint> {
+    throwIfAborted(signal);
     const handle = await this.handlePromise;
     const stat = await handle.stat();
+    throwIfAborted(signal);
     return BigInt(stat.size);
   }
 
-  async read(offset: bigint, length: number): Promise<Uint8Array> {
+  async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    throwIfAborted(signal);
     const handle = await this.handlePromise;
     const buffer = new Uint8Array(length);
     const { bytesRead } = await handle.read(buffer, 0, length, Number(offset));
+    throwIfAborted(signal);
     if (bytesRead === length) return buffer;
     return buffer.subarray(0, bytesRead);
   }
@@ -43,11 +48,13 @@ export class FileRandomAccess implements RandomAccess {
 export class BufferRandomAccess implements RandomAccess {
   constructor(private readonly data: Uint8Array) {}
 
-  async size(): Promise<bigint> {
+  async size(signal?: AbortSignal): Promise<bigint> {
+    throwIfAborted(signal);
     return BigInt(this.data.length);
   }
 
-  async read(offset: bigint, length: number): Promise<Uint8Array> {
+  async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    throwIfAborted(signal);
     const start = Number(offset);
     const end = Math.min(this.data.length, start + length);
     return this.data.subarray(start, end);
@@ -86,23 +93,24 @@ export class HttpRandomAccess implements RandomAccess {
     this.signal = options?.signal ?? null;
   }
 
-  async size(): Promise<bigint> {
+  async size(signal?: AbortSignal): Promise<bigint> {
     if (this.sizeValue !== undefined) return this.sizeValue;
 
-    const headSize = await this.tryHeadSize();
+    const headSize = await this.tryHeadSize(signal);
     if (headSize !== undefined) {
       this.sizeValue = headSize;
       return headSize;
     }
 
-    const rangeSize = await this.fetchSizeFromRange();
+    const rangeSize = await this.fetchSizeFromRange(signal);
     this.sizeValue = rangeSize;
     return rangeSize;
   }
 
-  async read(offset: bigint, length: number): Promise<Uint8Array> {
+  async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    throwIfAborted(signal);
     if (length <= 0) return new Uint8Array(0);
-    const size = await this.size();
+    const size = await this.size(signal);
     if (offset >= size) return new Uint8Array(0);
     const available = size - offset;
     const lengthToRead = available < BigInt(length) ? Number(available) : length;
@@ -115,9 +123,10 @@ export class HttpRandomAccess implements RandomAccess {
     const output = new Uint8Array(lengthToRead);
 
     for (let blockIndex = startBlock; blockIndex <= endBlock; blockIndex += 1n) {
+      throwIfAborted(signal);
       const blockStart = blockIndex * blockSize;
       const blockEnd = minBigInt(blockStart + blockSize - 1n, size - 1n);
-      const block = await this.getBlock(blockIndex, blockStart, blockEnd);
+      const block = await this.getBlock(blockIndex, blockStart, blockEnd, signal);
 
       const copyStart = offset > blockStart ? offset - blockStart : 0n;
       const copyEnd = minBigInt(blockStart + BigInt(block.length), offset + BigInt(lengthToRead)) - blockStart;
@@ -134,12 +143,13 @@ export class HttpRandomAccess implements RandomAccess {
     this.cache.clear();
   }
 
-  private async tryHeadSize(): Promise<bigint | undefined> {
+  private async tryHeadSize(signal?: AbortSignal): Promise<bigint | undefined> {
     try {
+      const merged = mergeSignals(this.signal, signal);
       const response = await fetch(this.url, {
         method: 'HEAD',
         headers: this.headers,
-        signal: this.signal
+        signal: merged ?? null
       });
       if (!response.ok) return undefined;
       const lengthHeader = response.headers.get('content-length');
@@ -156,12 +166,13 @@ export class HttpRandomAccess implements RandomAccess {
     }
   }
 
-  private async fetchSizeFromRange(): Promise<bigint> {
+  private async fetchSizeFromRange(signal?: AbortSignal): Promise<bigint> {
+    const merged = mergeSignals(this.signal, signal);
     const headers = { ...this.headers, Range: 'bytes=0-0' };
     const response = await fetch(this.url, {
       method: 'GET',
       headers,
-      signal: this.signal
+      signal: merged ?? null
     });
     if (response.status === 200) {
       throw new ZipError('ZIP_HTTP_RANGE_UNSUPPORTED', 'Server does not support HTTP range requests');
@@ -181,14 +192,14 @@ export class HttpRandomAccess implements RandomAccess {
     return BigInt(sizeText);
   }
 
-  private async getBlock(index: bigint, start: bigint, end: bigint): Promise<Uint8Array> {
+  private async getBlock(index: bigint, start: bigint, end: bigint, signal?: AbortSignal): Promise<Uint8Array> {
     const cached = this.cache.get(index);
     if (cached) {
       this.cache.delete(index);
       this.cache.set(index, cached);
       return cached;
     }
-    const data = await this.fetchRange(start, end);
+    const data = await this.fetchRange(start, end, signal);
     if (this.maxBlocks > 0) {
       this.cache.set(index, data);
       if (this.cache.size > this.maxBlocks) {
@@ -199,12 +210,13 @@ export class HttpRandomAccess implements RandomAccess {
     return data;
   }
 
-  private async fetchRange(start: bigint, end: bigint): Promise<Uint8Array> {
+  private async fetchRange(start: bigint, end: bigint, signal?: AbortSignal): Promise<Uint8Array> {
+    const merged = mergeSignals(this.signal, signal);
     const headers = { ...this.headers, Range: `bytes=${start}-${end}` };
     const response = await fetch(this.url, {
       method: 'GET',
       headers,
-      signal: this.signal
+      signal: merged ?? null
     });
     if (response.status === 200) {
       throw new ZipError('ZIP_HTTP_RANGE_UNSUPPORTED', 'Server does not support HTTP range requests');

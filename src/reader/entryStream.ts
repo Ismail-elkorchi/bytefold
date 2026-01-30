@@ -1,32 +1,48 @@
 import { Readable } from 'node:stream';
 import { createInflateRaw, createZstdDecompress } from 'node:zlib';
-import { readUint16LE, readUint32LE } from '../binary.js';
 import { ZipError, ZipWarning } from '../errors.js';
+import { parseAesExtra, parseExtraFields } from '../extraFields.js';
+import { createZipCryptoDecryptTransform, decryptZipCryptoHeader } from '../crypto/zipcrypto.js';
+import {
+  createAesDecryptionTransform,
+  deriveAesKeys,
+  getAesSaltLength,
+  passwordVerifierMatches
+} from '../crypto/winzip-aes.js';
 import { createCrcTransform } from '../streams/crcTransform.js';
+import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
 import type { RandomAccess } from './RandomAccess.js';
 import type { ZipEntryRecord } from './centralDirectory.js';
+import { readLocalHeader } from './localHeader.js';
+import type { ZipProgressOptions } from '../types.js';
+import { throwIfAborted } from '../abort.js';
 
-const LFH_SIGNATURE = 0x04034b50;
-export interface OpenEntryOptions {
+export interface OpenEntryOptions extends ZipProgressOptions {
   strict: boolean;
   onWarning?: (warning: ZipWarning) => void;
+  password?: string;
+  signal?: AbortSignal;
+}
+
+export interface OpenRawOptions extends ZipProgressOptions {
+  signal?: AbortSignal;
 }
 
 export async function openRawStream(
   reader: RandomAccess,
-  entry: ZipEntryRecord
+  entry: ZipEntryRecord,
+  options?: OpenRawOptions
 ): Promise<{ stream: ReadableStream<Uint8Array>; dataOffset: bigint }> {
-  const header = await reader.read(entry.offset, 30);
-  if (header.length < 30 || readUint32LE(header, 0) !== LFH_SIGNATURE) {
-    throw new ZipError('ZIP_INVALID_SIGNATURE', 'Invalid local file header signature', {
-      entryName: entry.name,
-      offset: entry.offset
-    });
-  }
-  const nameLen = readUint16LE(header, 26);
-  const extraLen = readUint16LE(header, 28);
-  const dataOffset = entry.offset + 30n + BigInt(nameLen + extraLen);
-  const stream = createRangeStream(reader, dataOffset, entry.compressedSize);
+  const local = await readLocalHeader(reader, entry, options?.signal);
+  const dataOffset = local.dataOffset;
+  const readTracker = createProgressTracker(options, {
+    kind: 'read',
+    entryName: entry.name,
+    totalOut: entry.compressedSize,
+    totalIn: entry.compressedSize
+  });
+  let stream = createRangeStream(reader, dataOffset, entry.compressedSize, options?.signal);
+  stream = stream.pipeThrough(createProgressTransform(readTracker));
   return { stream, dataOffset };
 }
 
@@ -35,16 +51,137 @@ export async function openEntryStream(
   entry: ZipEntryRecord,
   options: OpenEntryOptions
 ): Promise<ReadableStream<Uint8Array>> {
-  if (entry.encrypted) {
-    throw new ZipError('ZIP_UNSUPPORTED_FEATURE', 'Encrypted entries are not supported', {
+  const local = await readLocalHeader(reader, entry, options.signal);
+  const encrypted = (local.flags & 0x1) !== 0 || entry.encrypted;
+
+  if (!encrypted) {
+    const readTracker = createProgressTracker(options, {
+      kind: 'read',
+      entryName: entry.name,
+      totalOut: entry.compressedSize,
+      totalIn: entry.compressedSize
+    });
+    let rawStream = createRangeStream(reader, local.dataOffset, entry.compressedSize, options.signal);
+    rawStream = rawStream.pipeThrough(createProgressTransform(readTracker));
+    return decodeAndValidate(rawStream, entry.method, entry, options, entry.crc32);
+  }
+
+  const password = options.password;
+  if (!password) {
+    throw new ZipError('ZIP_PASSWORD_REQUIRED', 'Password required for encrypted entry', {
       entryName: entry.name
     });
   }
 
-  const { stream: rawStream } = await openRawStream(reader, entry);
+  if (local.method === 99) {
+    const extraFields = parseExtraFields(local.extra);
+    const aesExtraData = extraFields.get(0x9901) ?? entry.extra.get(0x9901);
+    const aesExtra = aesExtraData ? parseAesExtra(aesExtraData) : undefined;
+    if (!aesExtra) {
+      throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Missing AES extra field', { entryName: entry.name });
+    }
 
+    const saltLen = getAesSaltLength(aesExtra.strength);
+    const overhead = saltLen + 2 + 10;
+    if (entry.compressedSize < BigInt(overhead)) {
+      throw new ZipError('ZIP_TRUNCATED', 'Encrypted data truncated', { entryName: entry.name });
+    }
+
+    const saltAndPwv = await reader.read(local.dataOffset, saltLen + 2, options.signal);
+    if (saltAndPwv.length < saltLen + 2) {
+      throw new ZipError('ZIP_TRUNCATED', 'Encrypted data truncated', { entryName: entry.name });
+    }
+    const readTracker = createProgressTracker(options, {
+      kind: 'read',
+      entryName: entry.name,
+      totalOut: entry.compressedSize,
+      totalIn: entry.compressedSize
+    });
+    readTracker?.update(saltLen + 2, saltLen + 2);
+    const salt = saltAndPwv.subarray(0, saltLen);
+    const pwv = saltAndPwv.subarray(saltLen);
+    const keys = deriveAesKeys(password, salt, aesExtra.strength);
+    if (!passwordVerifierMatches(keys.pwv, pwv)) {
+      throw new ZipError('ZIP_BAD_PASSWORD', 'Incorrect password', { entryName: entry.name });
+    }
+
+    const cipherOffset = local.dataOffset + BigInt(saltLen + 2);
+    const cipherSize = entry.compressedSize - BigInt(overhead);
+    const authOffset = cipherOffset + cipherSize;
+    const authCode = await reader.read(authOffset, 10, options.signal);
+    if (authCode.length < 10) {
+      throw new ZipError('ZIP_TRUNCATED', 'Encrypted data truncated', { entryName: entry.name });
+    }
+    readTracker?.update(10, 10);
+
+    let cipherStream = createRangeStream(reader, cipherOffset, cipherSize, options.signal);
+    cipherStream = cipherStream.pipeThrough(createProgressTransform(readTracker));
+    cipherStream = cipherStream.pipeThrough(
+      createAesDecryptionTransform(keys.encKey, keys.authKey, authCode, entry.name)
+    );
+    const decryptTracker = createProgressTracker(options, {
+      kind: 'decrypt',
+      entryName: entry.name,
+      totalOut: cipherSize,
+      totalIn: cipherSize
+    });
+    cipherStream = cipherStream.pipeThrough(createProgressTransform(decryptTracker));
+
+    const expectedCrc = aesExtra.vendorVersion === 1 ? entry.crc32 : undefined;
+    return decodeAndValidate(cipherStream, aesExtra.actualMethod, entry, options, expectedCrc);
+  }
+
+  if ((local.flags & 0x40) !== 0) {
+    throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Strong encryption is not supported', {
+      entryName: entry.name
+    });
+  }
+
+  if (entry.compressedSize < 12n) {
+    throw new ZipError('ZIP_TRUNCATED', 'Encrypted data truncated', { entryName: entry.name });
+  }
+  const readTracker = createProgressTracker(options, {
+    kind: 'read',
+    entryName: entry.name,
+    totalOut: entry.compressedSize,
+    totalIn: entry.compressedSize
+  });
+  const encHeader = await reader.read(local.dataOffset, 12, options.signal);
+  if (encHeader.length < 12) {
+    throw new ZipError('ZIP_TRUNCATED', 'Encrypted data truncated', { entryName: entry.name });
+  }
+  readTracker?.update(12, 12);
+  const { header: plainHeader, keys } = decryptZipCryptoHeader(password, encHeader);
+  const expectedByte = (local.flags & 0x08) !== 0 ? (local.modTime >>> 8) & 0xff : (entry.crc32 >>> 24) & 0xff;
+  if (plainHeader[11] !== expectedByte) {
+    throw new ZipError('ZIP_BAD_PASSWORD', 'Incorrect password', { entryName: entry.name });
+  }
+
+  const dataOffset = local.dataOffset + 12n;
+  const dataSize = entry.compressedSize - 12n;
+  let dataStream = createRangeStream(reader, dataOffset, dataSize, options.signal);
+  dataStream = dataStream.pipeThrough(createProgressTransform(readTracker));
+  dataStream = dataStream.pipeThrough(createZipCryptoDecryptTransform(keys));
+  const decryptTracker = createProgressTracker(options, {
+    kind: 'decrypt',
+    entryName: entry.name,
+    totalOut: dataSize,
+    totalIn: dataSize
+  });
+  dataStream = dataStream.pipeThrough(createProgressTransform(decryptTracker));
+
+  return decodeAndValidate(dataStream, local.method, entry, options, entry.crc32);
+}
+
+function decodeAndValidate(
+  rawStream: ReadableStream<Uint8Array>,
+  method: number,
+  entry: ZipEntryRecord,
+  options: OpenEntryOptions,
+  expectedCrc: number | undefined
+): ReadableStream<Uint8Array> {
   let decompressed: ReadableStream<Uint8Array>;
-  switch (entry.method) {
+  switch (method) {
     case 0:
       decompressed = rawStream;
       break;
@@ -55,15 +192,20 @@ export async function openEntryStream(
       decompressed = zstdDecompressStream(rawStream);
       break;
     default:
-      throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${entry.method}`, {
+      throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${method}`, {
         entryName: entry.name,
-        method: entry.method
+        method
       });
   }
 
   const crcResult = { crc32: 0, bytes: 0n };
-  const crcStream = createCrcTransform(crcResult, {
-    expectedCrc: entry.crc32,
+  const crcOptions: {
+    expectedCrc?: number;
+    expectedSize: bigint;
+    strict: boolean;
+    entryName: string;
+    onWarning: (warn: { message: string }) => void;
+  } = {
     expectedSize: entry.uncompressedSize,
     strict: options.strict,
     entryName: entry.name,
@@ -74,15 +216,25 @@ export async function openEntryStream(
         entryName: entry.name
       });
     }
+  };
+  if (expectedCrc !== undefined) {
+    crcOptions.expectedCrc = expectedCrc;
+  }
+  const crcStream = createCrcTransform(crcResult, crcOptions);
+  const extractTracker = createProgressTracker(options, {
+    kind: 'extract',
+    entryName: entry.name,
+    totalOut: entry.uncompressedSize,
+    totalIn: entry.uncompressedSize
   });
-
-  return decompressed.pipeThrough(crcStream);
+  return decompressed.pipeThrough(crcStream).pipeThrough(createProgressTransform(extractTracker));
 }
 
 function createRangeStream(
   reader: RandomAccess,
   offset: bigint,
-  length: bigint
+  length: bigint,
+  signal?: AbortSignal
 ): ReadableStream<Uint8Array> {
   const chunkSize = 64 * 1024;
   let position = offset;
@@ -90,12 +242,13 @@ function createRangeStream(
 
   return new ReadableStream({
     async pull(controller) {
+      throwIfAborted(signal);
       if (remaining <= 0n) {
         controller.close();
         return;
       }
       const size = remaining > BigInt(chunkSize) ? chunkSize : Number(remaining);
-      const chunk = await reader.read(position, size);
+      const chunk = await reader.read(position, size, signal);
       if (chunk.length === 0) {
         controller.close();
         return;

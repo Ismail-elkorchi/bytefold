@@ -52,6 +52,16 @@ if (entry) {
 }
 ```
 
+### Read ZIP from a stream
+
+```js
+import { ZipReader } from 'zip-next';
+import { createReadStream } from 'node:fs';
+
+const stream = createReadStream('./archive.zip');
+const reader = await ZipReader.fromStream(stream, { profile: 'strict' });
+```
+
 ### Read remote ZIP over HTTP Range
 
 ```js
@@ -69,6 +79,23 @@ for (const entry of reader.entries()) {
 }
 ```
 
+### Stream entries without storing them
+
+```js
+import { ZipReader } from 'zip-next';
+
+const reader = await ZipReader.fromFile('./big.zip', {
+  storeEntries: false,
+  limits: { maxEntries: 200000 }
+});
+
+for await (const entry of reader.iterEntries()) {
+  console.log(entry.name, entry.uncompressedSize);
+}
+```
+
+When `storeEntries` is disabled, `reader.entries()` throws `ZIP_ENTRIES_NOT_STORED`.
+
 ### Extract one entry
 
 ```js
@@ -85,6 +112,46 @@ if (entry) {
 }
 ```
 
+### Audit before extract (agent workflow)
+
+```js
+import { ZipReader } from 'zip-next';
+
+const reader = await ZipReader.fromUrl('https://example.com/archive.zip');
+const report = await reader.audit({ profile: 'agent' });
+
+// JSON-safe output (bigints converted to strings by toJSON)
+console.log(JSON.stringify(report));
+
+await reader.assertSafe({ profile: 'agent' });
+// safe to extract selected entries now
+```
+
+### Abort + progress
+
+```js
+import { ZipReader } from 'zip-next';
+
+const reader = await ZipReader.fromFile('./big.zip');
+const controller = new AbortController();
+
+await reader.extractAll('./out', {
+  signal: controller.signal,
+  onProgress: (evt) => {
+    if (evt.kind === 'extract' && evt.bytesOut && evt.bytesOut > 10_000_000n) {
+      controller.abort();
+    }
+  }
+});
+```
+
+### Async disposal (Node 24+)
+
+```js
+await using reader = await ZipReader.fromFile('./archive.zip');
+const entries = reader.entries();
+```
+
 ## Supported compression methods
 
 - Store (method 0)
@@ -94,15 +161,41 @@ if (entry) {
 Unknown methods are parsed but extraction fails with `ZIP_UNSUPPORTED_METHOD`.
 If the Node runtime lacks Zstd support, method 93 fails with `ZIP_ZSTD_UNAVAILABLE`.
 
-## Strict vs non-strict
+## Encryption (read + write)
 
-`ZipReader` defaults to strict parsing. Non-strict mode (`{ strict: false }`) attempts to continue when:
+`zip-next` supports traditional PKWARE encryption (ZipCrypto) and WinZip AES (AE-1/AE-2).
 
-- multiple EOCD signatures are found (uses the last one)
-- UTF-8 filename decoding fails (uses replacement)
-- CRC mismatch is detected (records a warning)
+### Write encrypted ZIPs
 
-Warnings are exposed via `reader.warnings()`.
+```js
+import { ZipWriter } from 'zip-next';
+
+const writer = await ZipWriter.toFile('./secret.zip', {
+  encryption: { type: 'aes', password: 'pw', strength: 256, vendorVersion: 2 }
+});
+await writer.add('secret.txt', new TextEncoder().encode('secret'));
+await writer.close();
+```
+
+### Read encrypted ZIPs
+
+```js
+import { ZipReader } from 'zip-next';
+
+const reader = await ZipReader.fromFile('./secret.zip');
+const entry = reader.entries()[0]!;
+const stream = await reader.open(entry, { password: 'pw' });
+```
+
+## Profiles
+
+`ZipReader` supports safety profiles via `ZipReaderOptions.profile`:
+
+- `compat`: accept more with warnings (`strict: false`, default limits).
+- `strict`: strict parsing (`strict: true`, default limits). This is the default profile.
+- `agent`: strict parsing + conservative limits, reject trailing bytes, and treat symlink entries as errors in audits.
+
+You can override profile defaults via `strict` and `limits` per reader or per audit/extract call.
 
 ## Compatibility
 
@@ -130,17 +223,22 @@ Unicode Path (0x7075) and Unicode Comment (0x6375) extra fields when the CRC32 m
 
 - `ZipReader.fromFile(path, opts)`
 - `ZipReader.fromUint8Array(data, opts)`
+- `ZipReader.fromStream(stream, opts)`
 - `ZipReader.fromUrl(url, opts)`
 - `reader.entries()`
+- `reader.iterEntries(opts?)`
+- `reader.forEachEntry(fn, opts?)`
 - `reader.open(entry)`
 - `reader.openRaw(entry)`
 - `reader.extractAll(destDir, opts)`
+- `reader.audit(opts?)`
+- `reader.assertSafe(opts?)`
 - `reader.close()`
 
 - `ZipWriter.toWritable(writable, opts)`
 - `ZipWriter.toFile(path, opts)`
 - `writer.add(name, source, opts)`
-- `writer.close(comment?)`
+- `writer.close(comment?, opts?)`
 
 Adapters:
 
@@ -148,7 +246,12 @@ Adapters:
 
 ## Security notes
 
-Extraction protects against zip slip (absolute paths, drive letters, `..` traversal, NUL bytes) by default, and enforces configurable limits on entry count, total uncompressed bytes, and compression ratio. Symlinks are rejected by default.
+Extraction protects against zip slip (absolute paths, drive letters, `..` traversal, NUL bytes) by default, and
+enforces configurable limits on entry count, total uncompressed bytes, and compression ratio. Symlinks are
+rejected by default.
+
+Use `reader.audit()` to get a machine-readable report before extraction, and `reader.assertSafe()` to fail fast
+in agent workflows.
 
 ## Error codes
 
@@ -156,4 +259,6 @@ Common `ZipError` codes include:
 
 - `ZIP_HTTP_RANGE_UNSUPPORTED`, `ZIP_HTTP_BAD_RESPONSE`, `ZIP_HTTP_SIZE_UNKNOWN`
 - `ZIP_SINK_NOT_SEEKABLE`, `ZIP_ZIP64_REQUIRED`
+- `ZIP_ENTRIES_NOT_STORED`, `ZIP_AUDIT_FAILED`, `ZIP_PATH_TRAVERSAL`, `ZIP_SYMLINK_DISALLOWED`
 - `ZIP_BAD_CRC`, `ZIP_LIMIT_EXCEEDED`, `ZIP_UNSUPPORTED_METHOD`, `ZIP_UNSUPPORTED_FEATURE`
+- `ZIP_PASSWORD_REQUIRED`, `ZIP_BAD_PASSWORD`, `ZIP_AUTH_FAILED`, `ZIP_UNSUPPORTED_ENCRYPTION`

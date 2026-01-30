@@ -1,20 +1,23 @@
 import { encodeUtf8, writeUint16LE, writeUint32LE, writeUint64LE } from '../binary.js';
+import { throwIfAborted } from '../abort.js';
 import type { Sink } from './Sink.js';
 
 const ZIP64_EOCD_SIGNATURE = 0x06064b50;
 const ZIP64_LOCATOR_SIGNATURE = 0x07064b50;
 const EOCD_SIGNATURE = 0x06054b50;
 
-export interface FinalizeOptions {
-  entryCount: bigint;
-  cdOffset: bigint;
-  cdSize: bigint;
-  forceZip64: boolean;
-  hasZip64Entries: boolean;
-  comment?: string | undefined;
-}
-
-export async function finalizeArchive(sink: Sink, options: FinalizeOptions): Promise<void> {
+export async function finalizeArchive(
+  sink: Sink,
+  options: {
+    entryCount: bigint;
+    cdOffset: bigint;
+    cdSize: bigint;
+    forceZip64: boolean;
+    hasZip64Entries: boolean;
+    comment?: string;
+  },
+  signal?: AbortSignal
+): Promise<void> {
   const needsZip64 =
     options.forceZip64 ||
     options.hasZip64Entries ||
@@ -23,6 +26,7 @@ export async function finalizeArchive(sink: Sink, options: FinalizeOptions): Pro
     options.cdSize > 0xffffffffn;
 
   if (needsZip64) {
+    throwIfAborted(signal);
     const zip64Offset = sink.position;
     const record = new Uint8Array(56);
     writeUint32LE(record, 0, ZIP64_EOCD_SIGNATURE);
@@ -45,12 +49,12 @@ export async function finalizeArchive(sink: Sink, options: FinalizeOptions): Pro
     await sink.write(locator);
   }
 
+  throwIfAborted(signal);
   const commentBytes = options.comment ? encodeUtf8(options.comment) : new Uint8Array(0);
   const eocd = new Uint8Array(22 + commentBytes.length);
   writeUint32LE(eocd, 0, EOCD_SIGNATURE);
   writeUint16LE(eocd, 4, 0);
   writeUint16LE(eocd, 6, 0);
-
   if (needsZip64) {
     writeUint16LE(eocd, 8, 0xffff);
     writeUint16LE(eocd, 10, 0xffff);
@@ -62,7 +66,6 @@ export async function finalizeArchive(sink: Sink, options: FinalizeOptions): Pro
     writeUint32LE(eocd, 12, Number(options.cdSize));
     writeUint32LE(eocd, 16, Number(options.cdOffset));
   }
-
   writeUint16LE(eocd, 20, commentBytes.length);
   eocd.set(commentBytes, 22);
   await sink.write(eocd);

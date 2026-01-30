@@ -1,5 +1,6 @@
 import { readUint16LE, readUint32LE, readUint64LE } from '../binary.js';
 import { ZipError, ZipWarning } from '../errors.js';
+import { throwIfAborted } from '../abort.js';
 import type { RandomAccess } from './RandomAccess.js';
 
 const EOCD_SIGNATURE = 0x06054b50;
@@ -17,21 +18,24 @@ export interface EocdResult {
 
 export async function findEocd(
   reader: RandomAccess,
-  strict: boolean
+  strict: boolean,
+  signal?: AbortSignal
 ): Promise<EocdResult> {
   const warnings: ZipWarning[] = [];
-  const size = await reader.size();
+  const size = await reader.size(signal);
   if (size < 22n) {
     throw new ZipError('ZIP_EOCD_NOT_FOUND', 'File too small for EOCD');
   }
+  throwIfAborted(signal);
   // APPNOTE 6.3.10 section 4.3.16: EOCD is located within last 64KiB + minimum size.
   const maxSearch = 0x10000n + 22n; // 64KiB + EOCD
   const searchSize = size < maxSearch ? size : maxSearch;
   const searchStart = size - searchSize;
-  const buffer = await reader.read(searchStart, Number(searchSize));
+  const buffer = await reader.read(searchStart, Number(searchSize), signal);
 
   const candidates: number[] = [];
   for (let i = buffer.length - 22; i >= 0; i -= 1) {
+    throwIfAborted(signal);
     if (readUint32LE(buffer, i) === EOCD_SIGNATURE) {
       candidates.push(i);
     }
@@ -92,12 +96,12 @@ export async function findEocd(
   if (locatorOffset < 0n) {
     throw new ZipError('ZIP_BAD_ZIP64', 'Missing ZIP64 locator');
   }
-  const locator = await reader.read(locatorOffset, 20);
+  const locator = await reader.read(locatorOffset, 20, signal);
   if (locator.length < 20 || readUint32LE(locator, 0) !== ZIP64_LOCATOR_SIGNATURE) {
     throw new ZipError('ZIP_BAD_ZIP64', 'ZIP64 locator signature missing');
   }
   const zip64EocdOffset = readUint64LE(locator, 8);
-  const zip64Header = await reader.read(zip64EocdOffset, 56);
+  const zip64Header = await reader.read(zip64EocdOffset, 56, signal);
   if (zip64Header.length < 56 || readUint32LE(zip64Header, 0) !== ZIP64_EOCD_SIGNATURE) {
     throw new ZipError('ZIP_BAD_ZIP64', 'ZIP64 EOCD signature missing');
   }
