@@ -1,5 +1,3 @@
-import { Readable } from 'node:stream';
-import { createInflateRaw, createZstdDecompress } from 'node:zlib';
 import { ZipError, ZipWarning } from '../errors.js';
 import { parseAesExtra, parseExtraFields } from '../extraFields.js';
 import { createZipCryptoDecryptTransform, decryptZipCryptoHeader } from '../crypto/zipcrypto.js';
@@ -10,18 +8,22 @@ import {
   passwordVerifierMatches
 } from '../crypto/winzip-aes.js';
 import { createCrcTransform } from '../streams/crcTransform.js';
+import { createLimitTransform, type LimitTotals } from '../streams/limits.js';
 import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
 import type { RandomAccess } from './RandomAccess.js';
 import type { ZipEntryRecord } from './centralDirectory.js';
 import { readLocalHeader } from './localHeader.js';
-import type { ZipProgressOptions } from '../types.js';
+import type { ZipLimits, ZipProgressOptions } from '../types.js';
 import { throwIfAborted } from '../abort.js';
+import { getCompressionCodec } from '../compression/registry.js';
 
 export interface OpenEntryOptions extends ZipProgressOptions {
   strict: boolean;
   onWarning?: (warning: ZipWarning) => void;
   password?: string;
   signal?: AbortSignal;
+  limits: Required<ZipLimits>;
+  totals?: LimitTotals;
 }
 
 export interface OpenRawOptions extends ZipProgressOptions {
@@ -180,23 +182,27 @@ function decodeAndValidate(
   options: OpenEntryOptions,
   expectedCrc: number | undefined
 ): ReadableStream<Uint8Array> {
-  let decompressed: ReadableStream<Uint8Array>;
-  switch (method) {
-    case 0:
-      decompressed = rawStream;
-      break;
-    case 8:
-      decompressed = inflateRawStream(rawStream);
-      break;
-    case 93:
-      decompressed = zstdDecompressStream(rawStream);
-      break;
-    default:
-      throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${method}`, {
-        entryName: entry.name,
-        method
-      });
+  const codec = getCompressionCodec(method);
+  if (!codec) {
+    throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${method}`, {
+      entryName: entry.name,
+      method
+    });
   }
+  const decompressed = rawStream.pipeThrough(
+    codec.createDecompressStream(options.signal ? { signal: options.signal } : undefined)
+  );
+  const limited = decompressed.pipeThrough(
+    createLimitTransform({
+      entryName: entry.name,
+      compressedSize: entry.compressedSize,
+      limits: options.limits,
+      strict: options.strict,
+      ...(options.totals ? { totals: options.totals } : {}),
+      ...(options.onWarning ? { onWarning: options.onWarning } : {}),
+      ...(options.signal ? { signal: options.signal } : {})
+    })
+  );
 
   const crcResult = { crc32: 0, bytes: 0n };
   const crcOptions: {
@@ -227,7 +233,7 @@ function decodeAndValidate(
     totalOut: entry.uncompressedSize,
     totalIn: entry.uncompressedSize
   });
-  return decompressed.pipeThrough(crcStream).pipeThrough(createProgressTransform(extractTracker));
+  return limited.pipeThrough(crcStream).pipeThrough(createProgressTransform(extractTracker));
 }
 
 function createRangeStream(
@@ -258,19 +264,4 @@ function createRangeStream(
       controller.enqueue(chunk);
     }
   });
-}
-
-function inflateRawStream(input: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  const nodeReadable = Readable.fromWeb(input as any);
-  const inflated = nodeReadable.pipe(createInflateRaw());
-  return Readable.toWeb(inflated) as ReadableStream<Uint8Array>;
-}
-
-function zstdDecompressStream(input: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  if (typeof createZstdDecompress !== 'function') {
-    throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this Node runtime');
-  }
-  const nodeReadable = Readable.fromWeb(input as any);
-  const inflated = nodeReadable.pipe(createZstdDecompress());
-  return Readable.toWeb(inflated) as ReadableStream<Uint8Array>;
 }

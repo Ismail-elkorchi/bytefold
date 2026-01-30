@@ -6,6 +6,10 @@ export type {
   CompressionMethod,
   ZipAuditOptions,
   ZipAuditReport,
+  ZipNormalizeConflict,
+  ZipNormalizeMode,
+  ZipNormalizeOptions,
+  ZipNormalizeReport,
   ZipEncryption,
   ZipEntry,
   ZipExtractOptions,
@@ -25,3 +29,5 @@ export type {
 } from './types.js';
 
 export { toWebReadable, toWebWritable, toNodeReadable, toNodeWritable } from './streams/adapters.js';
+export { registerCompressionCodec, listCompressionCodecs } from './compression/registry.js';
+export type { ZipCompressionCodec, ZipCompressionStream } from './compression/types.js';

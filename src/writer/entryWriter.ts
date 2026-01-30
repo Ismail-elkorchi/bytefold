@@ -2,8 +2,7 @@ import { createReadStream, createWriteStream } from 'node:fs';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { Readable } from 'node:stream';
-import { createDeflateRaw, createZstdCompress } from 'node:zlib';
+import { getCompressionCodec } from '../compression/registry.js';
 import { encodeUtf8, writeUint16LE, writeUint32LE, writeUint64LE } from '../binary.js';
 import { dateToDos } from '../dosTime.js';
 import { buildAesExtra, buildExtendedTimestampExtra, buildZip64Extra } from '../extraFields.js';
@@ -56,12 +55,112 @@ export interface EntryWriteInput {
   progress?: ZipProgressOptions;
 }
 
+export interface RawEntryWriteInput {
+  name: string;
+  source: ReadableStream<Uint8Array>;
+  method: number;
+  flags: number;
+  crc32: number;
+  compressedSize: bigint;
+  uncompressedSize: bigint;
+  mtime: Date;
+  comment?: string | undefined;
+  externalAttributes?: number;
+  zip64Mode: Zip64Mode;
+  forceZip64: boolean;
+  aesExtra?: Uint8Array;
+  signal?: AbortSignal;
+  progress?: ZipProgressOptions;
+}
+
 export async function writeEntry(sink: Sink | SeekableSink, input: EntryWriteInput): Promise<EntryWriteResult> {
   throwIfAborted(input.signal);
   if (input.encryption.type === 'zipcrypto' && input.patchLocalHeader) {
     return writeZipCryptoSeekable(sink, input);
   }
   return writeStreamingEntry(sink, input);
+}
+
+export async function writeRawEntry(sink: Sink, input: RawEntryWriteInput): Promise<EntryWriteResult> {
+  throwIfAborted(input.signal);
+  const nameBytes = encodeUtf8(input.name);
+  const dos = dateToDos(input.mtime);
+  const writeTracker = createProgressTracker(input.progress, {
+    kind: 'write',
+    entryName: input.name,
+    totalOut: input.compressedSize,
+    totalIn: input.compressedSize
+  });
+
+  const useZip64 = shouldUseZip64ForKnownSizes(
+    input,
+    sink.position,
+    input.compressedSize,
+    input.uncompressedSize
+  );
+  const baseVersion = useZip64 ? 45 : 20;
+  const versionNeeded = input.aesExtra ? Math.max(baseVersion, 51) : baseVersion;
+
+  const localExtras = [
+    useZip64
+      ? buildZip64Extra({
+          uncompressedSize: input.uncompressedSize,
+          compressedSize: input.compressedSize
+        })
+      : new Uint8Array(0),
+    input.aesExtra ?? new Uint8Array(0),
+    buildExtendedTimestampExtra({ mtime: input.mtime }, false)
+  ];
+  const localExtra = concat(localExtras);
+
+  const header = new Uint8Array(30 + nameBytes.length + localExtra.length);
+  writeUint32LE(header, 0, LFH_SIGNATURE);
+  writeUint16LE(header, 4, versionNeeded);
+  writeUint16LE(header, 6, input.flags);
+  writeUint16LE(header, 8, input.method);
+  writeUint16LE(header, 10, dos.time);
+  writeUint16LE(header, 12, dos.date);
+  writeUint32LE(header, 14, input.crc32);
+  if (useZip64) {
+    writeUint32LE(header, 18, 0xffffffff);
+    writeUint32LE(header, 22, 0xffffffff);
+  } else {
+    writeUint32LE(header, 18, Number(input.compressedSize));
+    writeUint32LE(header, 22, Number(input.uncompressedSize));
+  }
+  writeUint16LE(header, 26, nameBytes.length);
+  writeUint16LE(header, 28, localExtra.length);
+  header.set(nameBytes, 30);
+  header.set(localExtra, 30 + nameBytes.length);
+
+  const offset = sink.position;
+  await sink.write(header);
+  writeTracker?.update(header.length, header.length);
+
+  const measure = { bytes: 0n };
+  const measured = input.source.pipeThrough(createMeasureTransform(measure));
+  await pipeToSink(measured, sink, input.signal, writeTracker);
+
+  if (measure.bytes !== input.compressedSize) {
+    throw new ZipError('ZIP_TRUNCATED', 'Compressed data size mismatch', { entryName: input.name });
+  }
+
+  return {
+    name: input.name,
+    nameBytes,
+    flags: input.flags,
+    method: input.method,
+    crc32: input.crc32,
+    compressedSize: input.compressedSize,
+    uncompressedSize: input.uncompressedSize,
+    offset,
+    mtime: input.mtime,
+    comment: input.comment,
+    externalAttributes: input.externalAttributes ?? 0,
+    zip64: useZip64,
+    versionNeeded,
+    ...(input.aesExtra ? { aesExtra: input.aesExtra } : {})
+  };
 }
 
 async function writeStreamingEntry(sink: Sink | SeekableSink, input: EntryWriteInput): Promise<EntryWriteResult> {
@@ -361,19 +460,14 @@ function compressStream(
   method: number,
   entryName: string
 ): ReadableStream<Uint8Array> {
-  if (method === 8) {
-    return deflateStream(input);
-  }
-  if (method === 93) {
-    return zstdCompressStream(input);
-  }
-  if (method !== 0) {
+  const codec = getCompressionCodec(method);
+  if (!codec || !codec.createCompressStream) {
     throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${method}`, {
       entryName,
       method
     });
   }
-  return input;
+  return input.pipeThrough(codec.createCompressStream());
 }
 
 async function spoolCompressedData(
@@ -414,8 +508,14 @@ async function spoolCompressedData(
   }
 }
 
+type Zip64Config = {
+  name: string;
+  zip64Mode: Zip64Mode;
+  forceZip64: boolean;
+};
+
 function shouldUseZip64ForKnownSizes(
-  input: EntryWriteInput,
+  input: Zip64Config,
   offset: bigint,
   compressedSize: bigint,
   uncompressedSize: bigint
@@ -518,19 +618,4 @@ async function pipeToSink(
     reader.releaseLock();
   }
   tracker?.flush();
-}
-
-function deflateStream(input: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  const nodeReadable = Readable.fromWeb(input as any);
-  const deflated = nodeReadable.pipe(createDeflateRaw());
-  return Readable.toWeb(deflated) as ReadableStream<Uint8Array>;
-}
-
-function zstdCompressStream(input: ReadableStream<Uint8Array>): ReadableStream<Uint8Array> {
-  if (typeof createZstdCompress !== 'function') {
-    throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this Node runtime');
-  }
-  const nodeReadable = Readable.fromWeb(input as any);
-  const deflated = nodeReadable.pipe(createZstdCompress());
-  return Readable.toWeb(deflated) as ReadableStream<Uint8Array>;
 }

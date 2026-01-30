@@ -1,4 +1,4 @@
-export type CompressionMethod = 0 | 8 | 93;
+export type CompressionMethod = 0 | 8 | 9 | 93 | (number & {});
 
 export type ZipEncryption =
   | { type: 'none' }
@@ -143,3 +143,35 @@ export interface ZipWriterAddOptions {
 export interface ZipWriterCloseOptions {
   signal?: AbortSignal;
 }
+
+export type ZipNormalizeMode = 'safe' | 'lossless';
+
+export type ZipNormalizeConflict = 'error' | 'last-wins' | 'rename';
+
+export interface ZipNormalizeOptions extends ZipProgressOptions {
+  mode?: ZipNormalizeMode;
+  deterministic?: boolean;
+  method?: CompressionMethod;
+  onDuplicate?: ZipNormalizeConflict;
+  onCaseCollision?: ZipNormalizeConflict;
+  onUnsupported?: 'error' | 'drop';
+  onSymlink?: 'error' | 'drop';
+  preserveComments?: boolean;
+  preserveTrailingBytes?: boolean;
+  password?: string;
+  limits?: ZipLimits;
+  signal?: AbortSignal;
+}
+
+export type ZipNormalizeReport = {
+  ok: boolean;
+  summary: ZipAuditReport['summary'] & {
+    outputEntries: number;
+    droppedEntries: number;
+    renamedEntries: number;
+    recompressedEntries: number;
+    preservedEntries: number;
+  };
+  issues: ZipIssue[];
+  toJSON?: () => unknown;
+};

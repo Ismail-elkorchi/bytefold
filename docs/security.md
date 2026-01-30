@@ -58,3 +58,15 @@ is still subject to the configured size and ratio limits.
 ## CRC validation
 
 In strict mode (default), CRC32 mismatches cause extraction to fail with `ZIP_BAD_CRC`. In non-strict mode, mismatches are recorded as warnings.
+
+## Canonicalization / normalization
+
+Use `ZipReader.normalizeToFile()` or `normalizeToWritable()` to produce a deterministic ZIP with one interpretation only.
+Normalization enforces safe paths, resolves duplicates/case collisions, and rebuilds headers so local and central directory metadata agree.
+
+Two modes are available:
+
+- `mode: "safe"`: decrypt + decompress supported entries, verify CRC, and recompress to a chosen method (default deflate).
+- `mode: "lossless"`: preserve compressed bytes when possible and rebuild headers without altering entry payloads.
+
+The normalize APIs return a JSON-safe report describing drops, renames, and unsupported features.

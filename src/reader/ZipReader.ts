@@ -1,5 +1,5 @@
 import { mkdir, symlink, mkdtemp, rm } from 'node:fs/promises';
-import { createWriteStream } from 'node:fs';
+import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
 import path from 'node:path';
@@ -16,6 +16,9 @@ import type {
   ZipIssue,
   ZipIssueSeverity,
   ZipLimits,
+  ZipNormalizeConflict,
+  ZipNormalizeOptions,
+  ZipNormalizeReport,
   ZipProfile,
   ZipProgressOptions,
   ZipReaderIterOptions,
@@ -28,9 +31,18 @@ import type { RandomAccess } from './RandomAccess.js';
 import { findEocd, type EocdResult } from './eocd.js';
 import { iterCentralDirectory, type ZipEntryRecord } from './centralDirectory.js';
 import { openEntryStream, openRawStream } from './entryStream.js';
-import { parseAesExtra } from '../extraFields.js';
+import { buildAesExtra, parseAesExtra } from '../extraFields.js';
 import { readLocalHeader, type LocalHeaderInfo } from './localHeader.js';
-import { toWebReadable } from '../streams/adapters.js';
+import { isWebWritable, readableFromBytes, toWebReadable } from '../streams/adapters.js';
+import { createCrcTransform } from '../streams/crcTransform.js';
+import { createMeasureTransform } from '../streams/measure.js';
+import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
+import { FileSink, NodeWritableSink, WebWritableSink } from '../writer/Sink.js';
+import type { Sink } from '../writer/Sink.js';
+import { writeCentralDirectory } from '../writer/centralDirectoryWriter.js';
+import { finalizeArchive } from '../writer/finalize.js';
+import { writeRawEntry, type EntryWriteResult } from '../writer/entryWriter.js';
+import { getCompressionCodec, hasCompressionCodec } from '../compression/registry.js';
 
 const DEFAULT_LIMITS: Required<ZipLimits> = {
   maxEntries: 10000,
@@ -227,6 +239,7 @@ export class ZipReader {
   async open(entry: ZipEntry, options?: ZipReaderOpenOptions): Promise<ReadableStream<Uint8Array>> {
     const strict = options?.strict ?? this.strict;
     const signal = this.resolveSignal(options?.signal);
+    const totals = { totalUncompressed: 0n };
     const params: { strict: boolean; onWarning: (warning: ZipWarning) => void; password?: string } = {
       strict,
       onWarning: (warning) => this.warningsList.push(warning)
@@ -238,7 +251,9 @@ export class ZipReader {
     return openEntryStream(this.reader, entry as ZipEntryRecord, {
       ...params,
       ...(signal ? { signal } : {}),
-      ...progressParams(options)
+      ...progressParams(options),
+      limits: this.limits,
+      totals
     });
   }
 
@@ -251,6 +266,19 @@ export class ZipReader {
     return stream;
   }
 
+  async normalizeToWritable(
+    writable: WritableStream<Uint8Array> | NodeJS.WritableStream,
+    options?: ZipNormalizeOptions
+  ): Promise<ZipNormalizeReport> {
+    const sink = isWebWritable(writable) ? new WebWritableSink(writable) : new NodeWritableSink(writable);
+    return this.normalizeToSink(sink, options);
+  }
+
+  async normalizeToFile(pathLike: string | URL, options?: ZipNormalizeOptions): Promise<ZipNormalizeReport> {
+    const sink = new FileSink(pathLike);
+    return this.normalizeToSink(sink, options);
+  }
+
   async extractAll(destDir: string | URL, options?: ZipExtractOptions): Promise<void> {
     const baseDir = typeof destDir === 'string' ? destDir : fileURLToPath(destDir);
     const strict = options?.strict ?? this.strict;
@@ -260,6 +288,7 @@ export class ZipReader {
     const signal = this.resolveSignal(options?.signal);
 
     let totalUncompressed = 0n;
+    const totals = { totalUncompressed: 0n };
     await mkdir(baseDir, { recursive: true });
 
     const iterOptions = signal ? { signal } : undefined;
@@ -288,7 +317,9 @@ export class ZipReader {
           onWarning: (warning) => this.warningsList.push(warning),
           ...(signal ? { signal } : {}),
           ...progressParams(options),
-          ...(password !== undefined ? { password } : {})
+          ...(password !== undefined ? { password } : {}),
+          limits,
+          totals
         });
         const buf = await new Response(stream).arrayBuffer();
         const target = new TextDecoder('utf-8').decode(buf);
@@ -302,7 +333,9 @@ export class ZipReader {
         onWarning: (warning) => this.warningsList.push(warning),
         ...(signal ? { signal } : {}),
         ...progressParams(options),
-        ...(password !== undefined ? { password } : {})
+        ...(password !== undefined ? { password } : {}),
+        limits,
+        totals
       });
       const nodeReadable = Readable.fromWeb(stream as any);
       await pipeline(nodeReadable, createWriteStream(targetPath));
@@ -474,8 +507,8 @@ export class ZipReader {
           }
         }
 
-        const methodToCheck = entry.method === 99 ? aesExtra?.actualMethod ?? entry.method : entry.method;
-        if (methodToCheck !== 0 && methodToCheck !== 8 && methodToCheck !== 93) {
+        const methodToCheck = entry.method === 99 ? aesExtra?.actualMethod : entry.method;
+        if (methodToCheck !== undefined && !hasCompressionCodec(methodToCheck)) {
           addIssue({
             code: 'ZIP_UNSUPPORTED_METHOD',
             severity: 'error',
@@ -705,6 +738,614 @@ export class ZipReader {
   private resolveSignal(signal?: AbortSignal): AbortSignal | undefined {
     return mergeSignals(this.signal, signal);
   }
+
+  private async normalizeToSink(sink: Sink, options?: ZipNormalizeOptions): Promise<ZipNormalizeReport> {
+    const signal = this.resolveSignal(options?.signal);
+    throwIfAborted(signal);
+    const mode: 'safe' | 'lossless' = options?.mode ?? 'safe';
+    const deterministic = options?.deterministic ?? true;
+    const onDuplicate: ZipNormalizeConflict = options?.onDuplicate ?? 'error';
+    const onCaseCollision: ZipNormalizeConflict = options?.onCaseCollision ?? 'error';
+    const onUnsupported = options?.onUnsupported ?? 'error';
+    const onSymlink = options?.onSymlink ?? 'error';
+    const preserveComments = options?.preserveComments ?? false;
+    const preserveTrailingBytes = options?.preserveTrailingBytes ?? false;
+    const limits = normalizeLimits(options?.limits, this.limits);
+    const outputMethod = options?.method ?? 8;
+    const password = options?.password ?? this.password;
+    const fixedMtime = new Date(1980, 0, 1, 0, 0, 0);
+
+    const issues: ZipIssue[] = [];
+    const summary: ZipNormalizeReport['summary'] = {
+      entries: 0,
+      encryptedEntries: 0,
+      unsupportedEntries: 0,
+      warnings: 0,
+      errors: 0,
+      outputEntries: 0,
+      droppedEntries: 0,
+      renamedEntries: 0,
+      recompressedEntries: 0,
+      preservedEntries: 0
+    };
+
+    const addIssue = (issue: ZipIssue) => {
+      issues.push(issue);
+      if (issue.severity === 'warning') summary.warnings += 1;
+      if (issue.severity === 'error') summary.errors += 1;
+    };
+
+    const normalizedEntries = await this.collectNormalizedEntries({
+      ...(signal ? { signal } : {}),
+      deterministic,
+      onDuplicate,
+      onCaseCollision,
+      onSymlink,
+      issues,
+      addIssue,
+      summary
+    });
+
+    const results: EntryWriteResult[] = [];
+    const totals = { totalUncompressed: 0n };
+    let outputIndex = 0;
+    let tempDir: string | null = null;
+    if (mode === 'safe') {
+      tempDir = await mkdtemp(path.join(tmpdir(), 'zip-next-normalize-'));
+    }
+
+    try {
+      for (const item of normalizedEntries) {
+        throwIfAborted(signal);
+        if (item.dropped) continue;
+        const entry = item.entry;
+        if (entry.encrypted) summary.encryptedEntries += 1;
+
+        const name = item.normalizedName;
+        const mtime = deterministic ? fixedMtime : entry.mtime;
+        const externalAttributes = deterministic ? (entry.isDirectory ? 0x10 : 0) : entry.externalAttributes;
+        const comment = preserveComments && !deterministic ? entry.comment : undefined;
+        const aesExtra = entry.method === 99 ? parseAesExtra(entry.extra.get(0x9901) ?? new Uint8Array(0)) : undefined;
+
+        if (entry.method === 99 && !aesExtra) {
+          addIssue({
+            code: 'ZIP_UNSUPPORTED_ENCRYPTION',
+            severity: 'error',
+            message: 'AES extra field missing; cannot normalize entry',
+            entryName: entry.name
+          });
+          summary.unsupportedEntries += 1;
+          if (onUnsupported === 'drop') {
+            summary.droppedEntries += 1;
+            continue;
+          }
+          throw new ZipError('ZIP_UNSUPPORTED_ENCRYPTION', 'Missing AES extra field', {
+            entryName: entry.name
+          });
+        }
+
+        if (entry.isSymlink) {
+          if (onSymlink === 'drop') {
+            summary.droppedEntries += 1;
+            addIssue({
+              code: 'ZIP_SYMLINK_PRESENT',
+              severity: 'warning',
+              message: 'Symlink entry dropped during normalization',
+              entryName: entry.name
+            });
+            continue;
+          }
+          if (onSymlink === 'error') {
+            addIssue({
+              code: 'ZIP_SYMLINK_PRESENT',
+              severity: 'error',
+              message: 'Symlink entries are not allowed during normalization',
+              entryName: entry.name
+            });
+            throw new ZipError('ZIP_SYMLINK_DISALLOWED', 'Symlink entries are not allowed during normalization', {
+              entryName: entry.name
+            });
+          }
+        }
+
+        if (mode === 'safe') {
+          const methodToCheck = entry.method === 99 ? aesExtra?.actualMethod : entry.method;
+          if (methodToCheck !== undefined && !hasCompressionCodec(methodToCheck)) {
+            addIssue({
+              code: 'ZIP_UNSUPPORTED_METHOD',
+              severity: 'error',
+              message: `Unsupported compression method ${methodToCheck}`,
+              entryName: entry.name,
+              details: { method: methodToCheck }
+            });
+            summary.unsupportedEntries += 1;
+            if (onUnsupported === 'drop') {
+              summary.droppedEntries += 1;
+              continue;
+            }
+            throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${methodToCheck}`, {
+              entryName: entry.name,
+              method: methodToCheck
+            });
+          }
+
+          const method = entry.isDirectory ? 0 : outputMethod;
+          const codec = getCompressionCodec(method);
+          if (!codec || !codec.createCompressStream) {
+            addIssue({
+              code: 'ZIP_UNSUPPORTED_METHOD',
+              severity: 'error',
+              message: `Unsupported compression method ${method}`,
+              entryName: entry.name,
+              details: { method }
+            });
+            summary.unsupportedEntries += 1;
+            if (onUnsupported === 'drop') {
+              summary.droppedEntries += 1;
+              continue;
+            }
+            throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${method}`, {
+              entryName: entry.name,
+              method
+            });
+          }
+
+          if (entry.encrypted && !password) {
+            addIssue({
+              code: 'ZIP_PASSWORD_REQUIRED',
+              severity: 'error',
+              message: 'Password required for encrypted entry during normalization',
+              entryName: entry.name
+            });
+            if (onUnsupported === 'drop') {
+              summary.droppedEntries += 1;
+              continue;
+            }
+            throw new ZipError('ZIP_PASSWORD_REQUIRED', 'Password required for encrypted entry', {
+              entryName: entry.name
+            });
+          }
+
+          let source: ReadableStream<Uint8Array>;
+          if (entry.isDirectory) {
+            source = readableFromBytes(new Uint8Array(0));
+          } else {
+            source = await openEntryStream(this.reader, entry, {
+              strict: true,
+              onWarning: (warning) =>
+                addIssue({
+                  code: warning.code,
+                  severity: 'warning',
+                  message: warning.message,
+                  ...(warning.entryName ? { entryName: warning.entryName } : {})
+                }),
+              ...(password !== undefined ? { password } : {}),
+              ...(signal ? { signal } : {}),
+              ...progressParams(options),
+              limits,
+              totals
+            });
+          }
+
+          if (!tempDir) {
+            throw new ZipError('ZIP_UNSUPPORTED_FEATURE', 'Normalization temp directory missing');
+          }
+          const tempPath = path.join(tempDir, `entry-${outputIndex + 1}.bin`);
+          const spool = await spoolCompressedEntry({
+            source,
+            method,
+            entryName: name,
+            ...(signal ? { signal } : {}),
+            progress: progressParams(options),
+            tempPath
+          });
+
+          const dataStream = toWebReadable(createReadStream(tempPath));
+          const flags = 0x800;
+          const result = await writeRawEntry(sink, {
+            name,
+            source: dataStream,
+            method,
+            flags,
+            crc32: spool.crc32,
+            compressedSize: spool.compressedSize,
+            uncompressedSize: spool.uncompressedSize,
+            mtime,
+            comment,
+            externalAttributes,
+            zip64Mode: 'auto',
+            forceZip64: false,
+            ...(signal ? { signal } : {}),
+            ...(options ? { progress: progressParams(options) } : {})
+          });
+          results.push(result);
+          summary.outputEntries += 1;
+          outputIndex += 1;
+          summary.recompressedEntries += entry.isDirectory ? 0 : 1;
+          await rm(tempPath, { force: true }).catch(() => {});
+          continue;
+        }
+
+        // lossless mode
+        const methodToCheck = entry.method === 99 ? aesExtra?.actualMethod : entry.method;
+        if (methodToCheck !== undefined && !hasCompressionCodec(methodToCheck)) {
+          summary.unsupportedEntries += 1;
+          addIssue({
+            code: 'ZIP_UNSUPPORTED_METHOD',
+            severity: 'warning',
+            message: `Unsupported compression method ${methodToCheck} preserved in lossless mode`,
+            entryName: entry.name,
+            details: { method: methodToCheck }
+          });
+        }
+
+        const { stream: rawStream } = await openRawStream(this.reader, entry, {
+          ...(signal ? { signal } : {}),
+          ...progressParams(options)
+        });
+        const flags = 0x800 | (entry.encrypted ? 0x01 : 0);
+        const aesExtraBytes = aesExtra
+          ? buildAesExtra({
+              vendorVersion: aesExtra.vendorVersion,
+              strength: aesExtra.strength,
+              actualMethod: aesExtra.actualMethod
+            })
+          : undefined;
+
+        const result = await writeRawEntry(sink, {
+          name,
+          source: rawStream,
+          method: entry.method,
+          flags,
+          crc32: entry.crc32,
+          compressedSize: entry.compressedSize,
+          uncompressedSize: entry.uncompressedSize,
+          mtime,
+          comment,
+          externalAttributes,
+          zip64Mode: 'auto',
+          forceZip64: false,
+          ...(aesExtraBytes ? { aesExtra: aesExtraBytes } : {}),
+          ...(signal ? { signal } : {}),
+          ...(options ? { progress: progressParams(options) } : {})
+        });
+        results.push(result);
+        summary.outputEntries += 1;
+        outputIndex += 1;
+        summary.preservedEntries += 1;
+      }
+
+      const cdInfo = await writeCentralDirectory(sink, results, signal);
+      const finalizeOptions = {
+        entryCount: BigInt(results.length),
+        cdOffset: cdInfo.offset,
+        cdSize: cdInfo.size,
+        forceZip64: false,
+        hasZip64Entries: results.some((entry) => entry.zip64)
+      } as const;
+      await finalizeArchive(sink, finalizeOptions, signal);
+
+      if (preserveTrailingBytes) {
+        const trailing = await readTrailingBytes(this.reader, this.eocd, signal);
+        if (trailing.length > 0) {
+          await sink.write(trailing);
+        }
+      }
+
+      await sink.close();
+    } catch (err) {
+      await sink.close().catch(() => {});
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
+      throw err;
+    } finally {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true }).catch(() => {});
+      }
+    }
+
+    summary.entries = normalizedEntries.length;
+    const report = finalizeNormalizeReport(issues, summary);
+    return report;
+  }
+
+  private async collectNormalizedEntries(params: {
+    signal?: AbortSignal;
+    deterministic: boolean;
+    onDuplicate: ZipNormalizeConflict;
+    onCaseCollision: ZipNormalizeConflict;
+    onSymlink: 'error' | 'drop';
+    issues: ZipIssue[];
+    addIssue: (issue: ZipIssue) => void;
+    summary: ZipNormalizeReport['summary'];
+  }): Promise<NormalizedEntry[]> {
+    const entries: NormalizedEntry[] = [];
+    const nameIndex = new Map<string, number>();
+    const lowerIndex = new Map<string, string>();
+
+    const iterOptions = params.signal ? { signal: params.signal } : undefined;
+    for await (const entry of this.iterEntries(iterOptions)) {
+      params.summary.entries += 1;
+      const normalizedName = normalizeEntryName(entry.name, entry.isDirectory, params.addIssue);
+      let targetName = normalizedName;
+      let renamed = false;
+
+      const existingIndex = nameIndex.get(targetName);
+      if (existingIndex !== undefined) {
+        if (params.onDuplicate === 'error') {
+          params.addIssue({
+            code: 'ZIP_DUPLICATE_ENTRY',
+            severity: 'error',
+            message: `Duplicate entry name: ${targetName}`,
+            entryName: entry.name
+          });
+          throw new ZipError('ZIP_BAD_CENTRAL_DIRECTORY', 'Duplicate entry name', { entryName: entry.name });
+        }
+        if (params.onDuplicate === 'last-wins') {
+          entries[existingIndex]!.dropped = true;
+          params.summary.droppedEntries += 1;
+          params.addIssue({
+            code: 'ZIP_DUPLICATE_ENTRY',
+            severity: 'warning',
+            message: `Duplicate entry name replaced by last occurrence: ${targetName}`,
+            entryName: entry.name
+          });
+        } else if (params.onDuplicate === 'rename') {
+          targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+          renamed = true;
+        }
+      }
+
+      const lower = targetName.toLocaleLowerCase('en-US');
+      const existingLower = lowerIndex.get(lower);
+      if (existingLower && existingLower !== targetName) {
+        if (params.onCaseCollision === 'error') {
+          params.addIssue({
+            code: 'ZIP_CASE_COLLISION',
+            severity: 'error',
+            message: `Case-insensitive name collision: ${existingLower} vs ${targetName}`,
+            entryName: entry.name
+          });
+          throw new ZipError('ZIP_BAD_CENTRAL_DIRECTORY', 'Case-insensitive name collision', { entryName: entry.name });
+        }
+        if (params.onCaseCollision === 'last-wins') {
+          const previous = nameIndex.get(existingLower);
+          if (previous !== undefined) {
+            entries[previous]!.dropped = true;
+            params.summary.droppedEntries += 1;
+          }
+          params.addIssue({
+            code: 'ZIP_CASE_COLLISION',
+            severity: 'warning',
+            message: `Case-insensitive collision replaced by last occurrence: ${targetName}`,
+            entryName: entry.name
+          });
+        } else if (params.onCaseCollision === 'rename') {
+          targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+          renamed = true;
+        }
+      }
+
+      nameIndex.set(targetName, entries.length);
+      lowerIndex.set(targetName.toLocaleLowerCase('en-US'), targetName);
+
+      if (renamed) {
+        params.summary.renamedEntries += 1;
+        params.addIssue({
+          code: 'ZIP_NORMALIZED_NAME',
+          severity: 'info',
+          message: `Entry renamed to ${targetName}`,
+          entryName: entry.name,
+          details: { normalizedName: targetName }
+        });
+      } else if (targetName !== entry.name) {
+        params.addIssue({
+          code: 'ZIP_NORMALIZED_NAME',
+          severity: 'info',
+          message: `Entry name normalized to ${targetName}`,
+          entryName: entry.name,
+          details: { normalizedName: targetName }
+        });
+      }
+
+      entries.push({
+        entry: entry as ZipEntryRecord,
+        normalizedName: targetName,
+        dropped: false
+      });
+    }
+
+    if (params.deterministic) {
+      entries.sort((a, b) => (a.normalizedName < b.normalizedName ? -1 : a.normalizedName > b.normalizedName ? 1 : 0));
+    }
+
+    return entries;
+  }
+}
+
+type NormalizedEntry = {
+  entry: ZipEntryRecord;
+  normalizedName: string;
+  dropped: boolean;
+};
+
+function normalizeEntryName(
+  entryName: string,
+  isDirectory: boolean,
+  addIssue: (issue: ZipIssue) => void
+): string {
+  if (entryName.includes('\u0000')) {
+    addIssue({
+      code: 'ZIP_PATH_TRAVERSAL',
+      severity: 'error',
+      message: 'Entry name contains NUL byte',
+      entryName
+    });
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Entry name contains NUL byte', { entryName });
+  }
+  const normalized = entryName.replace(/\\/g, '/');
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
+    addIssue({
+      code: 'ZIP_PATH_TRAVERSAL',
+      severity: 'error',
+      message: 'Absolute paths are not allowed in ZIP entries',
+      entryName
+    });
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Absolute paths are not allowed in ZIP entries', { entryName });
+  }
+  const parts = normalized.split('/').filter((part) => part.length > 0 && part !== '.');
+  if (parts.some((part) => part === '..')) {
+    addIssue({
+      code: 'ZIP_PATH_TRAVERSAL',
+      severity: 'error',
+      message: 'Path traversal detected in ZIP entry',
+      entryName
+    });
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Path traversal detected in ZIP entry', { entryName });
+  }
+  let name = parts.join('/');
+  if (isDirectory && !name.endsWith('/')) {
+    name = name.length > 0 ? `${name}/` : '';
+  }
+  if (name.length === 0) {
+    addIssue({
+      code: 'ZIP_PATH_TRAVERSAL',
+      severity: 'error',
+      message: 'Entry name resolves to empty path',
+      entryName
+    });
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Entry name resolves to empty path', { entryName });
+  }
+  return name;
+}
+
+function resolveConflictName(
+  name: string,
+  nameIndex: Map<string, number>,
+  lowerIndex: Map<string, string>
+): string {
+  const trailingSlash = name.endsWith('/');
+  const trimmed = trailingSlash ? name.slice(0, -1) : name;
+  const slashIndex = trimmed.lastIndexOf('/');
+  const dir = slashIndex >= 0 ? trimmed.slice(0, slashIndex + 1) : '';
+  const file = slashIndex >= 0 ? trimmed.slice(slashIndex + 1) : trimmed;
+  const dotIndex = file.lastIndexOf('.');
+  const base = dotIndex > 0 ? file.slice(0, dotIndex) : file;
+  const ext = dotIndex > 0 ? file.slice(dotIndex) : '';
+  let counter = 1;
+  while (true) {
+    const candidate = `${dir}${base}~${counter}${ext}${trailingSlash ? '/' : ''}`;
+    const lower = candidate.toLocaleLowerCase('en-US');
+    if (!nameIndex.has(candidate) && !lowerIndex.has(lower)) {
+      return candidate;
+    }
+    counter += 1;
+  }
+}
+
+async function spoolCompressedEntry(options: {
+  source: ReadableStream<Uint8Array>;
+  method: number;
+  entryName: string;
+  tempPath: string;
+  signal?: AbortSignal;
+  progress?: ZipProgressOptions;
+}): Promise<{ compressedSize: bigint; uncompressedSize: bigint; crc32: number }> {
+  const codec = getCompressionCodec(options.method);
+  if (!codec || !codec.createCompressStream) {
+    throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Unsupported compression method ${options.method}`, {
+      entryName: options.entryName,
+      method: options.method
+    });
+  }
+  const crcResult = { crc32: 0, bytes: 0n };
+  const measure = { bytes: 0n };
+  const compressTracker = createProgressTracker(options.progress, {
+    kind: 'compress',
+    entryName: options.entryName
+  });
+  const writeTracker = createProgressTracker(options.progress, {
+    kind: 'write',
+    entryName: options.entryName
+  });
+  let stream = options.source;
+  stream = stream.pipeThrough(createCrcTransform(crcResult, { strict: true }));
+  stream = stream.pipeThrough(createProgressTransform(compressTracker));
+  stream = stream.pipeThrough(codec.createCompressStream());
+  stream = stream.pipeThrough(createMeasureTransform(measure));
+
+  const sink = new NodeWritableSink(createWriteStream(options.tempPath));
+  try {
+    await pipeToSink(stream, sink, options.signal, writeTracker);
+    await sink.close();
+  } catch (err) {
+    await sink.close().catch(() => {});
+    throw err;
+  }
+
+  return {
+    compressedSize: measure.bytes,
+    uncompressedSize: crcResult.bytes,
+    crc32: crcResult.crc32
+  };
+}
+
+async function pipeToSink(
+  stream: ReadableStream<Uint8Array>,
+  sink: Sink,
+  signal?: AbortSignal,
+  tracker?: ReturnType<typeof createProgressTracker>
+): Promise<void> {
+  const reader = stream.getReader();
+  try {
+    while (true) {
+      throwIfAborted(signal);
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) {
+        await sink.write(value);
+        tracker?.update(value.length, value.length);
+      }
+    }
+  } catch (err) {
+    await reader.cancel().catch(() => {});
+    throw err;
+  } finally {
+    reader.releaseLock();
+  }
+  tracker?.flush();
+}
+
+async function readTrailingBytes(
+  reader: RandomAccess,
+  eocd: EocdResult | null,
+  signal?: AbortSignal
+): Promise<Uint8Array> {
+  if (!eocd) return new Uint8Array(0);
+  const size = await reader.size(signal);
+  const eocdEnd = eocd.eocdOffset + 22n + BigInt(eocd.comment.length);
+  if (size <= eocdEnd) return new Uint8Array(0);
+  const trailing = size - eocdEnd;
+  const trailingNumber = toSafeNumber(trailing);
+  if (trailingNumber === undefined) {
+    throw new ZipError('ZIP_LIMIT_EXCEEDED', 'Trailing bytes too large to preserve');
+  }
+  return reader.read(eocdEnd, trailingNumber, signal);
+}
+
+function finalizeNormalizeReport(issues: ZipIssue[], summary: ZipNormalizeReport['summary']): ZipNormalizeReport {
+  const report = {
+    ok: summary.errors === 0,
+    summary,
+    issues
+  } as ZipNormalizeReport & { toJSON: () => unknown };
+  report.toJSON = () => ({
+    ok: report.ok,
+    summary: report.summary,
+    issues: issues.map(issueToJson)
+  });
+  return report;
 }
 
 function resolveReaderProfile(options?: ZipReaderOptions): {

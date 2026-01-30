@@ -52,3 +52,19 @@ await reader.assertSafe({ profile: 'agent' });
 
 `ZipAuditReport` includes bigint offsets internally, but the report object has a `toJSON` method so
 `JSON.stringify(report)` is safe and converts bigints to strings in the output.
+
+## Normalization for agents
+
+For untrusted uploads, normalize the ZIP into a deterministic, single-interpretation archive:
+
+```js
+const reader = await ZipReader.fromFile('/tmp/upload.zip', { profile: 'agent' });
+const report = await reader.normalizeToFile('/tmp/normalized.zip', {
+  mode: 'safe',
+  deterministic: true,
+  onDuplicate: 'rename',
+  onCaseCollision: 'rename'
+});
+
+console.log(JSON.stringify(report));
+```
