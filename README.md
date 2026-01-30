@@ -95,6 +95,7 @@ for await (const entry of reader.iterEntries()) {
 ```
 
 When `storeEntries` is disabled, `reader.entries()` throws `ZIP_ENTRIES_NOT_STORED`.
+When `storeEntries` is enabled (default), entries are cached while iterating; disable it for true streaming without retention.
 
 ### Extract one entry
 

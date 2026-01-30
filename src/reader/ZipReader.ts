@@ -697,7 +697,7 @@ export class ZipReader {
       profile,
       strict,
       limits,
-      rejectTrailingBytes: profile !== 'compat',
+      rejectTrailingBytes: profile === 'agent',
       symlinkSeverity: profile === 'agent' ? 'error' : 'warning'
     };
   }

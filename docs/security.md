@@ -44,7 +44,7 @@ an agent policy. The audit checks include:
 ## Profiles
 
 - `compat`: lenient parsing (`strict: false`), warnings surfaced instead of hard failures.
-- `strict`: strict parsing (`strict: true`), default limits.
+- `strict`: strict parsing (`strict: true`), default limits (audit treats trailing bytes as warnings).
 - `agent`: strict parsing + conservative defaults; trailing bytes rejected and symlinks treated as errors in audit.
 
 `assertSafe({ profile: 'agent' })` treats any audit warning as an error.

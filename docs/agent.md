@@ -22,6 +22,18 @@ await reader.assertSafe({ profile: 'agent' });
 // now extract selected entries
 ```
 
+You can do the same with a stream source:
+
+```js
+import { ZipReader } from 'zip-next';
+
+const res = await fetch('https://example.com/archive.zip');
+const reader = await ZipReader.fromStream(res.body!, { profile: 'agent' });
+
+const report = await reader.audit({ profile: 'agent' });
+await reader.assertSafe({ profile: 'agent' });
+```
+
 ## Profiles
 
 - `compat`: lenient parsing (`strict: false`), warnings surfaced instead of hard failures.
