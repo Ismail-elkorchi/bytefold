@@ -1,16 +1,18 @@
 import { ArchiveError } from './errors.js';
 import type {
   ArchiveAuditReport,
+  ArchiveDetectionReport,
   ArchiveEntry,
   ArchiveFormat,
+  ArchiveInputKind,
   ArchiveLimits,
   ArchiveNormalizeReport,
   ArchiveOpenOptions,
   ArchiveProfile
 } from './types.js';
 import { readAllBytes } from '../streams/buffer.js';
-import { readableFromBytes } from '../streams/web.js';
-import { createDecompressTransform } from '../compression/streams.js';
+import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
+import { createCompressTransform, createDecompressTransform } from '../compression/streams.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import type {
@@ -24,9 +26,11 @@ import type {
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
 import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterOptions } from '../tar/types.js';
+import type { CompressionAlgorithm } from '../compress/types.js';
 
 export interface ArchiveReader {
   format: ArchiveFormat;
+  detection?: ArchiveDetectionReport;
   entries(): AsyncGenerator<ArchiveEntry>;
   audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport>;
   assertSafe(options?: ArchiveAuditOptions): Promise<void>;
@@ -34,7 +38,7 @@ export interface ArchiveReader {
 }
 
 export interface ArchiveWriter {
-  format: 'zip' | 'tar';
+  format: ArchiveFormat;
   add(
     name: string,
     source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
@@ -46,6 +50,7 @@ export interface ArchiveWriter {
 export interface ArchiveWriterOptions {
   zip?: ZipWriterOptions;
   tar?: TarWriterOptions;
+  compression?: { level?: number; quality?: number };
 }
 
 export interface ArchiveAuditOptions {
@@ -63,22 +68,40 @@ export interface ArchiveNormalizeOptions {
 type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>;
 
 export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
+  const inputKind = resolveInputKind(input, options?.inputKind);
   const data = await resolveInput(input, options);
-  const format = options?.format ?? 'auto';
+  const formatOption = options?.format ?? 'auto';
+  const notes: string[] = [];
+  let confidence: ArchiveDetectionReport['confidence'] = 'high';
 
-  if (format !== 'auto') {
-    return openWithFormat(format, data, options);
+  let format: ArchiveFormat | undefined;
+  if (formatOption !== 'auto') {
+    format = formatOption;
+    notes.push('Format forced by options.format');
+  } else {
+    const hinted = formatFromFilename(options?.filename);
+    if (hinted) {
+      format = hinted;
+      confidence = 'medium';
+      notes.push('Format inferred from filename');
+    } else {
+      format = detectFormat(data);
+      if (!format) {
+        throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'Unable to detect archive format');
+      }
+      notes.push('Format inferred from magic bytes');
+    }
   }
 
-  const detected = detectFormat(data);
-  if (!detected) {
-    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'Unable to detect archive format');
-  }
-  return openWithFormat(detected, data, options);
+  const result = await openWithFormat(format, data, options);
+  const report = buildDetectionReport(inputKind, result.format, confidence, [...notes, ...result.notes]);
+  const reader = result.reader;
+  reader.detection = report;
+  return reader;
 }
 
 export function createArchiveWriter(
-  format: 'zip' | 'tar',
+  format: ArchiveFormat,
   writable: WritableStream<Uint8Array>,
   options?: ArchiveWriterOptions
 ): ArchiveWriter {
@@ -90,19 +113,134 @@ export function createArchiveWriter(
       close: () => writer.close()
     };
   }
-  const writer = TarWriter.toWritable(writable, options?.tar);
-  return {
-    format: 'tar',
-    add: (name, source, addOptions) => writer.add(name, source as any, addOptions as any),
-    close: () => writer.close()
+  if (format === 'tar') {
+    const writer = TarWriter.toWritable(writable, options?.tar);
+    return {
+      format: 'tar',
+      add: (name, source, addOptions) => writer.add(name, source as any, addOptions as any),
+      close: () => writer.close()
+    };
+  }
+  if (format === 'tgz' || format === 'tar.gz') {
+    return createCompressedTarWriter(format, 'gzip', writable, options);
+  }
+  if (format === 'tar.zst') {
+    return createCompressedTarWriter('tar.zst', 'zstd', writable, options);
+  }
+  if (format === 'tar.br') {
+    return createCompressedTarWriter('tar.br', 'brotli', writable, options);
+  }
+  if (format === 'gz') {
+    return createCompressedStreamWriter('gz', 'gzip', writable, options);
+  }
+  if (format === 'zst') {
+    return createCompressedStreamWriter('zst', 'zstd', writable, options);
+  }
+  if (format === 'br') {
+    return createCompressedStreamWriter('br', 'brotli', writable, options);
+  }
+  throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported writer format: ${format}`);
+}
+
+function createCompressedTarWriter(
+  format: ArchiveFormat,
+  algorithm: CompressionAlgorithm,
+  writable: WritableStream<Uint8Array>,
+  options?: ArchiveWriterOptions
+): ArchiveWriter {
+  let initPromise:
+    | Promise<{ writer: TarWriter; pipe: Promise<void> }>
+    | null = null;
+
+  const init = async () => {
+    if (!initPromise) {
+      initPromise = (async () => {
+        const transform = await createCompressTransform({
+          algorithm,
+          ...(options?.tar?.signal ? { signal: options.tar.signal } : {}),
+          ...(options?.compression?.level !== undefined ? { level: options.compression.level } : {}),
+          ...(options?.compression?.quality !== undefined ? { quality: options.compression.quality } : {})
+        });
+        const pipe = transform.readable.pipeTo(writable, {
+          ...(options?.tar?.signal ? { signal: options.tar.signal } : {})
+        });
+        const writer = TarWriter.toWritable(transform.writable, options?.tar);
+        return { writer, pipe };
+      })();
+    }
+    return initPromise;
   };
+
+  return {
+    format,
+    add: async (name, source, addOptions) => {
+      const { writer } = await init();
+      await writer.add(name, source as any, addOptions as any);
+    },
+    close: async () => {
+      const { writer, pipe } = await init();
+      await writer.close();
+      await pipe;
+    }
+  };
+}
+
+function createCompressedStreamWriter(
+  format: ArchiveFormat,
+  algorithm: CompressionAlgorithm,
+  writable: WritableStream<Uint8Array>,
+  options?: ArchiveWriterOptions
+): ArchiveWriter {
+  let started = false;
+  let done: Promise<void> | null = null;
+
+  const run = async (source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>) => {
+    const input = sourceToReadable(source);
+    const transform = await createCompressTransform({
+      algorithm,
+      ...(options?.compression?.level !== undefined ? { level: options.compression.level } : {}),
+      ...(options?.compression?.quality !== undefined ? { quality: options.compression.quality } : {})
+    });
+    const outputPipe = transform.readable.pipeTo(writable);
+    const inputPipe = input.pipeTo(transform.writable);
+    await Promise.all([inputPipe, outputPipe]);
+  };
+
+  return {
+    format,
+    add: async (_name, source) => {
+      if (started) {
+        throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Compressed stream writers accept a single entry');
+      }
+      started = true;
+      done = run(source as Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array> | undefined);
+      await done;
+    },
+    close: async () => {
+      if (!done) {
+        done = run(new Uint8Array(0));
+      }
+      await done;
+    }
+  };
+}
+
+function sourceToReadable(
+  source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>
+): ReadableStream<Uint8Array> {
+  if (!source) return readableFromBytes(new Uint8Array(0));
+  if (source instanceof Uint8Array) return readableFromBytes(source);
+  if (source instanceof ArrayBuffer) return readableFromBytes(new Uint8Array(source));
+  if (isReadableStream(source)) return source;
+  return readableFromAsyncIterable(source);
 }
 
 async function openWithFormat(
   format: ArchiveFormat,
   data: Uint8Array,
   options?: ArchiveOpenOptions
-): Promise<ArchiveReader> {
+): Promise<{ reader: ArchiveReader; format: ArchiveFormat; notes: string[] }> {
+  const notes: string[] = [];
   if (format === 'zip') {
     const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
     const profile = options?.profile;
@@ -116,7 +254,11 @@ async function openWithFormat(
       ...(options?.password !== undefined ? { password: options.password } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
-    return new ZipArchiveReader(reader, Object.keys(openOptions).length > 0 ? openOptions : undefined);
+    return {
+      reader: new ZipArchiveReader(reader, Object.keys(openOptions).length > 0 ? openOptions : undefined),
+      format: 'zip',
+      notes
+    };
   }
   if (format === 'tar') {
     const tarOptions: TarReaderOptions = { ...(options?.tar ?? {}) };
@@ -129,12 +271,19 @@ async function openWithFormat(
       ...(options?.strict !== undefined ? { strict: options.strict } : {}),
       ...(options?.limits !== undefined ? { limits: options.limits } : {})
     };
-    return new TarArchiveReader(reader, Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined, 'tar');
+    return {
+      reader: new TarArchiveReader(reader, Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined, 'tar'),
+      format: 'tar',
+      notes
+    };
   }
-  if (format === 'gz' || format === 'tgz') {
+  if (format === 'gz' || format === 'tgz' || format === 'tar.gz') {
     const header = parseGzipHeader(data);
     const decompressed = await gunzipToBytes(data, options);
-    if (format === 'tgz' || detectFormat(decompressed) === 'tar') {
+    if (format !== 'gz' || detectFormat(decompressed) === 'tar') {
+      if (format === 'gz') {
+        notes.push('TAR layer detected inside gzip payload');
+      }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
         ...(options?.strict !== undefined ? { strict: options.strict } : {}),
@@ -142,13 +291,67 @@ async function openWithFormat(
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
       const auditDefaults: TarAuditOptions = { ...tarOptions };
-      return new TarArchiveReader(
-        tarReader,
-        Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
-        'tgz'
-      );
+      return {
+        reader: new TarArchiveReader(
+          tarReader,
+          Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
+          'tgz'
+        ),
+        format: 'tgz',
+        notes
+      };
     }
-    return new GzipArchiveReader(decompressed, header);
+    return { reader: new GzipArchiveReader(decompressed, header), format: 'gz', notes };
+  }
+  if (format === 'zst' || format === 'tar.zst') {
+    const decompressed = await decompressToBytes(data, 'zstd', options);
+    if (format === 'tar.zst' || detectFormat(decompressed) === 'tar') {
+      if (format !== 'tar.zst') {
+        notes.push('TAR layer detected inside zstd payload');
+      }
+      const tarOptions: TarReaderOptions = {
+        ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.limits !== undefined ? { limits: options.limits } : {})
+      };
+      const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
+      const auditDefaults: TarAuditOptions = { ...tarOptions };
+      return {
+        reader: new TarArchiveReader(
+          tarReader,
+          Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
+          'tar.zst'
+        ),
+        format: 'tar.zst',
+        notes
+      };
+    }
+    return { reader: new CompressedArchiveReader(decompressed, 'zstd'), format: 'zst', notes };
+  }
+  if (format === 'br' || format === 'tar.br') {
+    const decompressed = await decompressToBytes(data, 'brotli', options);
+    if (format === 'tar.br' || detectFormat(decompressed) === 'tar') {
+      if (format !== 'tar.br') {
+        notes.push('TAR layer detected inside brotli payload');
+      }
+      const tarOptions: TarReaderOptions = {
+        ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.limits !== undefined ? { limits: options.limits } : {})
+      };
+      const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
+      const auditDefaults: TarAuditOptions = { ...tarOptions };
+      return {
+        reader: new TarArchiveReader(
+          tarReader,
+          Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
+          'tar.br'
+        ),
+        format: 'tar.br',
+        notes
+      };
+    }
+    return { reader: new CompressedArchiveReader(decompressed, 'brotli'), format: 'br', notes };
   }
 
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported format: ${format}`);
@@ -169,6 +372,9 @@ function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
   if (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
     return 'gz';
   }
+  if (data.length >= 4 && isZstdHeader(data)) {
+    return 'zst';
+  }
   if (data.length >= 4 && data[0] === 0x50 && data[1] === 0x4b) {
     const sig = ((data[2] ?? 0) << 8) | (data[3] ?? 0);
     if (sig === 0x0304 || sig === 0x0506 || sig === 0x0708) {
@@ -179,6 +385,93 @@ function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
     return 'tar';
   }
   return undefined;
+}
+
+function formatFromFilename(filename?: string): ArchiveFormat | undefined {
+  if (!filename) return undefined;
+  const lower = filename.toLowerCase();
+  if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tgz';
+  if (lower.endsWith('.tar.zst') || lower.endsWith('.tzst')) return 'tar.zst';
+  if (lower.endsWith('.tar.br') || lower.endsWith('.tbr')) return 'tar.br';
+  if (lower.endsWith('.tar')) return 'tar';
+  if (lower.endsWith('.zip')) return 'zip';
+  if (lower.endsWith('.gz')) return 'gz';
+  if (lower.endsWith('.zst')) return 'zst';
+  if (lower.endsWith('.br')) return 'br';
+  return undefined;
+}
+
+function resolveInputKind(input: ArchiveInput, hint?: ArchiveInputKind): ArchiveInputKind {
+  if (hint) return hint;
+  if (input instanceof Uint8Array || input instanceof ArrayBuffer) return 'bytes';
+  return 'stream';
+}
+
+function buildDetectionReport(
+  inputKind: ArchiveInputKind,
+  format: ArchiveFormat,
+  confidence: ArchiveDetectionReport['confidence'],
+  notes: string[]
+): ArchiveDetectionReport {
+  const detected: ArchiveDetectionReport['detected'] = { layers: [] };
+  switch (format) {
+    case 'zip':
+      detected.container = 'zip';
+      detected.compression = 'none';
+      detected.layers = ['zip'];
+      break;
+    case 'tar':
+      detected.container = 'tar';
+      detected.compression = 'none';
+      detected.layers = ['tar'];
+      break;
+    case 'gz':
+      detected.compression = 'gzip';
+      detected.layers = ['gzip'];
+      break;
+    case 'tgz':
+    case 'tar.gz':
+      detected.container = 'tar';
+      detected.compression = 'gzip';
+      detected.layers = ['gzip', 'tar'];
+      break;
+    case 'zst':
+      detected.compression = 'zstd';
+      detected.layers = ['zstd'];
+      break;
+    case 'br':
+      detected.compression = 'brotli';
+      detected.layers = ['brotli'];
+      break;
+    case 'tar.zst':
+      detected.container = 'tar';
+      detected.compression = 'zstd';
+      detected.layers = ['zstd', 'tar'];
+      break;
+    case 'tar.br':
+      detected.container = 'tar';
+      detected.compression = 'brotli';
+      detected.layers = ['brotli', 'tar'];
+      break;
+    default:
+      detected.layers = [];
+  }
+  return {
+    inputKind,
+    detected,
+    confidence,
+    notes
+  };
+}
+
+const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
+
+function isZstdHeader(data: Uint8Array): boolean {
+  if (data.length < ZSTD_MAGIC.length) return false;
+  for (let i = 0; i < ZSTD_MAGIC.length; i += 1) {
+    if (data[i] !== ZSTD_MAGIC[i]) return false;
+  }
+  return true;
 }
 
 function isTarHeader(block: Uint8Array): boolean {
@@ -214,8 +507,16 @@ function computeChecksum(header: Uint8Array): number {
 }
 
 async function gunzipToBytes(data: Uint8Array, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  return decompressToBytes(data, 'gzip', options);
+}
+
+async function decompressToBytes(
+  data: Uint8Array,
+  algorithm: CompressionAlgorithm,
+  options?: ArchiveOpenOptions
+): Promise<Uint8Array> {
   const transform = await createDecompressTransform({
-    algorithm: 'gzip',
+    algorithm,
     ...(options?.signal ? { signal: options.signal } : {})
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
@@ -309,7 +610,7 @@ class ZipArchiveReader implements ArchiveReader {
         severity: issue.severity,
         message: issue.message,
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
-        ...(issue.offset !== undefined ? { offset: issue.offset } : {}),
+        ...(issue.offset !== undefined ? { offset: issue.offset.toString() } : {}),
         ...(issue.details ? { details: issue.details } : {})
       }))
     };
@@ -353,7 +654,7 @@ class ZipArchiveReader implements ArchiveReader {
         severity: issue.severity,
         message: issue.message,
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
-        ...(issue.offset !== undefined ? { offset: issue.offset } : {}),
+        ...(issue.offset !== undefined ? { offset: issue.offset.toString() } : {}),
         ...(issue.details ? { details: issue.details } : {})
       }))
     };
@@ -489,6 +790,71 @@ class GzipArchiveReader implements ArchiveReader {
   }
 }
 
+class CompressedArchiveReader implements ArchiveReader {
+  format: ArchiveFormat;
+  private readonly entry: ArchiveEntry;
+  private readonly algorithm: 'zstd' | 'brotli';
+
+  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli') {
+    this.algorithm = algorithm;
+    this.format = algorithm === 'zstd' ? 'zst' : 'br';
+    this.entry = {
+      format: this.format,
+      name: 'data',
+      size: BigInt(data.length),
+      isDirectory: false,
+      isSymlink: false,
+      open: async () => readableFromBytes(this.data)
+    };
+  }
+
+  async *entries(): AsyncGenerator<ArchiveEntry> {
+    yield this.entry;
+  }
+
+  async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
+    const issues: ArchiveAuditReport['issues'] = [];
+    const summary: ArchiveAuditReport['summary'] = {
+      entries: 1,
+      warnings: 0,
+      errors: 0
+    };
+    const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
+    if (totalBytes !== undefined) summary.totalBytes = totalBytes;
+
+    if (options?.limits?.maxTotalUncompressedBytes && this.entry.size > BigInt(options.limits.maxTotalUncompressedBytes)) {
+      issues.push({
+        code: this.algorithm === 'zstd' ? 'ZSTD_LIMIT_EXCEEDED' : 'BROTLI_LIMIT_EXCEEDED',
+        severity: 'error',
+        message: 'Uncompressed size exceeds limit',
+        entryName: this.entry.name
+      });
+      summary.errors += 1;
+    }
+
+    const pathIssues = entryPathIssues(this.entry.name);
+    for (const issue of pathIssues) {
+      issues.push(issue);
+      if (issue.severity === 'warning') summary.warnings += 1;
+      if (issue.severity === 'error') summary.errors += 1;
+    }
+
+    return {
+      ok: summary.errors === 0,
+      summary,
+      issues,
+      toJSON: () => ({ ok: summary.errors === 0, summary, issues })
+    };
+  }
+
+  async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
+    const report = await this.audit(options);
+    if (!report.ok) {
+      throw new ArchiveError('ARCHIVE_AUDIT_FAILED', 'Compressed audit failed');
+    }
+  }
+}
+
 function entryPathIssues(entryName: string): ArchiveAuditReport['issues'] {
   const issues: ArchiveAuditReport['issues'] = [];
   if (entryName.includes('\u0000')) {
@@ -519,4 +885,8 @@ function entryPathIssues(entryName: string): ArchiveAuditReport['issues'] {
     });
   }
   return issues;
+}
+
+function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
+  return !!value && typeof (value as ReadableStream<Uint8Array>).getReader === 'function';
 }

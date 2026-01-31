@@ -9,9 +9,10 @@ import {
   createInflate,
   createInflateRaw,
   createZstdCompress,
-  createZstdDecompress
+  createZstdDecompress,
+  constants
 } from 'node:zlib';
-import type { CompressionAlgorithm, CompressionMode } from './streams.js';
+import type { CompressionAlgorithm, CompressionMode, CompressionTransformOptions } from './streams.js';
 
 function toWebTransform(duplex: Duplex, signal?: AbortSignal): ReadableWritablePair<Uint8Array, Uint8Array> {
   if (signal) {
@@ -56,32 +57,58 @@ function supports(algorithm: CompressionAlgorithm, mode: CompressionMode): boole
   }
 }
 
-function create(algorithm: CompressionAlgorithm, mode: CompressionMode, signal?: AbortSignal) {
+function create(
+  algorithm: CompressionAlgorithm,
+  mode: CompressionMode,
+  options?: CompressionTransformOptions
+) {
+  const signal = options?.signal;
   switch (algorithm) {
     case 'gzip': {
-      const stream = mode === 'compress' ? createGzip() : createGunzip();
+      const stream =
+        mode === 'compress'
+          ? createGzip(options?.level !== undefined ? { level: options.level } : undefined)
+          : createGunzip();
       return toWebTransform(stream, signal);
     }
     case 'deflate': {
-      const stream = mode === 'compress' ? createDeflate() : createInflate();
+      const stream =
+        mode === 'compress'
+          ? createDeflate(options?.level !== undefined ? { level: options.level } : undefined)
+          : createInflate();
       return toWebTransform(stream, signal);
     }
     case 'deflate-raw': {
-      const stream = mode === 'compress' ? createDeflateRaw() : createInflateRaw();
+      const stream =
+        mode === 'compress'
+          ? createDeflateRaw(options?.level !== undefined ? { level: options.level } : undefined)
+          : createInflateRaw();
       return toWebTransform(stream, signal);
     }
     case 'brotli': {
       if (!supports('brotli', mode)) {
         throw new Error('Brotli not supported in this Node runtime');
       }
-      const stream = mode === 'compress' ? createBrotliCompress() : createBrotliDecompress();
+      const stream =
+        mode === 'compress'
+          ? createBrotliCompress(
+              options?.quality !== undefined
+                ? { params: { [constants.BROTLI_PARAM_QUALITY]: options.quality } }
+                : undefined
+            )
+          : createBrotliDecompress();
       return toWebTransform(stream, signal);
     }
     case 'zstd': {
       if (!supports('zstd', mode)) {
         throw new Error('Zstandard not supported in this Node runtime');
       }
-      const stream = mode === 'compress' ? createZstdCompress() : createZstdDecompress();
+      const params =
+        options?.level !== undefined
+          ? { params: { [constants.ZSTD_c_compressionLevel]: options.level } }
+          : undefined;
+      const stream =
+        mode === 'compress' ? createZstdCompress(params) : createZstdDecompress();
       return toWebTransform(stream, signal);
     }
     default: {

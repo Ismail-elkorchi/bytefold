@@ -9,8 +9,10 @@ import { TarWriter } from '../tar/TarWriter.js';
 export { ArchiveError } from '../archive/errors.js';
 export type {
   ArchiveAuditReport,
+  ArchiveDetectionReport,
   ArchiveEntry,
   ArchiveFormat,
+  ArchiveInputKind,
   ArchiveIssue,
   ArchiveIssueSeverity,
   ArchiveLimits,
@@ -30,14 +32,24 @@ export type BunArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Arr
 
 export async function openArchive(input: BunArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) {
-    return openArchiveCore(input, options);
+    return openArchiveCore(input, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: 'bytes' })
+    });
   }
   if (typeof input === 'string' || input instanceof URL) {
     const path = typeof input === 'string' ? input : input.toString();
     const data = new Uint8Array(await BunGlobal.file(path).arrayBuffer());
-    return openArchiveCore(data, options);
+    return openArchiveCore(data, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: input instanceof URL ? 'url' : 'file' }),
+      ...(options?.filename ? {} : { filename: path })
+    });
   }
-  return openArchiveCore(input, options);
+  return openArchiveCore(input, {
+    ...options,
+    ...(options?.inputKind ? {} : { inputKind: 'stream' })
+  });
 }
 
 export async function zipFromFile(path: string, options?: Parameters<typeof ZipReader.fromUint8Array>[1]) {

@@ -11,3 +11,4 @@ import './dispose.test.js';
 import './deflate64.test.js';
 import './normalize.test.js';
 import './archive.test.js';
+import './compress.test.js';

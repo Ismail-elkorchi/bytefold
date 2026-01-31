@@ -1,13 +1,36 @@
-export type ArchiveFormat = 'zip' | 'tar' | 'gz' | 'tgz';
+import type { CompressionAlgorithm } from '../compress/types.js';
+
+export type ArchiveFormat =
+  | 'zip'
+  | 'tar'
+  | 'gz'
+  | 'tgz'
+  | 'tar.gz'
+  | 'zst'
+  | 'br'
+  | 'tar.zst'
+  | 'tar.br';
 export type ArchiveProfile = 'compat' | 'strict' | 'agent';
 export type ArchiveIssueSeverity = 'info' | 'warning' | 'error';
+export type ArchiveInputKind = 'file' | 'url' | 'bytes' | 'stream';
+
+export interface ArchiveDetectionReport {
+  inputKind: ArchiveInputKind;
+  detected: {
+    container?: 'zip' | 'tar';
+    compression?: CompressionAlgorithm | 'none';
+    layers: string[];
+  };
+  confidence: 'high' | 'medium' | 'low';
+  notes: string[];
+}
 
 export interface ArchiveIssue {
   code: string;
   severity: ArchiveIssueSeverity;
   message: string;
   entryName?: string;
-  offset?: bigint;
+  offset?: string;
   details?: Record<string, unknown>;
 }
 
@@ -66,6 +89,8 @@ export interface ArchiveOpenOptions {
   limits?: ArchiveLimits;
   signal?: AbortSignal;
   password?: string;
+  filename?: string;
+  inputKind?: ArchiveInputKind;
   zip?: Record<string, unknown>;
   tar?: Record<string, unknown>;
 }

@@ -63,6 +63,8 @@ test('audit reports symlink entries and trailing bytes', async () => {
   const codes = report.issues.map((issue) => issue.code);
   assert.ok(codes.includes('ZIP_SYMLINK_PRESENT'));
   assert.ok(codes.includes('ZIP_TRAILING_BYTES'));
+  const trailing = report.issues.find((issue) => issue.code === 'ZIP_TRAILING_BYTES');
+  assert.equal(typeof trailing?.offset, 'string');
   await reader.close();
 });
 

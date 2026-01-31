@@ -1,11 +1,15 @@
 # Agent workflow
 
-`bytefold` provides audit-first extraction designed for autonomous agents across ZIP, TAR, and GZIP.
+`bytefold` provides audit-first extraction designed for autonomous agents across ZIP, TAR, GZIP, Zstandard, and Brotli layers.
 
-## Safe pipeline (auto-detect)
+## Safe pipeline (capabilities → auto-detect → audit → normalize → extract)
 
 ```js
 import { openArchive } from '@ismail-elkorchi/bytefold';
+import { getCompressionCapabilities } from '@ismail-elkorchi/bytefold/compress';
+
+const caps = getCompressionCapabilities();
+console.log(JSON.stringify(caps));
 
 const res = await fetch('https://example.com/archive.tgz');
 const reader = await openArchive(res.body, {
@@ -16,11 +20,22 @@ const reader = await openArchive(res.body, {
   }
 });
 
+console.log(JSON.stringify(reader.detection));
+
 const report = await reader.audit({ profile: 'agent' });
-console.log(JSON.stringify(report)); // JSON-safe
+console.log(JSON.stringify(report)); // JSON-safe (no bigint)
 
 await reader.assertSafe({ profile: 'agent' });
-// now extract selected entries
+
+const normalizedChunks = [];
+const normalizedWritable = new WritableStream({
+  write(chunk) {
+    normalizedChunks.push(chunk);
+  }
+});
+await reader.normalizeToWritable?.(normalizedWritable, { deterministic: true });
+
+// extract selected entries
 for await (const entry of reader.entries()) {
   if (entry.isDirectory) continue;
   const data = await new Response(await entry.open()).arrayBuffer();
@@ -51,10 +66,20 @@ await reader.assertSafe({ profile: 'agent' });
 
 `assertSafe({ profile: 'agent' })` treats *any* audit warning as an error.
 
-## Audit report JSON
+## Detection report
 
-Audit reports include bigint offsets internally, but each report has a `toJSON` method so
-`JSON.stringify(report)` is safe and converts bigints to strings in the output.
+`openArchive()` exposes a JSON-safe detection report on `reader.detection`:
+
+```js
+{
+  inputKind: "stream",
+  detected: { container: "tar", compression: "gzip", layers: ["gzip", "tar"] },
+  confidence: "high",
+  notes: ["Format inferred from magic bytes"]
+}
+```
+
+Use `confidence` + `notes` to decide when to require human review or explicit format hints.
 
 ## Normalization for agents
 

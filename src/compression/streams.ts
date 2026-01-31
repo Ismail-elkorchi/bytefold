@@ -12,6 +12,8 @@ export interface CompressionTransformOptions {
   algorithm: CompressionAlgorithm;
   signal?: AbortSignal;
   onProgress?: (event: CompressionProgress) => void;
+  level?: number;
+  quality?: number;
 }
 
 export async function createCompressTransform(
@@ -41,7 +43,7 @@ async function createTransform(
   const { algorithm } = options;
   const nodeBackend = await getNodeBackend();
   if (nodeBackend?.supports(algorithm, mode)) {
-    const transform = nodeBackend.create(algorithm, mode, options.signal);
+    const transform = nodeBackend.create(algorithm, mode, options);
     return attachProgress(transform, options.onProgress);
   }
 
@@ -64,7 +66,7 @@ let nodeBackendPromise:
           create: (
             algorithm: CompressionAlgorithm,
             mode: CompressionMode,
-            signal?: AbortSignal
+            options?: CompressionTransformOptions
           ) => ReadableWritablePair<Uint8Array, Uint8Array>;
         }
       | null
@@ -87,31 +89,19 @@ async function nodeSupports(algorithm: CompressionAlgorithm, mode: CompressionMo
 }
 
 const webSupportCache = new Map<string, boolean>();
-const WEB_FORMATS = new Set<CompressionAlgorithm>(['gzip', 'deflate', 'deflate-raw']);
-type WebCompressionFormat = 'gzip' | 'deflate' | 'deflate-raw';
-
-function toWebCompressionFormat(algorithm: CompressionAlgorithm): WebCompressionFormat | null {
-  if (!WEB_FORMATS.has(algorithm)) return null;
-  return algorithm as WebCompressionFormat;
-}
 
 function supportsWebCompression(algorithm: CompressionAlgorithm, mode: CompressionMode): boolean {
   const key = `${mode}:${algorithm}`;
   const cached = webSupportCache.get(key);
   if (cached !== undefined) return cached;
-  const webAlgorithm = toWebCompressionFormat(algorithm);
-  if (!webAlgorithm) {
-    webSupportCache.set(key, false);
-    return false;
-  }
   let ok = false;
   try {
     if (mode === 'compress') {
       // eslint-disable-next-line no-new
-      new CompressionStream(webAlgorithm);
+      new CompressionStream(algorithm as unknown as CompressionFormat);
     } else {
       // eslint-disable-next-line no-new
-      new DecompressionStream(webAlgorithm);
+      new DecompressionStream(algorithm as unknown as CompressionFormat);
     }
     ok = true;
   } catch {
@@ -126,13 +116,17 @@ function createWebCompressionTransform(
   mode: CompressionMode,
   signal?: AbortSignal
 ): ReadableWritablePair<Uint8Array, Uint8Array> {
-  const webAlgorithm = toWebCompressionFormat(algorithm);
-  if (!webAlgorithm) {
+  let transform: ReadableWritablePair<Uint8Array, Uint8Array>;
+  try {
+    transform = (mode === 'compress'
+      ? new CompressionStream(algorithm as unknown as CompressionFormat)
+      : new DecompressionStream(algorithm as unknown as CompressionFormat)) as unknown as ReadableWritablePair<
+      Uint8Array,
+      Uint8Array
+    >;
+  } catch {
     throw new ZipError('ZIP_UNSUPPORTED_METHOD', `Compression algorithm ${algorithm} is not supported by Web streams`);
   }
-  const transform = (mode === 'compress'
-    ? new CompressionStream(webAlgorithm)
-    : new DecompressionStream(webAlgorithm)) as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
   if (signal) {
     if (signal.aborted) {
       transform.writable.abort(signal.reason).catch(() => {});

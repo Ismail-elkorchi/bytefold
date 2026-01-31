@@ -288,7 +288,7 @@ export class ZipReader {
         code: 'ZIP_TRAILING_BYTES',
         severity,
         message: `Trailing bytes after EOCD: ${trailingBytes.toString()}`,
-        offset: eocdEnd,
+        offset: eocdEnd.toString(),
         details: { trailingBytes: trailingBytes.toString() }
       });
     }
@@ -299,7 +299,7 @@ export class ZipReader {
         code: 'ZIP_OUT_OF_RANGE',
         severity: 'error',
         message: 'Central directory is outside file bounds',
-        offset: eocd.cdOffset,
+        offset: eocd.cdOffset.toString(),
         details: {
           cdOffset: eocd.cdOffset.toString(),
           cdSize: eocd.cdSize.toString(),
@@ -444,7 +444,7 @@ export class ZipReader {
             severity: 'error',
             message: 'Local header offset is outside file bounds',
             entryName: entry.name,
-            offset: entry.offset,
+            offset: entry.offset.toString(),
             details: { offset: entry.offset.toString(), fileSize: size.toString() }
           });
           continue;
@@ -459,7 +459,7 @@ export class ZipReader {
               severity: 'error',
               message: 'Local header does not match central directory',
               entryName: entry.name,
-              offset: entry.offset,
+              offset: entry.offset.toString(),
               details: mismatchDetails
             });
           }
@@ -471,7 +471,7 @@ export class ZipReader {
               severity: 'error',
               message: 'Entry data extends beyond file bounds',
               entryName: entry.name,
-              offset: local.dataOffset,
+              offset: local.dataOffset.toString(),
               details: {
                 dataOffset: local.dataOffset.toString(),
                 dataEnd: dataEnd.toString(),
@@ -500,7 +500,7 @@ export class ZipReader {
             severity: 'error',
             message: 'Failed to read local header',
             entryName: entry.name,
-            offset: entry.offset,
+            offset: entry.offset.toString(),
             ...(details ? { details } : {})
           });
         }
@@ -1310,7 +1310,7 @@ function issueFromError(err: unknown): ZipIssue {
       severity: 'error',
       message: err.message,
       ...(err.entryName ? { entryName: err.entryName } : {}),
-      ...(err.offset !== undefined ? { offset: err.offset } : {}),
+      ...(err.offset !== undefined ? { offset: err.offset.toString() } : {}),
       ...(err.cause ? { details: { cause: String(err.cause) } } : {})
     };
   }

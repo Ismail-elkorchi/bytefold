@@ -8,8 +8,10 @@ import { toWebReadable } from '../streams/adapters.js';
 export { ArchiveError } from '../archive/errors.js';
 export type {
   ArchiveAuditReport,
+  ArchiveDetectionReport,
   ArchiveEntry,
   ArchiveFormat,
+  ArchiveInputKind,
   ArchiveIssue,
   ArchiveIssueSeverity,
   ArchiveLimits,
@@ -35,18 +37,31 @@ export type NodeArchiveInput =
 
 export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) {
-    return openArchiveCore(input, options);
+    return openArchiveCore(input, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: 'bytes' })
+    });
   }
   if (typeof input === 'string' || input instanceof URL) {
     const filePath = typeof input === 'string' ? input : fileURLToPath(input);
     const data = new Uint8Array(await readFile(filePath));
-    return openArchiveCore(data, options);
+    return openArchiveCore(data, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: input instanceof URL ? 'url' : 'file' }),
+      ...(options?.filename ? {} : { filename: filePath })
+    });
   }
   if (isReadableStream(input)) {
-    return openArchiveCore(input, options);
+    return openArchiveCore(input, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: 'stream' })
+    });
   }
   const webStream = toWebReadable(input as NodeJS.ReadableStream);
-  return openArchiveCore(webStream, options);
+  return openArchiveCore(webStream, {
+    ...options,
+    ...(options?.inputKind ? {} : { inputKind: 'stream' })
+  });
 }
 
 function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {

@@ -3,6 +3,11 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
+import {
+  createCompressor,
+  createDecompressor,
+  getCompressionCapabilities
+} from '../dist/compress/index.js';
 
 const encoder = new TextEncoder();
 
@@ -76,7 +81,67 @@ test('bun smoke: zip, tar, tgz', async () => {
 
     const tgzArchive = await openArchive(tgzPath);
     expect(tgzArchive.format).toBe('tgz');
+
+    const caps = getCompressionCapabilities();
+    const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd'> = [
+      'gzip',
+      'deflate-raw',
+      'deflate',
+      'brotli',
+      'zstd'
+    ];
+    for (const algorithm of algorithms) {
+      const support = caps.algorithms[algorithm];
+      if (!support.compress || !support.decompress) continue;
+      const compressor = await createCompressor({ algorithm });
+      const decompressor = await createDecompressor({ algorithm });
+      const roundtrip = await collect(
+        readableFromBytes(encoder.encode('bytefold-compress-bun')).pipeThrough(compressor).pipeThrough(decompressor)
+      );
+      const text = new TextDecoder().decode(roundtrip);
+      expect(text).toBe('bytefold-compress-bun');
+    }
+
+    const abortAlgorithm = algorithms.find(
+      (algorithm) => caps.algorithms[algorithm].compress && caps.algorithms[algorithm].decompress
+    );
+    if (abortAlgorithm) {
+      const controller = new AbortController();
+      let aborted = false;
+      const compressor = await createCompressor({
+        algorithm: abortAlgorithm,
+        signal: controller.signal,
+        onProgress: () => {
+          if (!aborted) {
+            aborted = true;
+            controller.abort();
+          }
+        }
+      });
+      let abortedOk = false;
+      try {
+        await collect(
+          new ReadableStream<Uint8Array>({
+            pull(ctrl) {
+              ctrl.enqueue(new Uint8Array(64 * 1024));
+            }
+          }).pipeThrough(compressor)
+        );
+      } catch {
+        abortedOk = true;
+      }
+      expect(abortedOk).toBe(true);
+    }
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }
 });
+
+function readableFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    }
+  });
+}

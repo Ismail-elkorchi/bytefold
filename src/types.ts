@@ -29,7 +29,7 @@ export type ZipIssue = {
   severity: ZipIssueSeverity;
   message: string;
   entryName?: string;
-  offset?: bigint;
+  offset?: string;
   details?: Record<string, unknown>;
 };
 

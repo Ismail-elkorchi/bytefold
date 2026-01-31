@@ -392,7 +392,7 @@ function parseTarEntries(data: Uint8Array, options: { strict: boolean; limits: R
         code: 'TAR_BAD_HEADER',
         severity: options.strict ? 'error' : 'warning',
         message: 'Header checksum mismatch',
-        offset: BigInt(offset)
+        offset: BigInt(offset).toString()
       };
       if (options.strict) {
         throw new ArchiveError('ARCHIVE_BAD_HEADER', issue.message, { offset: BigInt(offset) });

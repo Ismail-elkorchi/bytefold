@@ -1,6 +1,6 @@
 # bytefold
 
-Multi-format archive reader/writer for the 2026+ agent stack. ZIP + TAR + GZIP, with audit-first safety, deterministic normalization, and first-class support for Node 24+, Deno, and Bun. ESM-only, TypeScript-first, no runtime deps.
+Multi-format archive reader/writer for the 2026+ agent stack. ZIP + TAR + GZIP + Zstandard + Brotli, with audit-first safety, deterministic normalization, and first-class support for Node 24+, Deno, and Bun. ESM-only, TypeScript-first, no runtime deps.
 
 ## Install
 
@@ -25,7 +25,7 @@ for await (const entry of reader.entries()) {
 }
 ```
 
-Supported auto formats: ZIP, TAR, GZ, TGZ.
+Supported auto formats: ZIP, TAR, GZ, TGZ, ZST, BR, TAR.ZST, TAR.BR.
 
 ## ZIP API (core)
 
@@ -106,6 +106,16 @@ await writer.close();
 - Web Compression Streams (gzip, deflate-raw)
 - Node zlib preferred when available (zstd/brotli supported in Node builds that include them)
 
+## Compression API (cross-runtime)
+
+```js
+import { createCompressor, createDecompressor } from '@ismail-elkorchi/bytefold/compress';
+
+const gzip = createCompressor({ algorithm: 'gzip' });
+const gunzip = createDecompressor({ algorithm: 'gzip' });
+input.pipeThrough(gzip).pipeThrough(gunzip);
+```
+
 ## Supported ZIP methods
 
 - Store (method 0)
@@ -117,4 +127,5 @@ await writer.close();
 
 - Default entrypoint is universal (no Node builtins on import).
 - Node-only adapters are under `@ismail-elkorchi/bytefold/node`.
+- Optional external `7z` bridge is under `@ismail-elkorchi/bytefold/node/external`.
 - Deno/Bun file adapters are under `@ismail-elkorchi/bytefold/deno` and `@ismail-elkorchi/bytefold/bun`.

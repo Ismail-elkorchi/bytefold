@@ -1,16 +1,25 @@
 # Competitive complaint matrix
 
-| Complaint | Source | bytefold response | Proof |
+## User pain → Bytefold response
+
+| Pain class | Examples | Bytefold response | Proof |
 | --- | --- | --- | --- |
-| ZIP64 unsupported or limited | https://github.com/thejoshwolfe/yauzl#zip64-support | ZIP64 read/write supported; strict bounds checks | `docs/compliance.md`, `test/zip.test.ts` |
-| ZIP64 extraction issues | https://github.com/archiverjs/node-archiver/issues/1169 | ZIP64 end-to-end tests + audit bounds | `test/zip.test.ts`, `test/audit.test.ts` |
-| Memory blowups when enumerating entries | https://github.com/archiverjs/node-archiver/issues/1243 | `iterEntries()` streams central directory without storing | `test/iterEntries.test.ts` |
-| ZIP64 hang on extract | https://github.com/ZJONSSON/node-unzipper/issues/358 | AbortSignal support + streaming read | `test/abort-progress.test.ts` |
-| Zip-slip vulnerability | https://nvd.nist.gov/vuln/detail/CVE-2018-1002203 | Path traversal blocked + audit detection | `test/zip.test.ts`, `test/audit.test.ts` |
-| TAR slip vulnerability | https://nvd.nist.gov/vuln/detail/CVE-2001-1267 | TAR path traversal audit + normalization | `test/archive.test.ts` |
-| Gzip bombs / expansion abuse | https://owasp.org/www-community/attacks/Zip_Bomb | Size limits + audit controls | `docs/security.md` |
-| ZIP64 write issues | https://github.com/cthackers/adm-zip/issues/201 | Zip64 write support + strict metadata | `docs/compliance.md`, `test/zip.test.ts` |
-| Corrupt ZIP outputs | https://github.com/cthackers/adm-zip/issues/282 | Spec-first writer + CRC validation | `test/zip.test.ts` |
-| JSZip limitations | https://stuk.github.io/jszip/documentation/limitations.html | Streaming reader + audit + strict limits | `docs/security.md`, `test/iterEntries.test.ts` |
-| JSZip ZIP64 bug | https://github.com/Stuk/jszip/issues/604 | ZIP64 read/write coverage | `test/zip.test.ts` |
-| AES out of scope | https://github.com/antelle/node-stream-zip#limitations | AES read/write supported (Node) | `test/encryption.test.ts`, `scripts/interop.mjs` |
+| ZIP64 unsupported or limited | yauzl zip64 docs; adm-zip #201 | ZIP64 read/write + strict bounds checks | `docs/compliance.md`, `test/zip.test.ts` |
+| ZIP64 extraction issues | archiverjs #1169 | End-to-end ZIP64 audits + validation | `test/zip.test.ts`, `test/audit.test.ts` |
+| Central directory too large / memory blowups | archiverjs #1243 | `iterEntries()` streams CD without storing | `test/iterEntries.test.ts` |
+| Remote range fetch failures | unzipper #358 | HTTP range checks + abortable reads | `test/http.test.ts`, `test/abort-progress.test.ts` |
+| Deflate64 (method 9) unsupported | common zip libs | Native Deflate64 decoder | `test/deflate64.test.ts` |
+| Encryption handling | node-stream-zip limitations | AES/ZipCrypto (Node) + audit | `test/encryption.test.ts`, `scripts/interop.mjs` |
+| Zip-slip / path traversal | CVE-2018-1002203 | Path traversal detection + normalize | `test/zip.test.ts`, `test/audit.test.ts` |
+| TAR slip / path traversal | CVE-2001-1267 | TAR path traversal audit + normalize | `test/archive.test.ts` |
+| Trailing bytes / polyglots | JSZip limitations | ZIP audit flags trailing bytes | `test/audit.test.ts` |
+| Huge compressed bombs | OWASP Zip Bomb | Limits + audit controls | `docs/security.md`, `test/audit.test.ts` |
+| Layered archives brittle | tgz / tar.zst | Auto-detect + layering support | `test/archive.test.ts`, `docs/formats.md` |
+
+## What Bytefold still does NOT do
+
+- Split or multi-volume ZIP archives.
+- Native 7z container support (use the optional `@ismail-elkorchi/bytefold/node/external` bridge).
+- RAR, CAB, or ISO images.
+- Solid archive creation (7z) or advanced archive recovery.
+- Brotli auto-detection without an explicit hint or file extension.

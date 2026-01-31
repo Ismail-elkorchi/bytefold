@@ -19,6 +19,10 @@
       "types": "./dist/tar/index.d.ts",
       "default": "./dist/tar/index.js"
     },
+    "./compress": {
+      "types": "./dist/compress/index.d.ts",
+      "default": "./dist/compress/index.js"
+    },
     "./archive": {
       "types": "./dist/archive/index.d.ts",
       "default": "./dist/archive/index.js"
@@ -30,6 +34,10 @@
     "./node/zip": {
       "types": "./dist/node/zip/index.d.ts",
       "default": "./dist/node/zip/index.js"
+    },
+    "./node/external": {
+      "types": "./dist/node/external/index.d.ts",
+      "default": "./dist/node/external/index.js"
     },
     "./deno": {
       "types": "./dist/deno/index.d.ts",
@@ -47,10 +55,12 @@
     "build:test": "tsc -p tsconfig.test.json",
     "test": "npm run build && npm run build:test && node --test dist-test",
     "test:node": "npm run test",
-    "test:deno": "npm run build && deno test --allow-read --allow-write test/deno.smoke.ts",
-    "test:bun": "npm run build && bun test ./test/bun.smoke.ts",
+    "test:deno": "npm run build && node ./scripts/run-deno.mjs",
+    "test:bun": "npm run build && node ./scripts/run-bun.mjs",
     "test:all": "npm run test:node && npm run test:deno && npm run test:bun",
     "test:interop": "node ./scripts/interop.mjs",
+    "test:external-7z": "npm run build && node ./scripts/external-7z.mjs",
+    "bench": "npm run build && node ./scripts/bench.mjs",
     "clean": "node ./scripts/clean.mjs"
   },
   "devDependencies": {

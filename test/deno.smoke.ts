@@ -1,4 +1,9 @@
-import { openArchive, tarToFile, zipToFile, TarWriter } from '../dist/deno/index.js';
+import { openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
+import {
+  createCompressor,
+  createDecompressor,
+  getCompressionCapabilities
+} from '../dist/compress/index.js';
 
 const encoder = new TextEncoder();
 
@@ -104,4 +109,94 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     const normalizedArchive = await openArchive(normalized);
     if (normalizedArchive.format !== 'zip') throw new Error('normalized zip invalid');
   }
+
+  const caps = getCompressionCapabilities();
+  const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd'> = [
+    'gzip',
+    'deflate-raw',
+    'deflate',
+    'brotli',
+    'zstd'
+  ];
+  for (const algorithm of algorithms) {
+    const support = caps.algorithms[algorithm];
+    if (!support.compress || !support.decompress) continue;
+    const compressor = await createCompressor({ algorithm });
+    const decompressor = await createDecompressor({ algorithm });
+    const roundtrip = await collect(
+      readableFromBytes(encoder.encode('bytefold-compress-deno')).pipeThrough(compressor).pipeThrough(decompressor)
+    );
+    const text = new TextDecoder().decode(roundtrip);
+    if (text !== 'bytefold-compress-deno') throw new Error(`compression roundtrip failed for ${algorithm}`);
+  }
+
+  const abortAlgorithm = algorithms.find(
+    (algorithm) => caps.algorithms[algorithm].compress && caps.algorithms[algorithm].decompress
+  );
+  if (abortAlgorithm) {
+    const controller = new AbortController();
+    let aborted = false;
+    const compressor = await createCompressor({
+      algorithm: abortAlgorithm,
+      signal: controller.signal,
+      onProgress: () => {
+        if (!aborted) {
+          aborted = true;
+          controller.abort();
+        }
+      }
+    });
+    let abortedOk = false;
+    try {
+      await collect(
+        new ReadableStream<Uint8Array>({
+          pull(ctrl) {
+            ctrl.enqueue(new Uint8Array(64 * 1024));
+          }
+        }).pipeThrough(compressor)
+      );
+    } catch {
+      abortedOk = true;
+    }
+    if (!abortedOk) throw new Error('compression abort did not trigger');
+  }
+
+  if (caps.algorithms.zstd.compress && caps.algorithms.zstd.decompress) {
+    const chunks: Uint8Array[] = [];
+    const writable = new WritableStream<Uint8Array>({
+      write(chunk) {
+        chunks.push(chunk);
+      }
+    });
+    const writer = createArchiveWriter('tar.zst', writable);
+    await writer.add('zstd.txt', encoder.encode('zstd tar'));
+    await writer.close();
+    const tzstBytes = concatChunks(chunks);
+    const tzstReader = await openArchive(tzstBytes);
+    if (tzstReader.format !== 'tar.zst') throw new Error('tar.zst format not detected');
+  }
+
+  if (caps.algorithms.brotli.compress && caps.algorithms.brotli.decompress) {
+    const chunks: Uint8Array[] = [];
+    const writable = new WritableStream<Uint8Array>({
+      write(chunk) {
+        chunks.push(chunk);
+      }
+    });
+    const writer = createArchiveWriter('tar.br', writable);
+    await writer.add('br.txt', encoder.encode('brotli tar'));
+    await writer.close();
+    const tbrBytes = concatChunks(chunks);
+    const tbrReader = await openArchive(tbrBytes, { format: 'tar.br' });
+    if (tbrReader.format !== 'tar.br') throw new Error('tar.br format not detected');
+  }
 });
+
+function readableFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    }
+  });
+}
