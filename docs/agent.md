@@ -1,11 +1,11 @@
 # Agent workflow
 
-`archive-shield` provides audit-first extraction designed for autonomous agents across ZIP, TAR, and GZIP.
+`bytefold` provides audit-first extraction designed for autonomous agents across ZIP, TAR, and GZIP.
 
 ## Safe pipeline (auto-detect)
 
 ```js
-import { openArchive } from 'archive-shield';
+import { openArchive } from '@ismail-elkorchi/bytefold';
 
 const res = await fetch('https://example.com/archive.tgz');
 const reader = await openArchive(res.body, {
@@ -31,7 +31,7 @@ for await (const entry of reader.entries()) {
 ## Node file adapters
 
 ```js
-import { openArchive } from 'archive-shield/node';
+import { openArchive } from '@ismail-elkorchi/bytefold/node';
 
 const reader = await openArchive('/tmp/upload.zip', { profile: 'agent' });
 await reader.assertSafe({ profile: 'agent' });
@@ -61,7 +61,7 @@ Audit reports include bigint offsets internally, but each report has a `toJSON` 
 Normalize untrusted uploads into deterministic, single-interpretation archives.
 
 ```js
-import { openArchive } from 'archive-shield';
+import { openArchive } from '@ismail-elkorchi/bytefold';
 
 const reader = await openArchive(fileBytes, { profile: 'agent' });
 const chunks = [];

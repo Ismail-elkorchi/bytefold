@@ -1,6 +1,6 @@
 # ZIP compliance matrix
 
-`archive-shield` implements ZIP structures and behaviors based on the local specification files in `./specs/`.
+`bytefold` implements ZIP structures and behaviors based on the local specification files in `./specs/`.
 
 ## Feature matrix
 

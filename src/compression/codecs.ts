@@ -28,16 +28,18 @@ export const DEFLATE_CODEC: ZipCompressionCodec = {
   name: 'deflate',
   supportsStreaming: true,
   async createDecompressStream(options?: ZipDecompressionOptions) {
-    return createDecompressTransform({
-      algorithm: 'deflate-raw',
-      signal: options?.signal
-    });
+    const opts = {
+      algorithm: 'deflate-raw' as const,
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    return createDecompressTransform(opts);
   },
   async createCompressStream(options?: ZipCompressionOptions) {
-    return createCompressTransform({
-      algorithm: 'deflate-raw',
-      signal: options?.signal
-    });
+    const opts = {
+      algorithm: 'deflate-raw' as const,
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    return createCompressTransform(opts);
   }
 };
 
@@ -47,10 +49,11 @@ export const ZSTD_CODEC: ZipCompressionCodec = {
   supportsStreaming: true,
   async createDecompressStream(options?: ZipDecompressionOptions) {
     try {
-      return await createDecompressTransform({
-        algorithm: 'zstd',
-        signal: options?.signal
-      });
+      const opts = {
+        algorithm: 'zstd' as const,
+        ...(options?.signal ? { signal: options.signal } : {})
+      };
+      return await createDecompressTransform(opts);
     } catch (err) {
       throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this runtime', {
         cause: err
@@ -59,10 +62,11 @@ export const ZSTD_CODEC: ZipCompressionCodec = {
   },
   async createCompressStream(options?: ZipCompressionOptions) {
     try {
-      return await createCompressTransform({
-        algorithm: 'zstd',
-        signal: options?.signal
-      });
+      const opts = {
+        algorithm: 'zstd' as const,
+        ...(options?.signal ? { signal: options.signal } : {})
+      };
+      return await createCompressTransform(opts);
     } catch (err) {
       throw new ZipError('ZIP_ZSTD_UNAVAILABLE', 'Zstandard support is not available in this runtime', {
         cause: err

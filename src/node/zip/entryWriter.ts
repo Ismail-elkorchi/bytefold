@@ -475,7 +475,7 @@ async function spoolCompressedData(
   input: EntryWriteInput
 ): Promise<{ tempPath: string; tempDir: string; compressedSize: bigint; crc32: number; uncompressedSize: bigint }> {
   throwIfAborted(input.signal);
-  const tempDir = await mkdtemp(path.join(tmpdir(), 'archive-shield-'));
+  const tempDir = await mkdtemp(path.join(tmpdir(), 'bytefold-'));
   const tempPath = path.join(tempDir, 'spool.bin');
   const sink = new NodeWritableSink(createWriteStream(tempPath));
   try {

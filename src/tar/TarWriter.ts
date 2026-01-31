@@ -11,7 +11,7 @@ const TEXT_ENCODER = new TextEncoder();
 export class TarWriter {
   private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
   private readonly deterministic: boolean;
-  private readonly signal?: AbortSignal;
+  private readonly signal: AbortSignal | undefined;
   private closed = false;
   private paxCounter = 0;
 
@@ -71,7 +71,7 @@ export class TarWriter {
       uid,
       gid,
       size,
-      mtime,
+      ...(mtime ? { mtime } : {}),
       type,
       linkName: linkForHeader,
       uname,
@@ -109,7 +109,7 @@ export class TarWriter {
       uid,
       gid,
       size: BigInt(data.length),
-      mtime,
+      ...(mtime ? { mtime } : {}),
       type: 'pax',
       linkName: '',
       uname,
@@ -168,13 +168,17 @@ async function resolveSource(
   }
   if (isReadableStream(source)) {
     if (sizeHint !== undefined) return { size: sizeHint, stream: source };
-    const data = await readAllBytes(source, { signal });
+    const readOptions: { signal?: AbortSignal } = {};
+    if (signal) readOptions.signal = signal;
+    const data = await readAllBytes(source, readOptions);
     return { size: BigInt(data.length), stream: readableFromBytes(data) };
   }
   if (sizeHint !== undefined) {
     return { size: sizeHint, stream: readableFromAsyncIterable(source) };
   }
-  const data = await readAllBytes(readableFromAsyncIterable(source), { signal });
+  const readOptions: { signal?: AbortSignal } = {};
+  if (signal) readOptions.signal = signal;
+  const data = await readAllBytes(readableFromAsyncIterable(source), readOptions);
   return { size: BigInt(data.length), stream: readableFromBytes(data) };
 }
 
@@ -182,16 +186,27 @@ function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
   return !!value && typeof (value as ReadableStream<Uint8Array>).getReader === 'function';
 }
 
-function resolveMtime(mtime: Date | undefined, deterministic: boolean): Date | undefined {
+function resolveMtime(mtime: Date | undefined, deterministic: boolean): Date {
   if (deterministic) return new Date(0);
   return mtime ?? new Date();
 }
 
 function resolveMode(mode: number | undefined, type: TarEntryType, deterministic: boolean): number {
-  if (mode !== undefined && !deterministic) return mode;
-  if (type === 'directory') return 0o755;
-  if (type === 'symlink') return 0o777;
-  return 0o644;
+  let resolved: number;
+  if (mode !== undefined && !deterministic) {
+    resolved = mode;
+  } else if (type === 'directory') {
+    resolved = 0o755;
+  } else if (type === 'symlink') {
+    resolved = 0o777;
+  } else {
+    resolved = 0o644;
+  }
+  return clampMode(resolved);
+}
+
+function clampMode(mode: number): number {
+  return mode & 0o777;
 }
 
 function resolveId(id: number | undefined, deterministic: boolean): number {
@@ -305,7 +320,7 @@ function writeBase256(buffer: Uint8Array, offset: number, length: number, value:
     buffer[i] = Number(val & 0xffn);
     val >>= 8n;
   }
-  buffer[offset] |= 0x80;
+  buffer[offset] = (buffer[offset] ?? 0) | 0x80;
 }
 
 function encodePaxRecords(records: Record<string, string>): Uint8Array {

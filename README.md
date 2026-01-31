@@ -1,17 +1,17 @@
-# archive-shield
+# bytefold
 
 Multi-format archive reader/writer for the 2026+ agent stack. ZIP + TAR + GZIP, with audit-first safety, deterministic normalization, and first-class support for Node 24+, Deno, and Bun. ESM-only, TypeScript-first, no runtime deps.
 
 ## Install
 
 ```sh
-npm install archive-shield
+npm install @ismail-elkorchi/bytefold
 ```
 
 ## Quickstart (auto-detect)
 
 ```js
-import { openArchive } from 'archive-shield';
+import { openArchive } from '@ismail-elkorchi/bytefold';
 
 const reader = await openArchive(bytesOrStream, { profile: 'agent' });
 const report = await reader.audit({ profile: 'agent' });
@@ -30,7 +30,7 @@ Supported auto formats: ZIP, TAR, GZ, TGZ.
 ## ZIP API (core)
 
 ```js
-import { ZipWriter, ZipReader } from 'archive-shield/zip';
+import { ZipWriter, ZipReader } from '@ismail-elkorchi/bytefold/zip';
 
 const writer = ZipWriter.toWritable(writableStream);
 await writer.add('hello.txt', new TextEncoder().encode('hello'));
@@ -44,7 +44,7 @@ const stream = await reader.open(entry);
 ## TAR API (core)
 
 ```js
-import { TarWriter, TarReader } from 'archive-shield/tar';
+import { TarWriter, TarReader } from '@ismail-elkorchi/bytefold/tar';
 
 const writer = TarWriter.toWritable(writableStream);
 await writer.add('greet.txt', new TextEncoder().encode('hello tar'));
@@ -59,7 +59,7 @@ for (const entry of reader.entries()) {
 ## Node-only ZIP features (encryption, file helpers)
 
 ```js
-import { ZipWriter, ZipReader } from 'archive-shield/node/zip';
+import { ZipWriter, ZipReader } from '@ismail-elkorchi/bytefold/node/zip';
 
 const writer = await ZipWriter.toFile('./secret.zip', {
   encryption: { type: 'aes', password: 'pw', strength: 256, vendorVersion: 2 }
@@ -76,7 +76,7 @@ const stream = await reader.open(entry, { password: 'pw' });
 
 ```js
 // Deno
-import { openArchive, zipToFile } from 'archive-shield/deno';
+import { openArchive, zipToFile } from '@ismail-elkorchi/bytefold/deno';
 
 const writer = await zipToFile('./out.zip');
 await writer.add('hello.txt', new TextEncoder().encode('deno'));
@@ -87,7 +87,7 @@ const reader = await openArchive('./out.zip');
 
 ```js
 // Bun
-import { openArchive, zipToFile } from 'archive-shield/bun';
+import { openArchive, zipToFile } from '@ismail-elkorchi/bytefold/bun';
 
 const writer = await zipToFile('./out.zip');
 await writer.add('hello.txt', new TextEncoder().encode('bun'));
@@ -116,5 +116,5 @@ await writer.close();
 ## Runtime notes
 
 - Default entrypoint is universal (no Node builtins on import).
-- Node-only adapters are under `archive-shield/node`.
-- Deno/Bun file adapters are under `archive-shield/deno` and `archive-shield/bun`.
+- Node-only adapters are under `@ismail-elkorchi/bytefold/node`.
+- Deno/Bun file adapters are under `@ismail-elkorchi/bytefold/deno` and `@ismail-elkorchi/bytefold/bun`.

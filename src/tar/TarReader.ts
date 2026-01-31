@@ -2,7 +2,15 @@ import { ArchiveError } from '../archive/errors.js';
 import type { ArchiveLimits, ArchiveProfile } from '../archive/types.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromBytes } from '../streams/web.js';
-import type { TarAuditOptions, TarEntry, TarIssue, TarNormalizeOptions, TarNormalizeReport, TarReaderOptions } from './types.js';
+import type {
+  TarAuditOptions,
+  TarAuditReport,
+  TarEntry,
+  TarIssue,
+  TarNormalizeOptions,
+  TarNormalizeReport,
+  TarReaderOptions
+} from './types.js';
 import { TarWriter } from './TarWriter.js';
 import { throwIfAborted } from '../abort.js';
 
@@ -57,10 +65,12 @@ export class TarReader {
   }
 
   static async fromStream(stream: ReadableStream<Uint8Array>, options?: TarReaderOptions): Promise<TarReader> {
-    const data = await readAllBytes(stream, {
-      signal: options?.signal,
-      maxBytes: options?.limits?.maxTotalUncompressedBytes
-    });
+    const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
+    if (options?.signal) readOptions.signal = options.signal;
+    if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+    }
+    const data = await readAllBytes(stream, readOptions);
     return TarReader.fromUint8Array(data, options);
   }
 
@@ -106,14 +116,13 @@ export class TarReader {
     return readableFromBytes(slice);
   }
 
-  async audit(options?: TarAuditOptions): Promise<{ ok: boolean; summary: { entries: number; warnings: number; errors: number; totalBytes?: number }; issues: TarIssue[]; toJSON: () => unknown }> {
+  async audit(options?: TarAuditOptions): Promise<TarAuditReport> {
     const settings = this.resolveAuditSettings(options);
     const issues: TarIssue[] = [];
-    const summary = {
+    const summary: TarAuditReport['summary'] = {
       entries: 0,
       warnings: 0,
-      errors: 0,
-      totalBytes: 0
+      errors: 0
     };
 
     const addIssue = (issue: TarIssue) => {
@@ -192,7 +201,8 @@ export class TarReader {
       }
     }
 
-    summary.totalBytes = toSafeNumber(total);
+    const totalBytes = toSafeNumber(total);
+    if (totalBytes !== undefined) summary.totalBytes = totalBytes;
     return finalizeAuditReport(issues, summary);
   }
 
@@ -242,7 +252,11 @@ export class TarReader {
       summary
     });
 
-    const writer = TarWriter.toWritable(writable, { deterministic, signal });
+    const writerOptions = {
+      ...(deterministic ? { deterministic } : {}),
+      ...(signal ? { signal } : {})
+    };
+    const writer = TarWriter.toWritable(writable, writerOptions);
 
     for (const item of normalized) {
       throwIfAborted(signal);
@@ -254,17 +268,22 @@ export class TarReader {
         continue;
       }
 
-      const data = entry.isDirectory ? new Uint8Array(0) : this.data.subarray(entry.dataOffset, entry.dataOffset + Number(entry.dataSize));
+      const data = entry.isDirectory
+        ? new Uint8Array(0)
+        : this.data.subarray(entry.dataOffset, entry.dataOffset + Number(entry.dataSize));
+      const mtime = deterministic ? new Date(0) : entry.mtime;
+      const mode = deterministic ? defaultMode(entry) : clampMode(entry.mode ?? defaultMode(entry));
+      const addOptions = {
+        type: entry.type,
+        ...(mtime ? { mtime } : {}),
+        ...(mode !== undefined ? { mode } : {}),
+        ...(entry.uid !== undefined ? { uid: deterministic ? 0 : entry.uid } : {}),
+        ...(entry.gid !== undefined ? { gid: deterministic ? 0 : entry.gid } : {}),
+        ...(entry.linkName !== undefined ? { linkName: entry.linkName } : {}),
+        ...(entry.pax ? { pax: entry.pax } : {})
+      };
       try {
-        await writer.add(item.normalizedName, data, {
-          type: entry.type,
-          mtime: deterministic ? new Date(0) : entry.mtime,
-          mode: deterministic ? defaultMode(entry) : entry.mode,
-          uid: deterministic ? 0 : entry.uid,
-          gid: deterministic ? 0 : entry.gid,
-          linkName: entry.linkName,
-          pax: entry.pax
-        });
+        await writer.add(item.normalizedName, data, addOptions);
       } catch (err) {
         addIssue({
           code: 'TAR_UNSUPPORTED_ENTRY',
@@ -368,7 +387,7 @@ function parseTarEntries(data: Uint8Array, options: { strict: boolean; limits: R
 
     const checksumStored = parseOctal(header.subarray(148, 156));
     const checksumActual = computeChecksum(header);
-    if (checksumStored !== checksumActual) {
+    if (checksumStored !== undefined && Number(checksumStored) !== checksumActual) {
       const issue: TarIssue = {
         code: 'TAR_BAD_HEADER',
         severity: options.strict ? 'error' : 'warning',
@@ -430,7 +449,10 @@ function parseTarEntries(data: Uint8Array, options: { strict: boolean; limits: R
     }
 
     if (pax?.size) {
-      size = BigInt(Math.max(0, Number(pax.size)));
+      const parsedSize = parsePaxSize(pax.size);
+      if (parsedSize !== undefined) {
+        size = parsedSize;
+      }
     }
 
     const entryType = typeFromFlag(typeflag);
@@ -442,18 +464,18 @@ function parseTarEntries(data: Uint8Array, options: { strict: boolean; limits: R
     const entry: TarEntryRecord = {
       name: fullName,
       size: size ?? 0n,
-      mtime: entryMtime,
-      mode: mode !== undefined ? Number(mode) : undefined,
-      uid: uid !== undefined ? Number(uid) : undefined,
-      gid: gid !== undefined ? Number(gid) : undefined,
       type: entryType,
-      linkName: resolvedLink || undefined,
       isDirectory,
       isSymlink,
-      pax,
       dataOffset,
-      dataSize: size ?? 0n
+      dataSize: size ?? 0n,
+      ...(pax ? { pax } : {})
     };
+    if (entryMtime) entry.mtime = entryMtime;
+    if (mode !== undefined) entry.mode = Number(mode);
+    if (uid !== undefined) entry.uid = Number(uid);
+    if (gid !== undefined) entry.gid = Number(gid);
+    if (resolvedLink) entry.linkName = resolvedLink;
 
     entries.push(entry);
     entryCount += 1;
@@ -484,7 +506,8 @@ function readString(buffer: Uint8Array, start: number, length: number): string {
 
 function parseNumeric(buffer: Uint8Array): bigint | undefined {
   if (buffer.length === 0) return undefined;
-  if ((buffer[0] & 0x80) !== 0) {
+  const first = buffer[0] ?? 0;
+  if ((first & 0x80) !== 0) {
     return parseBase256(buffer);
   }
   return parseOctal(buffer);
@@ -513,6 +536,22 @@ function parseMtime(value: string): Date | undefined {
   const num = Number(value);
   if (!Number.isFinite(num)) return undefined;
   return new Date(num * 1000);
+}
+
+function parsePaxSize(value: string): bigint | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  try {
+    if (trimmed.includes('.')) {
+      const num = Number(trimmed);
+      if (!Number.isFinite(num)) return undefined;
+      return BigInt(Math.max(0, Math.floor(num)));
+    }
+    const parsed = BigInt(trimmed);
+    return parsed < 0n ? 0n : parsed;
+  } catch {
+    return undefined;
+  }
 }
 
 function computeChecksum(header: Uint8Array): number {
@@ -769,6 +808,10 @@ function defaultMode(entry: TarEntry): number {
   return 0o644;
 }
 
+function clampMode(mode: number): number {
+  return mode & 0o777;
+}
+
 function finalizeAuditReport(
   issues: TarIssue[],
   summary: { entries: number; warnings: number; errors: number; totalBytes?: number }
@@ -810,7 +853,7 @@ function finalizeNormalizeReport(
   return report;
 }
 
-function issueToJson(issue: TarIssue): TarIssue {
+function issueToJson(issue: TarIssue): Record<string, unknown> {
   return {
     code: issue.code,
     severity: issue.severity,
@@ -818,7 +861,7 @@ function issueToJson(issue: TarIssue): TarIssue {
     ...(issue.entryName ? { entryName: issue.entryName } : {}),
     ...(issue.offset !== undefined ? { offset: issue.offset.toString() } : {}),
     ...(issue.details ? { details: sanitizeDetails(issue.details) } : {})
-  } as TarIssue;
+  };
 }
 
 function sanitizeDetails(value: unknown): unknown {

@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mkdir, rm } from 'node:fs/promises';
-import { ZipReader, ZipWriter } from 'archive-shield/node/zip';
-import type { ZipProgressEvent } from 'archive-shield/node/zip';
+import { ZipReader, ZipWriter } from '@ismail-elkorchi/bytefold/node/zip';
+import type { ZipProgressEvent } from '@ismail-elkorchi/bytefold/node/zip';
 
 async function writeZip(entries: Array<{ name: string; data: Uint8Array; method?: 0 | 8 | 93 }>): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
@@ -33,7 +33,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = path.join(tmpdir(), `archive-shield-${Math.random().toString(16).slice(2)}`);
+  const dir = path.join(tmpdir(), `bytefold-${Math.random().toString(16).slice(2)}`);
   await mkdir(dir, { recursive: true });
   return dir;
 }

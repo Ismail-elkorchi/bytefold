@@ -1,6 +1,6 @@
 # Competitive complaint matrix
 
-| Complaint | Source | archive-shield response | Proof |
+| Complaint | Source | bytefold response | Proof |
 | --- | --- | --- | --- |
 | ZIP64 unsupported or limited | https://github.com/thejoshwolfe/yauzl#zip64-support | ZIP64 read/write supported; strict bounds checks | `docs/compliance.md`, `test/zip.test.ts` |
 | ZIP64 extraction issues | https://github.com/archiverjs/node-archiver/issues/1169 | ZIP64 end-to-end tests + audit bounds | `test/zip.test.ts`, `test/audit.test.ts` |

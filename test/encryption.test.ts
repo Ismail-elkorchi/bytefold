@@ -4,9 +4,9 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
-import { ZipError, ZipReader, ZipWriter } from 'archive-shield/node/zip';
+import { ZipError, ZipReader, ZipWriter } from '@ismail-elkorchi/bytefold/node/zip';
 
-const PASSWORD = 'archive-shield-password';
+const PASSWORD = 'bytefold-password';
 
 async function writeZip(
   entries: Array<{ name: string; data: Uint8Array; method?: 0 | 8 | 93 }>,
@@ -155,7 +155,7 @@ test('aes headers and crc rules', async () => {
 
 test('seekable patch mode writes encrypted entries without data descriptor', async () => {
   const data = new TextEncoder().encode('seekable aes');
-  const filePath = path.join(tmpdir(), `archive-shield-aes-seekable-${Date.now()}.zip`);
+  const filePath = path.join(tmpdir(), `bytefold-aes-seekable-${Date.now()}.zip`);
   const writer = await ZipWriter.toFile(filePath, { seekable: 'on' });
   await writer.add('file.txt', data, {
     method: 8,
@@ -269,7 +269,7 @@ function run7z(cmd: string, args: string[], cwd: string): void {
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = path.join(tmpdir(), `archive-shield-7z-${Math.random().toString(16).slice(2)}`);
+  const dir = path.join(tmpdir(), `bytefold-7z-${Math.random().toString(16).slice(2)}`);
   await mkdir(dir, { recursive: true });
   return dir;
 }

@@ -84,7 +84,13 @@ export class ZipReader {
     stream: ReadableStream<Uint8Array>,
     options?: ZipReaderOptions
   ): Promise<ZipReader> {
-    const signal = options?.signal;\n+    const data = await readAllBytes(stream, {\n+      signal,\n+      maxBytes: options?.limits?.maxTotalUncompressedBytes\n+    });\n+    return ZipReader.fromUint8Array(data, options);\n   }
+    const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
+    if (options?.signal) readOptions.signal = options.signal;
+    if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+    }
+    const data = await readAllBytes(stream, readOptions);
+    return ZipReader.fromUint8Array(data, options);
   }
 
   static async fromUrl(
@@ -1122,9 +1128,9 @@ async function spoolCompressedEntryToMemory(options: {
   stream = stream.pipeThrough(createProgressTransform(compressTracker));
   const transform = await codec.createCompressStream();
   stream = stream.pipeThrough(transform);
-  const data = await readAllBytes(stream, {
-    signal: options.signal
-  });
+  const readOptions: { signal?: AbortSignal } = {};
+  if (options.signal) readOptions.signal = options.signal;
+  const data = await readAllBytes(stream, readOptions);
 
   return {
     data,

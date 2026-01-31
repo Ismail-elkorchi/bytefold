@@ -1,5 +1,5 @@
 {
-  "name": "archive-shield",
+  "name": "@ismail-elkorchi/bytefold",
   "version": "0.2.0",
   "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
   "type": "module",
@@ -48,7 +48,7 @@
     "test": "npm run build && npm run build:test && node --test dist-test",
     "test:node": "npm run test",
     "test:deno": "npm run build && deno test --allow-read --allow-write test/deno.smoke.ts",
-    "test:bun": "npm run build && bun test test/bun.smoke.ts",
+    "test:bun": "npm run build && bun test ./test/bun.smoke.ts",
     "test:all": "npm run test:node && npm run test:deno && npm run test:bun",
     "test:interop": "node ./scripts/interop.mjs",
     "clean": "node ./scripts/clean.mjs"

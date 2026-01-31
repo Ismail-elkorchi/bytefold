@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ZipReader, ZipWriter, ZipError } from 'archive-shield/node/zip';
+import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
 
 async function writeZip(
   entries: Array<{ name: string; data: Uint8Array; method?: 0 | 8 | 93; externalAttributes?: number }>

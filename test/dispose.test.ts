@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ZipReader, ZipWriter } from 'archive-shield/node/zip';
+import { ZipReader, ZipWriter } from '@ismail-elkorchi/bytefold/node/zip';
 
 async function writeZip(): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];

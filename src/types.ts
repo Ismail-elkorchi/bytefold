@@ -44,6 +44,7 @@ export type ZipAuditReport = {
     trailingBytes?: number;
   };
   issues: ZipIssue[];
+  toJSON?: () => unknown;
 };
 
 export interface ZipEntry {

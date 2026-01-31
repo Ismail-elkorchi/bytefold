@@ -7,13 +7,13 @@
     "declarationMap": false,
     "baseUrl": ".",
     "paths": {
-      "archive-shield": ["dist/index.d.ts"],
-      "archive-shield/zip": ["dist/zip/index.d.ts"],
-      "archive-shield/tar": ["dist/tar/index.d.ts"],
-      "archive-shield/node": ["dist/node/index.d.ts"],
-      "archive-shield/node/zip": ["dist/node/zip/index.d.ts"],
-      "archive-shield/deno": ["dist/deno/index.d.ts"],
-      "archive-shield/bun": ["dist/bun/index.d.ts"]
+      "@ismail-elkorchi/bytefold": ["dist/index.d.ts"],
+      "@ismail-elkorchi/bytefold/zip": ["dist/zip/index.d.ts"],
+      "@ismail-elkorchi/bytefold/tar": ["dist/tar/index.d.ts"],
+      "@ismail-elkorchi/bytefold/node": ["dist/node/index.d.ts"],
+      "@ismail-elkorchi/bytefold/node/zip": ["dist/node/zip/index.d.ts"],
+      "@ismail-elkorchi/bytefold/deno": ["dist/deno/index.d.ts"],
+      "@ismail-elkorchi/bytefold/bun": ["dist/bun/index.d.ts"]
     }
   },
   "include": ["test"]

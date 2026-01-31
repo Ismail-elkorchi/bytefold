@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openArchive, TarReader, TarWriter, createArchiveWriter } from 'archive-shield';
+import { openArchive, TarReader, TarWriter, createArchiveWriter } from '@ismail-elkorchi/bytefold';
 
 const encoder = new TextEncoder();
 
@@ -64,12 +64,13 @@ test('openArchive auto-detects tgz', async () => {
   await tarWriter.close();
   const tarBytes = concatChunks(tarChunks);
 
+  const gzipTransform = new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
   const gzStream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(tarBytes);
       controller.close();
     }
-  }).pipeThrough(new CompressionStream('gzip'));
+  }).pipeThrough(gzipTransform);
   const gzBytes = await collect(gzStream);
 
   const reader = await openArchive(gzBytes);

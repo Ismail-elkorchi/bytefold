@@ -13,7 +13,7 @@ try {
   ({ TarWriter } = await import('../dist/tar/index.js'));
   ({ createCompressTransform } = await import('../dist/compression/streams.js'));
 } catch (err) {
-  console.error('[archive-shield][interop] Missing dist build. Run `npm run build` first.');
+  console.error('[bytefold][interop] Missing dist build. Run `npm run build` first.');
   process.exit(2);
 }
 
@@ -26,7 +26,7 @@ function run(cmd, args, label) {
   const result = spawnSync(cmd, args, { stdio: 'inherit' });
   const ok = result.status === 0;
   if (label) {
-    console.log(`[archive-shield][interop] ${label}: ${ok ? 'PASS' : 'FAIL'}`);
+    console.log(`[bytefold][interop] ${label}: ${ok ? 'PASS' : 'FAIL'}`);
   }
   return ok;
 }
@@ -52,14 +52,14 @@ if (!tar) missing.push('tar');
 if (!gzip) missing.push('gzip');
 if (!zstd) missing.push('zstd');
 
-const tempDir = await mkdtemp(path.join(tmpdir(), 'archive-shield-interop-'));
+const tempDir = await mkdtemp(path.join(tmpdir(), 'bytefold-interop-'));
 const aesPath = path.join(tempDir, 'aes.zip');
 const zipcryptoPath = path.join(tempDir, 'zipcrypto.zip');
 const plainZipPath = path.join(tempDir, 'plain.zip');
 const tarPath = path.join(tempDir, 'sample.tar');
 const tgzPath = path.join(tempDir, 'sample.tgz');
 const zstPath = path.join(tempDir, 'sample.zst');
-const password = 'archive-shield';
+const password = 'bytefold';
 
 let failed = false;
 
@@ -97,12 +97,13 @@ try {
   await tarWriterMem.add('tgz.txt', new TextEncoder().encode('tgz interop'));
   await tarWriterMem.close();
   const tarBytes = concatChunks(tarChunks);
+  const gzipTransform = await createCompressTransform({ algorithm: 'gzip' });
   const gzStream = new ReadableStream({
     start(controller) {
       controller.enqueue(tarBytes);
       controller.close();
     }
-  }).pipeThrough(new CompressionStream('gzip'));
+  }).pipeThrough(gzipTransform);
   const gzBytes = await collect(gzStream);
   await BunWrite(tgzPath, gzBytes);
 
@@ -125,28 +126,28 @@ try {
   }
 
   if (sevenZip) {
-    console.log(`[archive-shield][interop] ${sevenZip} detected`);
+    console.log(`[bytefold][interop] ${sevenZip} detected`);
     version(sevenZip, ['i']);
     const ok = run(sevenZip, ['t', `-p${password}`, aesPath], 'AES -> 7z t');
     if (!ok) failed = true;
   }
 
   if (unzip) {
-    console.log('[archive-shield][interop] unzip detected');
+    console.log('[bytefold][interop] unzip detected');
     version(unzip, ['-v']);
     const ok = run(unzip, ['-t', '-P', password, zipcryptoPath], 'ZipCrypto -> unzip -t');
     if (!ok) failed = true;
   }
 
   if (zip) {
-    console.log('[archive-shield][interop] zip detected');
+    console.log('[bytefold][interop] zip detected');
     version(zip, ['-v']);
     const ok = run(zip, ['-T', plainZipPath], 'zip -T (plain zip)');
     if (!ok) failed = true;
   }
 
   if (bsdtar) {
-    console.log('[archive-shield][interop] bsdtar detected');
+    console.log('[bytefold][interop] bsdtar detected');
     version(bsdtar, ['--version']);
     const ok = run(bsdtar, ['-tf', tarPath], 'bsdtar -tf (tar)');
     if (!ok) failed = true;
@@ -155,7 +156,7 @@ try {
   }
 
   if (tar) {
-    console.log('[archive-shield][interop] tar detected');
+    console.log('[bytefold][interop] tar detected');
     version(tar, ['--version']);
     const ok = run(tar, ['-tf', tarPath], 'tar -tf (tar)');
     if (!ok) failed = true;
@@ -164,20 +165,20 @@ try {
   }
 
   if (gzip) {
-    console.log('[archive-shield][interop] gzip detected');
+    console.log('[bytefold][interop] gzip detected');
     version(gzip, ['--version']);
     const ok = run(gzip, ['-t', tgzPath], 'gzip -t (tgz)');
     if (!ok) failed = true;
   }
 
   if (zstd) {
-    console.log('[archive-shield][interop] zstd detected');
+    console.log('[bytefold][interop] zstd detected');
     version(zstd, ['--version']);
     if (zstdAvailable) {
       const ok = run(zstd, ['-t', zstPath], 'zstd -t (sample)');
       if (!ok) failed = true;
     } else {
-      console.log('[archive-shield][interop] zstd CLI present but Node zstd backend unavailable; skipping sample validation.');
+      console.log('[bytefold][interop] zstd CLI present but Node zstd backend unavailable; skipping sample validation.');
     }
   }
 } finally {
@@ -185,8 +186,8 @@ try {
 }
 
 if (missing.length > 0) {
-  console.log(`\n[archive-shield][interop] Missing tools: ${missing.join(', ')}`);
-  console.log('[archive-shield][interop] Install (Debian/Ubuntu):');
+  console.log(`\n[bytefold][interop] Missing tools: ${missing.join(', ')}`);
+  console.log('[bytefold][interop] Install (Debian/Ubuntu):');
   console.log('  sudo apt-get install -y p7zip-full unzip zip libarchive-tools tar gzip zstd');
 }
 

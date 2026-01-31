@@ -33,7 +33,7 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
 }
 
 test('bun smoke: zip, tar, tgz', async () => {
-  const tmp = await mkdtemp(path.join(tmpdir(), 'archive-shield-bun-'));
+  const tmp = await mkdtemp(path.join(tmpdir(), 'bytefold-bun-'));
   const zipPath = path.join(tmp, 'smoke.zip');
   const tarPath = path.join(tmp, 'smoke.tar');
   const tgzPath = path.join(tmp, 'smoke.tgz');
@@ -57,12 +57,13 @@ test('bun smoke: zip, tar, tgz', async () => {
     await tarWriterMem.add('tgz.txt', encoder.encode('hello tgz'));
     await tarWriterMem.close();
     const tarBytes = concatChunks(tarChunks);
+    const gzipTransform = new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
     const gzStream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(tarBytes);
         controller.close();
       }
-    }).pipeThrough(new CompressionStream('gzip'));
+    }).pipeThrough(gzipTransform);
     const tgzBytes = await collect(gzStream);
     await Bun.write(tgzPath, tgzBytes);
 

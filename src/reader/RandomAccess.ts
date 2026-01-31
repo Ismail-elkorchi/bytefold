@@ -180,6 +180,9 @@ export class HttpRandomAccess implements RandomAccess {
       headers,
       signal: merged ?? null
     });
+    if (response.status === 200) {
+      throw new ZipError('ZIP_HTTP_RANGE_UNSUPPORTED', 'Server does not support HTTP range requests');
+    }
     if (response.status !== 206) {
       throw new ZipError('ZIP_HTTP_BAD_RESPONSE', `Unexpected HTTP status ${response.status}`);
     }

@@ -101,7 +101,7 @@ export class ZipReader {
     options?: ZipReaderOptions
   ): Promise<ZipReader> {
     const signal = options?.signal ?? null;
-    const tempDir = await mkdtemp(path.join(tmpdir(), 'archive-shield-'));
+    const tempDir = await mkdtemp(path.join(tmpdir(), 'bytefold-'));
     const tempPath = path.join(tempDir, 'stream.zip');
     const writable = createWriteStream(tempPath);
     const webReadable = toWebReadable(stream);
@@ -791,7 +791,7 @@ export class ZipReader {
     let outputIndex = 0;
     let tempDir: string | null = null;
     if (mode === 'safe') {
-      tempDir = await mkdtemp(path.join(tmpdir(), 'archive-shield-normalize-'));
+      tempDir = await mkdtemp(path.join(tmpdir(), 'bytefold-normalize-'));
     }
 
     try {

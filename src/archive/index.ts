@@ -13,7 +13,14 @@ import { readableFromBytes } from '../streams/web.js';
 import { createDecompressTransform } from '../compression/streams.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
-import type { ZipAuditOptions, ZipReaderOptions, ZipReaderOpenOptions, ZipWriterOptions } from '../types.js';
+import type {
+  ZipAuditOptions,
+  ZipAuditReport,
+  ZipProfile,
+  ZipReaderOptions,
+  ZipReaderOpenOptions,
+  ZipWriterOptions
+} from '../types.js';
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
 import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterOptions } from '../tar/types.js';
@@ -97,42 +104,47 @@ async function openWithFormat(
   options?: ArchiveOpenOptions
 ): Promise<ArchiveReader> {
   if (format === 'zip') {
-    const zipOptions: ZipReaderOptions = {
-      profile: options?.profile,
-      strict: options?.strict,
-      limits: options?.limits,
-      password: options?.password,
-      ...(options?.zip ? options.zip : {})
-    } as ZipReaderOptions;
+    const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
+    const profile = options?.profile;
+    if (profile !== undefined) zipOptions.profile = profile as ZipProfile;
+    if (options?.strict !== undefined) zipOptions.strict = options.strict;
+    if (options?.limits !== undefined) zipOptions.limits = options.limits;
+    if (options?.password !== undefined) zipOptions.password = options.password;
     const reader = await ZipReader.fromUint8Array(data, zipOptions);
-    return new ZipArchiveReader(reader, {
-      strict: options?.strict,
-      password: options?.password,
-      signal: options?.signal
-    });
+    const openOptions: ZipReaderOpenOptions = {
+      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.password !== undefined ? { password: options.password } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    return new ZipArchiveReader(reader, Object.keys(openOptions).length > 0 ? openOptions : undefined);
   }
   if (format === 'tar') {
-    const tarOptions: TarReaderOptions = {
-      profile: options?.profile,
-      strict: options?.strict,
-      limits: options?.limits,
-      ...(options?.tar ? options.tar : {})
-    } as TarReaderOptions;
+    const tarOptions: TarReaderOptions = { ...(options?.tar ?? {}) };
+    if (options?.profile !== undefined) tarOptions.profile = options.profile;
+    if (options?.strict !== undefined) tarOptions.strict = options.strict;
+    if (options?.limits !== undefined) tarOptions.limits = options.limits;
     const reader = await TarReader.fromUint8Array(data, tarOptions);
-    return new TarArchiveReader(reader, { profile: options?.profile, strict: options?.strict, limits: options?.limits }, 'tar');
+    const auditDefaults: TarAuditOptions = {
+      ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.limits !== undefined ? { limits: options.limits } : {})
+    };
+    return new TarArchiveReader(reader, Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined, 'tar');
   }
   if (format === 'gz' || format === 'tgz') {
     const header = parseGzipHeader(data);
     const decompressed = await gunzipToBytes(data, options);
     if (format === 'tgz' || detectFormat(decompressed) === 'tar') {
-      const tarReader = await TarReader.fromUint8Array(decompressed, {
-        profile: options?.profile,
-        strict: options?.strict,
-        limits: options?.limits
-      });
+      const tarOptions: TarReaderOptions = {
+        ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.limits !== undefined ? { limits: options.limits } : {})
+      };
+      const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
+      const auditDefaults: TarAuditOptions = { ...tarOptions };
       return new TarArchiveReader(
         tarReader,
-        { profile: options?.profile, strict: options?.strict, limits: options?.limits },
+        Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
         'tgz'
       );
     }
@@ -145,10 +157,12 @@ async function openWithFormat(
 async function resolveInput(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<Uint8Array> {
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
-  return readAllBytes(input, {
-    signal: options?.signal,
-    maxBytes: options?.limits?.maxTotalUncompressedBytes
-  });
+  const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
+  if (options?.signal) readOptions.signal = options.signal;
+  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+  }
+  return readAllBytes(input, readOptions);
 }
 
 function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
@@ -156,8 +170,8 @@ function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
     return 'gz';
   }
   if (data.length >= 4 && data[0] === 0x50 && data[1] === 0x4b) {
-    const sig = (data[2] << 8) | data[3];
-    if (sig === 0x0403 || sig === 0x0506 || sig === 0x0708) {
+    const sig = ((data[2] ?? 0) << 8) | (data[3] ?? 0);
+    if (sig === 0x0304 || sig === 0x0506 || sig === 0x0708) {
       return 'zip';
     }
   }
@@ -202,13 +216,15 @@ function computeChecksum(header: Uint8Array): number {
 async function gunzipToBytes(data: Uint8Array, options?: ArchiveOpenOptions): Promise<Uint8Array> {
   const transform = await createDecompressTransform({
     algorithm: 'gzip',
-    signal: options?.signal
+    ...(options?.signal ? { signal: options.signal } : {})
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
-  return readAllBytes(stream, {
-    signal: options?.signal,
-    maxBytes: options?.limits?.maxTotalUncompressedBytes
-  });
+  const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
+  if (options?.signal) readOptions.signal = options.signal;
+  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+  }
+  return readAllBytes(stream, readOptions);
 }
 
 type GzipHeader = { name?: string; mtime?: Date };
@@ -234,10 +250,10 @@ function parseGzipHeader(data: Uint8Array): GzipHeader {
     while (offset < data.length && data[offset] !== 0) offset += 1;
     offset += 1;
   }
-  return {
-    name,
-    mtime: mtime ? new Date(mtime * 1000) : undefined
-  };
+  const header: GzipHeader = {};
+  if (name !== undefined) header.name = name;
+  if (mtime) header.mtime = new Date(mtime * 1000);
+  return header;
 }
 
 function decodeLatin1(bytes: Uint8Array): string {
@@ -272,14 +288,15 @@ class ZipArchiveReader implements ArchiveReader {
   }
 
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
+    const profile = options?.profile;
     const zipOptions: ZipAuditOptions = {
-      profile: options?.profile,
-      strict: options?.strict,
-      limits: options?.limits,
-      signal: options?.signal
+      ...(profile !== undefined ? { profile: profile as ZipProfile } : {}),
+      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.limits !== undefined ? { limits: options.limits } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
     };
     const report = await this.reader.audit(zipOptions);
-    return {
+    const archiveReport: ArchiveAuditReport = {
       ok: report.ok,
       summary: {
         entries: report.summary.entries,
@@ -294,29 +311,34 @@ class ZipArchiveReader implements ArchiveReader {
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
         ...(issue.offset !== undefined ? { offset: issue.offset } : {}),
         ...(issue.details ? { details: issue.details } : {})
-      })),
-      toJSON: report.toJSON ? report.toJSON : undefined
+      }))
     };
+    const reportJson = (report as ZipAuditReport & { toJSON?: () => unknown }).toJSON;
+    if (reportJson) archiveReport.toJSON = reportJson;
+    return archiveReport;
   }
 
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
-    await this.reader.assertSafe({
-      profile: options?.profile,
-      strict: options?.strict,
-      limits: options?.limits,
-      signal: options?.signal
-    });
+    const profile = options?.profile;
+    const auditOptions: ZipAuditOptions = {
+      ...(profile !== undefined ? { profile: profile as ZipProfile } : {}),
+      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.limits !== undefined ? { limits: options.limits } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    await this.reader.assertSafe(auditOptions);
   }
 
   async normalizeToWritable(
     writable: WritableStream<Uint8Array>,
     options?: ArchiveNormalizeOptions
   ): Promise<ArchiveNormalizeReport> {
-    const report = await this.reader.normalizeToWritable(writable, {
-      deterministic: options?.deterministic,
-      signal: options?.signal
-    });
-    return {
+    const normalizeOptions = {
+      ...(options?.deterministic !== undefined ? { deterministic: options.deterministic } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    const report = await this.reader.normalizeToWritable(writable, normalizeOptions);
+    const archiveReport: ArchiveNormalizeReport = {
       ok: report.ok,
       summary: {
         entries: report.summary.entries,
@@ -333,9 +355,10 @@ class ZipArchiveReader implements ArchiveReader {
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
         ...(issue.offset !== undefined ? { offset: issue.offset } : {}),
         ...(issue.details ? { details: issue.details } : {})
-      })),
-      toJSON: report.toJSON ? report.toJSON : undefined
+      }))
     };
+    if (report.toJSON) archiveReport.toJSON = report.toJSON;
+    return archiveReport;
   }
 }
 
@@ -348,41 +371,49 @@ class TarArchiveReader implements ArchiveReader {
 
   async *entries(): AsyncGenerator<ArchiveEntry> {
     for await (const entry of this.reader.iterEntries()) {
-      yield {
+      const archiveEntry: ArchiveEntry = {
         format: this.format,
         name: entry.name,
         size: entry.size,
         isDirectory: entry.isDirectory,
         isSymlink: entry.isSymlink,
-        mtime: entry.mtime,
-        mode: entry.mode,
-        uid: entry.uid,
-        gid: entry.gid,
-        linkName: entry.linkName,
         open: () => this.reader.open(entry),
         raw: entry
       };
+      if (entry.mtime) archiveEntry.mtime = entry.mtime;
+      if (entry.mode !== undefined) archiveEntry.mode = entry.mode;
+      if (entry.uid !== undefined) archiveEntry.uid = entry.uid;
+      if (entry.gid !== undefined) archiveEntry.gid = entry.gid;
+      if (entry.linkName !== undefined) archiveEntry.linkName = entry.linkName;
+      yield archiveEntry;
     }
   }
 
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
+    const profile = options?.profile ?? this.auditDefaults?.profile;
+    const strict = options?.strict ?? this.auditDefaults?.strict;
+    const limits = options?.limits ?? this.auditDefaults?.limits;
     const tarOptions: TarAuditOptions = {
-      profile: options?.profile ?? this.auditDefaults?.profile,
-      strict: options?.strict ?? this.auditDefaults?.strict,
-      limits: options?.limits ?? this.auditDefaults?.limits,
-      signal: options?.signal
+      ...(profile !== undefined ? { profile } : {}),
+      ...(strict !== undefined ? { strict } : {}),
+      ...(limits !== undefined ? { limits } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
     };
     const report = await this.reader.audit(tarOptions);
     return report;
   }
 
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
-    await this.reader.assertSafe({
-      profile: options?.profile ?? this.auditDefaults?.profile,
-      strict: options?.strict ?? this.auditDefaults?.strict,
-      limits: options?.limits ?? this.auditDefaults?.limits,
-      signal: options?.signal
-    });
+    const profile = options?.profile ?? this.auditDefaults?.profile;
+    const strict = options?.strict ?? this.auditDefaults?.strict;
+    const limits = options?.limits ?? this.auditDefaults?.limits;
+    const tarOptions: TarAuditOptions = {
+      ...(profile !== undefined ? { profile } : {}),
+      ...(strict !== undefined ? { strict } : {}),
+      ...(limits !== undefined ? { limits } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    await this.reader.assertSafe(tarOptions);
   }
 
   async normalizeToWritable(
@@ -390,8 +421,8 @@ class TarArchiveReader implements ArchiveReader {
     options?: ArchiveNormalizeOptions
   ): Promise<ArchiveNormalizeReport> {
     const tarOptions: TarNormalizeOptions = {
-      deterministic: options?.deterministic,
-      signal: options?.signal
+      ...(options?.deterministic !== undefined ? { deterministic: options.deterministic } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
     };
     return this.reader.normalizeToWritable(writable, tarOptions);
   }
@@ -402,15 +433,16 @@ class GzipArchiveReader implements ArchiveReader {
   private readonly entry: ArchiveEntry;
 
   constructor(private readonly data: Uint8Array, header: GzipHeader) {
-    this.entry = {
+    const entry: ArchiveEntry = {
       format: 'gz',
       name: header.name ?? 'data',
       size: BigInt(data.length),
       isDirectory: false,
       isSymlink: false,
-      mtime: header.mtime,
       open: async () => readableFromBytes(this.data)
     };
+    if (header.mtime) entry.mtime = header.mtime;
+    this.entry = entry;
   }
 
   async *entries(): AsyncGenerator<ArchiveEntry> {
@@ -419,12 +451,13 @@ class GzipArchiveReader implements ArchiveReader {
 
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
     const issues: ArchiveAuditReport['issues'] = [];
-    const summary = {
+    const summary: ArchiveAuditReport['summary'] = {
       entries: 1,
       warnings: 0,
-      errors: 0,
-      totalBytes: this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size)
+      errors: 0
     };
+    const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
+    if (totalBytes !== undefined) summary.totalBytes = totalBytes;
     if (options?.limits?.maxTotalUncompressedBytes && this.entry.size > BigInt(options.limits.maxTotalUncompressedBytes)) {
       issues.push({
         code: 'GZIP_LIMIT_EXCEEDED',

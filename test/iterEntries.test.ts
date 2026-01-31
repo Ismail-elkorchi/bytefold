@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { ZipReader, ZipWriter, ZipError } from 'archive-shield/node/zip';
+import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
 
 async function writeManyEntries(count: number): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];

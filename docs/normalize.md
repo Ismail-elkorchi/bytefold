@@ -1,6 +1,6 @@
 # Archive normalization
 
-`archive-shield` can normalize ZIP and TAR archives into deterministic, single-interpretation outputs. This is ideal for untrusted uploads and agent pipelines.
+`bytefold` can normalize ZIP and TAR archives into deterministic, single-interpretation outputs. This is ideal for untrusted uploads and agent pipelines.
 
 ## ZIP modes
 
@@ -18,7 +18,7 @@ Set `deterministic: true` to produce stable output:
 ## Usage (auto)
 
 ```js
-import { openArchive } from 'archive-shield';
+import { openArchive } from '@ismail-elkorchi/bytefold';
 
 const reader = await openArchive(fileBytes);
 const chunks = [];
@@ -35,7 +35,7 @@ console.log(JSON.stringify(report));
 ## ZIP-only options
 
 ```js
-import { ZipReader } from 'archive-shield/zip';
+import { ZipReader } from '@ismail-elkorchi/bytefold/zip';
 
 const reader = await ZipReader.fromUint8Array(zipBytes);
 const report = await reader.normalizeToWritable(writable, {
@@ -48,7 +48,7 @@ const report = await reader.normalizeToWritable(writable, {
 ## Node file helpers
 
 ```js
-import { ZipReader } from 'archive-shield/node/zip';
+import { ZipReader } from '@ismail-elkorchi/bytefold/node/zip';
 
 const reader = await ZipReader.fromFile('input.zip');
 const report = await reader.normalizeToFile('normalized.zip', { deterministic: true });

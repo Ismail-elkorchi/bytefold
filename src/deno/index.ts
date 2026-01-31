@@ -56,7 +56,11 @@ export async function zipToFile(path: string, options?: Parameters<typeof ZipWri
   const close = writer.close.bind(writer);
   writer.close = async (...args: Parameters<typeof close>) => {
     await close(...args);
-    file.close();
+    try {
+      file.close();
+    } catch {
+      // Deno may already close the resource when the stream closes.
+    }
   };
   return writer;
 }
@@ -67,7 +71,11 @@ export async function tarToFile(path: string, options?: Parameters<typeof TarWri
   const close = writer.close.bind(writer);
   writer.close = async (...args: Parameters<typeof close>) => {
     await close(...args);
-    file.close();
+    try {
+      file.close();
+    } catch {
+      // Deno may already close the resource when the stream closes.
+    }
   };
   return writer;
 }

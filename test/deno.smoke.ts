@@ -52,12 +52,13 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   await tarWriterMem.add('tgz.txt', encoder.encode('hello tgz'));
   await tarWriterMem.close();
   const tarBytes = concatChunks(tarChunks);
+  const gzipTransform = new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
   const gzStream = new ReadableStream<Uint8Array>({
     start(controller) {
       controller.enqueue(tarBytes);
       controller.close();
     }
-  }).pipeThrough(new CompressionStream('gzip'));
+  }).pipeThrough(gzipTransform);
   const tgzBytes = await collect(gzStream);
   await Deno.writeFile(tgzPath, tgzBytes);
 
@@ -83,14 +84,22 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   const tgzArchive = await openArchive(tgzPath);
   if (tgzArchive.format !== 'tgz') throw new Error('tgz format not detected');
 
-  if (zipArchive.normalizeToWritable) {
+  const normalize = (
+    zipArchive as {
+      normalizeToWritable?: (
+        w: WritableStream<Uint8Array>,
+        o?: { deterministic?: boolean }
+      ) => Promise<unknown>;
+    }
+  ).normalizeToWritable?.bind(zipArchive);
+  if (normalize) {
     const normChunks: Uint8Array[] = [];
     const normWritable = new WritableStream<Uint8Array>({
       write(chunk) {
         normChunks.push(chunk);
       }
     });
-    await zipArchive.normalizeToWritable(normWritable, { deterministic: true });
+    await normalize(normWritable, { deterministic: true });
     const normalized = concatChunks(normChunks);
     const normalizedArchive = await openArchive(normalized);
     if (normalizedArchive.format !== 'zip') throw new Error('normalized zip invalid');

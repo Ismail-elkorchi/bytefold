@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { mkdir } from 'node:fs/promises';
-import { ZipReader, ZipWriter, ZipError } from 'archive-shield/node/zip';
+import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
 import * as zlib from 'node:zlib';
 
 async function writeZip(
@@ -185,7 +185,7 @@ function readUint32LE(buffer: Uint8Array, offset: number): number {
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = path.join(tmpdir(), `archive-shield-${Math.random().toString(16).slice(2)}`);
+  const dir = path.join(tmpdir(), `bytefold-${Math.random().toString(16).slice(2)}`);
   await mkdir(dir, { recursive: true });
   return dir;
 }
