@@ -14,8 +14,7 @@ import { createCrcTransform } from '../../streams/crcTransform.js';
 import { createMeasureTransform } from '../../streams/measure.js';
 import { createProgressTracker, createProgressTransform } from '../../streams/progress.js';
 import { throwIfAborted } from '../../abort.js';
-import { NodeWritableSink } from './Sink.js';
-import type { SeekableSink, Sink } from './Sink.js';
+import { NodeWritableSink, type SeekableSink, type Sink } from './Sink.js';
 import type { ZipEncryption, Zip64Mode, ZipProgressOptions } from '../../types.js';
 
 const LFH_SIGNATURE = 0x04034b50;

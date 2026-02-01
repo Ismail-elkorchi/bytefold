@@ -1,6 +1,6 @@
 declare const Deno: {
   test: (name: string, fn: () => void | Promise<void>) => void;
-  makeTempDir: (...args: any[]) => Promise<string>;
+  makeTempDir: (...args: unknown[]) => Promise<string>;
   readFile: (path: string) => Promise<Uint8Array>;
   writeFile: (path: string, data: Uint8Array) => Promise<void>;
   open: (path: string, options?: Record<string, unknown>) => Promise<{ writable: WritableStream<Uint8Array>; close: () => void }>;

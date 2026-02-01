@@ -13,6 +13,7 @@ console.log(JSON.stringify(caps, null, 2));
 
 The report is JSON-safe and includes:
 
+- `schemaVersion`: stable contract version for agents
 - `runtime`: `node | deno | bun | unknown`
 - `algorithms`: per-algorithm support for compress/decompress and the active backend
 - `notes`: detection notes (for example, missing CompressionStream support)

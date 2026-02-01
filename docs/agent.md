@@ -72,6 +72,7 @@ await reader.assertSafe({ profile: 'agent' });
 
 ```js
 {
+  schemaVersion: "2026-01",
   inputKind: "stream",
   detected: { container: "tar", compression: "gzip", layers: ["gzip", "tar"] },
   confidence: "high",
@@ -80,6 +81,7 @@ await reader.assertSafe({ profile: 'agent' });
 ```
 
 Use `confidence` + `notes` to decide when to require human review or explicit format hints.
+`schemaVersion` is the stable contract key for agent pipelines.
 
 ## Normalization for agents
 

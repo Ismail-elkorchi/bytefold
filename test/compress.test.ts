@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CompressionError,
   createCompressor,
   createDecompressor,
   getCompressionCapabilities,
@@ -24,11 +25,11 @@ for (const algorithm of algorithms) {
     const compressEvents: CompressionProgressEvent[] = [];
     const decompressEvents: CompressionProgressEvent[] = [];
 
-    const compressor = await createCompressor({
+    const compressor = createCompressor({
       algorithm,
       onProgress: (ev) => compressEvents.push(ev)
     });
-    const decompressor = await createDecompressor({
+    const decompressor = createDecompressor({
       algorithm,
       onProgress: (ev) => decompressEvents.push(ev)
     });
@@ -52,13 +53,13 @@ test('compress aborts with signal', async (t) => {
   const controller = new AbortController();
   let aborted = false;
 
-  const compressor = await createCompressor({
+  const compressor = createCompressor({
     algorithm,
     signal: controller.signal,
     onProgress: () => {
       if (!aborted) {
         aborted = true;
-        controller.abort(new Error('aborted'));
+        controller.abort();
       }
     }
   });
@@ -71,7 +72,34 @@ test('compress aborts with signal', async (t) => {
         }
       }).pipeThrough(compressor)
     );
+  }, (err: unknown) => {
+    if (!err || typeof err !== 'object') return false;
+    return (err as { name?: string }).name === 'AbortError';
   });
+});
+
+test('unsupported algorithms throw typed errors', (t) => {
+  const unsupportedCompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].compress);
+  if (!unsupportedCompress) {
+    t.skip('all algorithms supported for compression');
+    return;
+  }
+  assert.throws(
+    () => createCompressor({ algorithm: unsupportedCompress }),
+    (err: unknown) => err instanceof CompressionError && err.code === 'COMPRESSION_UNSUPPORTED_ALGORITHM'
+  );
+});
+
+test('unsupported algorithms throw typed errors (decompress)', (t) => {
+  const unsupportedDecompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].decompress);
+  if (!unsupportedDecompress) {
+    t.skip('all algorithms supported for decompression');
+    return;
+  }
+  assert.throws(
+    () => createDecompressor({ algorithm: unsupportedDecompress }),
+    (err: unknown) => err instanceof CompressionError && err.code === 'COMPRESSION_UNSUPPORTED_ALGORITHM'
+  );
 });
 
 function streamFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {

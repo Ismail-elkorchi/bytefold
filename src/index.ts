@@ -1,5 +1,6 @@
 export * from './archive/index.js';
 export { ArchiveError } from './archive/errors.js';
+export type { ArchiveErrorCode } from './archive/errors.js';
 export type {
   ArchiveAuditReport,
   ArchiveDetectionReport,
@@ -17,3 +18,4 @@ export type {
 export * from './zip/index.js';
 export * from './tar/index.js';
 export * from './compress/index.js';
+export { BYTEFOLD_REPORT_SCHEMA_VERSION } from './reportSchema.js';

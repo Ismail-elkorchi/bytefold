@@ -1,3 +1,4 @@
+/** Stable archive error codes. */
 export type ArchiveErrorCode =
   | 'ARCHIVE_UNSUPPORTED_FORMAT'
   | 'ARCHIVE_TRUNCATED'
@@ -7,12 +8,18 @@ export type ArchiveErrorCode =
   | 'ARCHIVE_UNSUPPORTED_FEATURE'
   | 'ARCHIVE_AUDIT_FAILED';
 
+/** Error thrown for archive-level failures and safety violations. */
 export class ArchiveError extends Error {
+  /** Machine-readable error code. */
   readonly code: ArchiveErrorCode;
+  /** Entry name related to the error, if available. */
   readonly entryName?: string | undefined;
+  /** Offset (in bytes) related to the error, if available. */
   readonly offset?: bigint | undefined;
-  readonly cause?: unknown;
+  /** Underlying cause, if available. */
+  override readonly cause?: unknown;
 
+  /** Create an ArchiveError with a stable code. */
   constructor(
     code: ArchiveErrorCode,
     message: string,

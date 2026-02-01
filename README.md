@@ -25,7 +25,7 @@ for await (const entry of reader.entries()) {
 }
 ```
 
-Supported auto formats: ZIP, TAR, GZ, TGZ, ZST, BR, TAR.ZST, TAR.BR.
+Supported auto formats: ZIP, TAR, GZ, TGZ, ZST, TAR.ZST. Brotli (BR/TAR.BR) requires an explicit hint or filename extension.
 
 ## ZIP API (core)
 
@@ -129,3 +129,9 @@ input.pipeThrough(gzip).pipeThrough(gunzip);
 - Node-only adapters are under `@ismail-elkorchi/bytefold/node`.
 - Optional external `7z` bridge is under `@ismail-elkorchi/bytefold/node/external`.
 - Deno/Bun file adapters are under `@ismail-elkorchi/bytefold/deno` and `@ismail-elkorchi/bytefold/bun`.
+
+## Quality gates
+
+- `npm run lint`
+- `npm run typecheck`
+- `npm run check:all`

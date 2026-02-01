@@ -15,9 +15,9 @@ import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js'
 import { createCompressTransform, createDecompressTransform } from '../compression/streams.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 import type {
   ZipAuditOptions,
-  ZipAuditReport,
   ZipProfile,
   ZipReaderOptions,
   ZipReaderOpenOptions,
@@ -28,16 +28,21 @@ import { TarWriter } from '../tar/TarWriter.js';
 import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterOptions } from '../tar/types.js';
 import type { CompressionAlgorithm } from '../compress/types.js';
 
-export interface ArchiveReader {
+/** Unified archive reader API returned by openArchive(). */
+export type ArchiveReader = {
   format: ArchiveFormat;
   detection?: ArchiveDetectionReport;
   entries(): AsyncGenerator<ArchiveEntry>;
   audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport>;
   assertSafe(options?: ArchiveAuditOptions): Promise<void>;
-  normalizeToWritable?(writable: WritableStream<Uint8Array>, options?: ArchiveNormalizeOptions): Promise<ArchiveNormalizeReport>;
-}
+  normalizeToWritable?(
+    writable: WritableStream<Uint8Array>,
+    options?: ArchiveNormalizeOptions
+  ): Promise<ArchiveNormalizeReport>;
+};
 
-export interface ArchiveWriter {
+/** Unified archive writer API for ZIP/TAR and layered formats. */
+export type ArchiveWriter = {
   format: ArchiveFormat;
   add(
     name: string,
@@ -45,28 +50,33 @@ export interface ArchiveWriter {
     options?: unknown
   ): Promise<void>;
   close(): Promise<void>;
-}
+};
 
-export interface ArchiveWriterOptions {
+/** Options for creating archive writers. */
+export type ArchiveWriterOptions = {
   zip?: ZipWriterOptions;
   tar?: TarWriterOptions;
   compression?: { level?: number; quality?: number };
-}
+};
 
-export interface ArchiveAuditOptions {
+/** Options for auditing archives opened via openArchive(). */
+export type ArchiveAuditOptions = {
   profile?: ArchiveProfile;
   strict?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
-}
+};
 
-export interface ArchiveNormalizeOptions {
+/** Options for normalization via openArchive(). */
+export type ArchiveNormalizeOptions = {
   deterministic?: boolean;
   signal?: AbortSignal;
-}
+};
 
-type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>;
+/** Inputs accepted by openArchive(). */
+export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>;
 
+/** Open an archive with auto-detection (or a forced format). */
 export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   const inputKind = resolveInputKind(input, options?.inputKind);
   const data = await resolveInput(input, options);
@@ -100,6 +110,7 @@ export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOpti
   return reader;
 }
 
+/** Create an archive writer for a specific format. */
 export function createArchiveWriter(
   format: ArchiveFormat,
   writable: WritableStream<Uint8Array>,
@@ -109,7 +120,12 @@ export function createArchiveWriter(
     const writer = ZipWriter.toWritable(writable, options?.zip);
     return {
       format: 'zip',
-      add: (name, source, addOptions) => writer.add(name, source as any, addOptions as any),
+      add: (name, source, addOptions) =>
+        writer.add(
+          name,
+          source as Parameters<typeof writer.add>[1],
+          addOptions as Parameters<typeof writer.add>[2]
+        ),
       close: () => writer.close()
     };
   }
@@ -117,7 +133,12 @@ export function createArchiveWriter(
     const writer = TarWriter.toWritable(writable, options?.tar);
     return {
       format: 'tar',
-      add: (name, source, addOptions) => writer.add(name, source as any, addOptions as any),
+      add: (name, source, addOptions) =>
+        writer.add(
+          name,
+          source as Parameters<typeof writer.add>[1],
+          addOptions as Parameters<typeof writer.add>[2]
+        ),
       close: () => writer.close()
     };
   }
@@ -175,7 +196,11 @@ function createCompressedTarWriter(
     format,
     add: async (name, source, addOptions) => {
       const { writer } = await init();
-      await writer.add(name, source as any, addOptions as any);
+      await writer.add(
+        name,
+        source as Parameters<typeof writer.add>[1],
+        addOptions as Parameters<typeof writer.add>[2]
+      );
     },
     close: async () => {
       const { writer, pipe } = await init();
@@ -457,6 +482,7 @@ function buildDetectionReport(
       detected.layers = [];
   }
   return {
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     inputKind,
     detected,
     confidence,
@@ -598,6 +624,7 @@ class ZipArchiveReader implements ArchiveReader {
     };
     const report = await this.reader.audit(zipOptions);
     const archiveReport: ArchiveAuditReport = {
+      schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       ok: report.ok,
       summary: {
         entries: report.summary.entries,
@@ -611,11 +638,15 @@ class ZipArchiveReader implements ArchiveReader {
         message: issue.message,
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
         ...(issue.offset !== undefined ? { offset: issue.offset.toString() } : {}),
-        ...(issue.details ? { details: issue.details } : {})
+        ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
       }))
     };
-    const reportJson = (report as ZipAuditReport & { toJSON?: () => unknown }).toJSON;
-    if (reportJson) archiveReport.toJSON = reportJson;
+    archiveReport.toJSON = () => ({
+      schemaVersion: archiveReport.schemaVersion,
+      ok: archiveReport.ok,
+      summary: archiveReport.summary,
+      issues: archiveReport.issues
+    });
     return archiveReport;
   }
 
@@ -640,6 +671,7 @@ class ZipArchiveReader implements ArchiveReader {
     };
     const report = await this.reader.normalizeToWritable(writable, normalizeOptions);
     const archiveReport: ArchiveNormalizeReport = {
+      schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       ok: report.ok,
       summary: {
         entries: report.summary.entries,
@@ -655,10 +687,15 @@ class ZipArchiveReader implements ArchiveReader {
         message: issue.message,
         ...(issue.entryName ? { entryName: issue.entryName } : {}),
         ...(issue.offset !== undefined ? { offset: issue.offset.toString() } : {}),
-        ...(issue.details ? { details: issue.details } : {})
+        ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
       }))
     };
-    if (report.toJSON) archiveReport.toJSON = report.toJSON;
+    archiveReport.toJSON = () => ({
+      schemaVersion: archiveReport.schemaVersion,
+      ok: archiveReport.ok,
+      summary: archiveReport.summary,
+      issues: archiveReport.issues
+    });
     return archiveReport;
   }
 }
@@ -775,10 +812,11 @@ class GzipArchiveReader implements ArchiveReader {
       if (issue.severity === 'error') summary.errors += 1;
     }
     return {
+      schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       ok: summary.errors === 0,
       summary,
       issues,
-      toJSON: () => ({ ok: summary.errors === 0, summary, issues })
+      toJSON: () => ({ schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, ok: summary.errors === 0, summary, issues })
     };
   }
 
@@ -840,10 +878,11 @@ class CompressedArchiveReader implements ArchiveReader {
     }
 
     return {
+      schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       ok: summary.errors === 0,
       summary,
       issues,
-      toJSON: () => ({ ok: summary.errors === 0, summary, issues })
+      toJSON: () => ({ schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, ok: summary.errors === 0, summary, issues })
     };
   }
 
@@ -853,6 +892,19 @@ class CompressedArchiveReader implements ArchiveReader {
       throw new ArchiveError('ARCHIVE_AUDIT_FAILED', 'Compressed audit failed');
     }
   }
+}
+
+function sanitizeDetails(value: unknown): unknown {
+  if (typeof value === 'bigint') return value.toString();
+  if (Array.isArray(value)) return value.map(sanitizeDetails);
+  if (value && typeof value === 'object') {
+    const out: Record<string, unknown> = {};
+    for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+      out[key] = sanitizeDetails(val);
+    }
+    return out;
+  }
+  return value;
 }
 
 function entryPathIssues(entryName: string): ArchiveAuditReport['issues'] {

@@ -50,9 +50,13 @@ File helpers for Deno and Bun are under `@ismail-elkorchi/bytefold/deno` and `@i
 ## New TAR + GZIP support
 
 - `TarReader` / `TarWriter` available under `@ismail-elkorchi/bytefold/tar`.
-- `openArchive()` auto-detects `zip`, `tar`, `gz`, and `tgz`.
+- `openArchive()` auto-detects `zip`, `tar`, `gz`, `tgz`, `zst`, and `tar.zst`. Brotli (`br`, `tar.br`) requires an explicit hint.
 
 ## Normalization
 
 - `normalizeToWritable()` works for ZIP and TAR through the auto reader.
 - ZIP `normalizeToFile()` remains available under `@ismail-elkorchi/bytefold/node/zip`.
+
+## Type exports
+
+- Public option/record shapes that were `interface` declarations are now `type` aliases. This removes interface merging support for those types.

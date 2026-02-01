@@ -1,12 +1,18 @@
+/** Stable error codes for compression operations. */
 export type CompressionErrorCode =
   | 'COMPRESSION_UNSUPPORTED_ALGORITHM'
   | 'COMPRESSION_BACKEND_UNAVAILABLE';
 
+/** Error thrown for compression backend failures or unsupported algorithms. */
 export class CompressionError extends Error {
+  /** Machine-readable error code. */
   readonly code: CompressionErrorCode;
+  /** Algorithm involved in the failure, if available. */
   readonly algorithm?: string;
-  readonly cause?: unknown;
+  /** Underlying cause, if available. */
+  override readonly cause?: unknown;
 
+  /** Create a CompressionError with a stable code. */
   constructor(
     code: CompressionErrorCode,
     message: string,

@@ -97,11 +97,11 @@ function supportsWebCompression(algorithm: CompressionAlgorithm, mode: Compressi
   let ok = false;
   try {
     if (mode === 'compress') {
-      // eslint-disable-next-line no-new
-      new CompressionStream(algorithm as unknown as CompressionFormat);
+      const stream = new CompressionStream(algorithm as unknown as CompressionFormat);
+      void stream;
     } else {
-      // eslint-disable-next-line no-new
-      new DecompressionStream(algorithm as unknown as CompressionFormat);
+      const stream = new DecompressionStream(algorithm as unknown as CompressionFormat);
+      void stream;
     }
     ok = true;
   } catch {

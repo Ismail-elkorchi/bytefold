@@ -1,5 +1,6 @@
 import type { CompressionAlgorithm } from '../compress/types.js';
 
+/** Supported archive and compression format identifiers. */
 export type ArchiveFormat =
   | 'zip'
   | 'tar'
@@ -10,11 +11,16 @@ export type ArchiveFormat =
   | 'br'
   | 'tar.zst'
   | 'tar.br';
+/** Safety profile for audit/normalize behavior. */
 export type ArchiveProfile = 'compat' | 'strict' | 'agent';
+/** Severity level for archive issues. */
 export type ArchiveIssueSeverity = 'info' | 'warning' | 'error';
+/** How the archive input was provided. */
 export type ArchiveInputKind = 'file' | 'url' | 'bytes' | 'stream';
 
-export interface ArchiveDetectionReport {
+/** Detection report for layered archives and compression. */
+export type ArchiveDetectionReport = {
+  schemaVersion: string;
   inputKind: ArchiveInputKind;
   detected: {
     container?: 'zip' | 'tar';
@@ -23,18 +29,21 @@ export interface ArchiveDetectionReport {
   };
   confidence: 'high' | 'medium' | 'low';
   notes: string[];
-}
+};
 
-export interface ArchiveIssue {
+/** A single audit/normalize issue found in an archive. */
+export type ArchiveIssue = {
   code: string;
   severity: ArchiveIssueSeverity;
   message: string;
   entryName?: string;
   offset?: string;
   details?: Record<string, unknown>;
-}
+};
 
-export interface ArchiveAuditReport {
+/** Audit summary for an archive. */
+export type ArchiveAuditReport = {
+  schemaVersion: string;
   ok: boolean;
   summary: {
     entries: number;
@@ -44,9 +53,11 @@ export interface ArchiveAuditReport {
   };
   issues: ArchiveIssue[];
   toJSON?: () => unknown;
-}
+};
 
-export interface ArchiveNormalizeReport {
+/** Normalize summary for an archive. */
+export type ArchiveNormalizeReport = {
+  schemaVersion: string;
   ok: boolean;
   summary: {
     entries: number;
@@ -58,16 +69,18 @@ export interface ArchiveNormalizeReport {
   };
   issues: ArchiveIssue[];
   toJSON?: () => unknown;
-}
+};
 
-export interface ArchiveLimits {
+/** Limits for archive processing and validation. */
+export type ArchiveLimits = {
   maxEntries?: number;
   maxUncompressedEntryBytes?: bigint | number;
   maxTotalUncompressedBytes?: bigint | number;
   maxCompressionRatio?: number;
-}
+};
 
-export interface ArchiveEntry {
+/** Normalized view of an archive entry. */
+export type ArchiveEntry = {
   format: ArchiveFormat;
   name: string;
   size: bigint;
@@ -80,9 +93,10 @@ export interface ArchiveEntry {
   linkName?: string;
   open: () => Promise<ReadableStream<Uint8Array>>;
   raw?: unknown;
-}
+};
 
-export interface ArchiveOpenOptions {
+/** Options for opening/detecting archives. */
+export type ArchiveOpenOptions = {
   format?: ArchiveFormat | 'auto';
   profile?: ArchiveProfile;
   strict?: boolean;
@@ -93,4 +107,4 @@ export interface ArchiveOpenOptions {
   inputKind?: ArchiveInputKind;
   zip?: Record<string, unknown>;
   tar?: Record<string, unknown>;
-}
+};

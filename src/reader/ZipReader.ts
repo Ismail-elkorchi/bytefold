@@ -1,5 +1,6 @@
 import { ZipError } from '../errors.js';
 import { mergeSignals, throwIfAborted } from '../abort.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 import type {
   ZipAuditOptions,
   ZipAuditReport,
@@ -17,8 +18,7 @@ import type {
   ZipReaderOptions,
   ZipWarning
 } from '../types.js';
-import { BufferRandomAccess, HttpRandomAccess } from './RandomAccess.js';
-import type { RandomAccess } from './RandomAccess.js';
+import { BufferRandomAccess, HttpRandomAccess, type RandomAccess } from './RandomAccess.js';
 import { findEocd, type EocdResult } from './eocd.js';
 import { iterCentralDirectory, type ZipEntryRecord } from './centralDirectory.js';
 import { openEntryStream, openRawStream, type OpenEntryOptions } from './entryStream.js';
@@ -28,8 +28,7 @@ import { readableFromBytes } from '../streams/web.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { createCrcTransform } from '../streams/crcTransform.js';
 import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
-import { WebWritableSink } from '../writer/Sink.js';
-import type { Sink } from '../writer/Sink.js';
+import { WebWritableSink, type Sink } from '../writer/Sink.js';
 import { writeCentralDirectory } from '../writer/centralDirectoryWriter.js';
 import { finalizeArchive } from '../writer/finalize.js';
 import { writeRawEntry, type EntryWriteResult } from '../writer/entryWriter.js';
@@ -49,22 +48,36 @@ const AGENT_LIMITS: Required<ZipLimits> = {
   maxCompressionRatio: 200
 };
 
+/** Read ZIP archives from bytes, streams, or URLs. */
 export class ZipReader {
+  /** @internal */
   protected readonly profile: ZipProfile;
+  /** @internal */
   protected readonly strict: boolean;
+  /** @internal */
   protected readonly limits: Required<ZipLimits>;
+  /** @internal */
   protected readonly warningsList: ZipWarning[] = [];
+  /** @internal */
   protected entriesList: ZipEntryRecord[] | null = null;
+  /** @internal */
   protected readonly password: string | undefined;
+  /** @internal */
   protected readonly storeEntries: boolean;
+  /** @internal */
   protected eocd: EocdResult | null = null;
+  /** @internal */
   protected readonly signal: AbortSignal | undefined;
+  /** @internal */
+  protected readonly reader: RandomAccess;
 
+  /** @internal */
   protected constructor(
-    protected readonly reader: RandomAccess,
+    reader: RandomAccess,
     options?: ZipReaderOptions
   ) {
     const resolved = resolveReaderProfile(options);
+    this.reader = reader;
     this.profile = resolved.profile;
     this.strict = resolved.strict;
     this.limits = resolved.limits;
@@ -73,6 +86,7 @@ export class ZipReader {
     this.signal = mergeSignals(options?.signal, options?.http?.signal);
   }
 
+  /** Create a reader from in-memory bytes. */
   static async fromUint8Array(data: Uint8Array, options?: ZipReaderOptions): Promise<ZipReader> {
     const reader = new BufferRandomAccess(data);
     const instance = new ZipReader(reader, options);
@@ -80,6 +94,7 @@ export class ZipReader {
     return instance;
   }
 
+  /** Create a reader from a readable stream. */
   static async fromStream(
     stream: ReadableStream<Uint8Array>,
     options?: ZipReaderOptions
@@ -93,6 +108,7 @@ export class ZipReader {
     return ZipReader.fromUint8Array(data, options);
   }
 
+  /** Create a reader from a URL using HTTP range requests when possible. */
   static async fromUrl(
     url: string | URL,
     options?: ZipReaderOptions & {
@@ -118,6 +134,7 @@ export class ZipReader {
     return instance;
   }
 
+  /** Return stored entries (requires storeEntries=true). */
   entries(): ZipEntry[] {
     if (!this.storeEntries) {
       throw new ZipError(
@@ -129,10 +146,12 @@ export class ZipReader {
     return this.entriesList.map((entry) => ({ ...entry }));
   }
 
+  /** Return non-fatal warnings encountered during parsing. */
   warnings(): ZipWarning[] {
     return [...this.warningsList];
   }
 
+  /** Iterate entries lazily (or from cached entries). */
   async *iterEntries(options?: ZipReaderIterOptions): AsyncGenerator<ZipEntry> {
     const signal = this.resolveSignal(options?.signal);
     throwIfAborted(signal);
@@ -170,12 +189,14 @@ export class ZipReader {
     }
   }
 
+  /** Iterate entries with a callback. */
   async forEachEntry(fn: (entry: ZipEntry) => void | Promise<void>, options?: ZipReaderIterOptions): Promise<void> {
     for await (const entry of this.iterEntries(options)) {
       await fn(entry);
     }
   }
 
+  /** Open a decoded stream for an entry. */
   async open(entry: ZipEntry, options?: ZipReaderOpenOptions): Promise<ReadableStream<Uint8Array>> {
     const strict = options?.strict ?? this.strict;
     const signal = this.resolveSignal(options?.signal);
@@ -197,6 +218,7 @@ export class ZipReader {
     });
   }
 
+  /** Open a raw (compressed) stream for an entry. */
   async openRaw(entry: ZipEntry, options?: ZipReaderOpenOptions): Promise<ReadableStream<Uint8Array>> {
     const signal = this.resolveSignal(options?.signal);
     const { stream } = await openRawStream(this.reader, entry as ZipEntryRecord, {
@@ -206,6 +228,7 @@ export class ZipReader {
     return stream;
   }
 
+  /** @internal */
   protected async openEntryStream(
     entry: ZipEntryRecord,
     options: OpenEntryOptions
@@ -213,6 +236,7 @@ export class ZipReader {
     return openEntryStream(this.reader, entry, options);
   }
 
+  /** Normalize to a writable stream, producing a report. */
   async normalizeToWritable(
     writable: WritableStream<Uint8Array>,
     options?: ZipNormalizeOptions
@@ -221,6 +245,7 @@ export class ZipReader {
     return this.normalizeToSink(sink, options);
   }
 
+  /** Audit the archive and return a report of issues. */
   async audit(options?: ZipAuditOptions): Promise<ZipAuditReport> {
     const settings = this.resolveAuditSettings(options);
     const signal = this.resolveSignal(options?.signal);
@@ -532,6 +557,7 @@ export class ZipReader {
     return finalizeAuditReport(issues, summary);
   }
 
+  /** Audit and throw if the archive fails the selected profile. */
   async assertSafe(options?: ZipAuditOptions): Promise<void> {
     const report = await this.audit(options);
     const profile = options?.profile ?? this.profile;
@@ -544,14 +570,17 @@ export class ZipReader {
     throw new ZipError('ZIP_AUDIT_FAILED', message, { cause: report });
   }
 
+  /** Release underlying resources held by the reader. */
   async close(): Promise<void> {
     await this.reader.close();
   }
 
+  /** Async dispose hook for using with `using` in supported runtimes. */
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
   }
 
+  /** @internal */
   private async init(): Promise<void> {
     const eocd = await findEocd(this.reader, this.strict, this.signal);
     this.warningsList.push(...eocd.warnings);
@@ -562,6 +591,7 @@ export class ZipReader {
     }
   }
 
+  /** @internal */
   private async loadEntries(): Promise<void> {
     if (this.entriesList) return;
     for await (const _ of this.iterEntries()) {
@@ -569,6 +599,7 @@ export class ZipReader {
     }
   }
 
+  /** @internal */
   private applyEntryLimits(entry: ZipEntryRecord, totals: { totalUncompressed: bigint }): void {
     if (entry.uncompressedSize > this.limits.maxUncompressedEntryBytes) {
       throw new ZipError('ZIP_LIMIT_EXCEEDED', 'Entry exceeds max uncompressed size', {
@@ -591,6 +622,7 @@ export class ZipReader {
     }
   }
 
+  /** @internal */
   private resolveAuditSettings(options?: ZipAuditOptions): {
     profile: ZipProfile;
     strict: boolean;
@@ -614,10 +646,12 @@ export class ZipReader {
     };
   }
 
+  /** @internal */
   private resolveSignal(signal?: AbortSignal): AbortSignal | undefined {
     return mergeSignals(this.signal, signal);
   }
 
+  /** @internal */
   private async normalizeToSink(sink: Sink, options?: ZipNormalizeOptions): Promise<ZipNormalizeReport> {
     const signal = this.resolveSignal(options?.signal);
     throwIfAborted(signal);
@@ -910,6 +944,7 @@ export class ZipReader {
     return report;
   }
 
+  /** @internal */
   private async collectNormalizedEntries(params: {
     signal?: AbortSignal;
     deterministic: boolean;
@@ -1140,32 +1175,6 @@ async function spoolCompressedEntryToMemory(options: {
   };
 }
 
-async function pipeToSink(
-  stream: ReadableStream<Uint8Array>,
-  sink: Sink,
-  signal?: AbortSignal,
-  tracker?: ReturnType<typeof createProgressTracker>
-): Promise<void> {
-  const reader = stream.getReader();
-  try {
-    while (true) {
-      throwIfAborted(signal);
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value) {
-        await sink.write(value);
-        tracker?.update(value.length, value.length);
-      }
-    }
-  } catch (err) {
-    await reader.cancel().catch(() => {});
-    throw err;
-  } finally {
-    reader.releaseLock();
-  }
-  tracker?.flush();
-}
-
 async function readTrailingBytes(
   reader: RandomAccess,
   eocd: EocdResult | null,
@@ -1184,15 +1193,21 @@ async function readTrailingBytes(
 }
 
 function finalizeNormalizeReport(issues: ZipIssue[], summary: ZipNormalizeReport['summary']): ZipNormalizeReport {
+  const sanitizedIssues = issues.map((issue) => ({
+    ...issue,
+    ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
+  }));
   const report = {
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: summary.errors === 0,
     summary,
-    issues
+    issues: sanitizedIssues
   } as ZipNormalizeReport & { toJSON: () => unknown };
   report.toJSON = () => ({
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: report.ok,
     summary: report.summary,
-    issues: issues.map(issueToJson)
+    issues: sanitizedIssues.map(issueToJson)
   });
   return report;
 }
@@ -1345,15 +1360,21 @@ function toSafeNumber(value: bigint): number | undefined {
 }
 
 function finalizeAuditReport(issues: ZipIssue[], summary: ZipAuditReport['summary']): ZipAuditReport {
+  const sanitizedIssues = issues.map((issue) => ({
+    ...issue,
+    ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
+  }));
   const report = {
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: summary.errors === 0,
     summary,
-    issues
+    issues: sanitizedIssues
   } as ZipAuditReport & { toJSON: () => unknown };
   report.toJSON = () => ({
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: report.ok,
     summary: report.summary,
-    issues: issues.map(issueToJson)
+    issues: sanitizedIssues.map(issueToJson)
   });
   return report;
 }

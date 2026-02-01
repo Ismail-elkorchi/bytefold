@@ -2,8 +2,10 @@ import { test, expect } from 'bun:test';
 import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
 import {
+  CompressionError,
   createCompressor,
   createDecompressor,
   getCompressionCapabilities
@@ -38,6 +40,15 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
 }
 
 test('bun smoke: zip, tar, tgz', async () => {
+  const coreUrl = new URL('../dist/index.js', import.meta.url);
+  const coreModule = await import(coreUrl.href);
+  if (typeof coreModule.openArchive !== 'function') throw new Error('default entrypoint missing openArchive');
+  const corePath = fileURLToPath(coreUrl);
+  const coreSource = new TextDecoder().decode(new Uint8Array(await Bun.file(corePath).arrayBuffer()));
+  if (/from\\s+['\"]node:/.test(coreSource) || /import\\s+['\"]node:/.test(coreSource)) {
+    throw new Error('default entrypoint imports node:*');
+  }
+
   const tmp = await mkdtemp(path.join(tmpdir(), 'bytefold-bun-'));
   const zipPath = path.join(tmp, 'smoke.zip');
   const tarPath = path.join(tmp, 'smoke.tar');
@@ -90,11 +101,35 @@ test('bun smoke: zip, tar, tgz', async () => {
       'brotli',
       'zstd'
     ];
+    const unsupportedCompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].compress);
+    if (unsupportedCompress) {
+      let error: unknown;
+      try {
+        createCompressor({ algorithm: unsupportedCompress });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof CompressionError) || error.code !== 'COMPRESSION_UNSUPPORTED_ALGORITHM') {
+        throw new Error(`expected CompressionError for ${unsupportedCompress} compression`);
+      }
+    }
+    const unsupportedDecompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].decompress);
+    if (unsupportedDecompress) {
+      let error: unknown;
+      try {
+        createDecompressor({ algorithm: unsupportedDecompress });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof CompressionError) || error.code !== 'COMPRESSION_UNSUPPORTED_ALGORITHM') {
+        throw new Error(`expected CompressionError for ${unsupportedDecompress} decompression`);
+      }
+    }
     for (const algorithm of algorithms) {
       const support = caps.algorithms[algorithm];
       if (!support.compress || !support.decompress) continue;
-      const compressor = await createCompressor({ algorithm });
-      const decompressor = await createDecompressor({ algorithm });
+      const compressor = createCompressor({ algorithm });
+      const decompressor = createDecompressor({ algorithm });
       const roundtrip = await collect(
         readableFromBytes(encoder.encode('bytefold-compress-bun')).pipeThrough(compressor).pipeThrough(decompressor)
       );
@@ -108,7 +143,7 @@ test('bun smoke: zip, tar, tgz', async () => {
     if (abortAlgorithm) {
       const controller = new AbortController();
       let aborted = false;
-      const compressor = await createCompressor({
+      const compressor = createCompressor({
         algorithm: abortAlgorithm,
         signal: controller.signal,
         onProgress: () => {

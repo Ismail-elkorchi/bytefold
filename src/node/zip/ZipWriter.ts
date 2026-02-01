@@ -4,12 +4,10 @@ import { fileURLToPath } from 'node:url';
 import { ZipError } from '../../errors.js';
 import { mergeSignals, throwIfAborted } from '../../abort.js';
 import { readableFromBytes, readableFromAsyncIterable, toWebReadable } from '../../streams/adapters.js';
-import { FileSink, NodeWritableSink, WebWritableSink } from './Sink.js';
-import { writeEntry } from './entryWriter.js';
+import { FileSink, NodeWritableSink, WebWritableSink, type Sink, type SeekableSink } from './Sink.js';
+import { writeEntry, type EntryWriteResult } from './entryWriter.js';
 import { writeCentralDirectory } from '../../writer/centralDirectoryWriter.js';
 import { finalizeArchive } from '../../writer/finalize.js';
-import type { EntryWriteResult } from './entryWriter.js';
-import type { Sink, SeekableSink } from './Sink.js';
 import type { ZipEncryption, ZipWriterAddOptions, ZipWriterCloseOptions, ZipWriterOptions } from '../../types.js';
 
 export class ZipWriter {

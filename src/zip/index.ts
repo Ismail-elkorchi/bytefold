@@ -25,8 +25,14 @@ export type {
   ZipWarning,
   ZipWriterAddOptions,
   ZipWriterCloseOptions,
+  Zip64Mode,
   ZipWriterOptions
 } from '../types.js';
 
 export { registerCompressionCodec, listCompressionCodecs } from '../compression/registry.js';
-export type { ZipCompressionCodec, ZipCompressionStream } from '../compression/types.js';
+export type {
+  ZipCompressionCodec,
+  ZipCompressionStream,
+  ZipCompressionOptions,
+  ZipDecompressionOptions
+} from '../compression/types.js';

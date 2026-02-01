@@ -2,6 +2,7 @@ import { ArchiveError } from '../archive/errors.js';
 import type { ArchiveLimits, ArchiveProfile } from '../archive/types.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromBytes } from '../streams/web.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 import type {
   TarAuditOptions,
   TarAuditReport,
@@ -37,6 +38,7 @@ type TarEntryRecord = TarEntry & {
   dataSize: bigint;
 };
 
+/** Read TAR archives from bytes, streams, or URLs. */
 export class TarReader {
   private readonly profile: ArchiveProfile;
   private readonly strict: boolean;
@@ -58,12 +60,14 @@ export class TarReader {
     this.signal = options?.signal;
   }
 
+  /** Create a reader from in-memory bytes. */
   static async fromUint8Array(data: Uint8Array, options?: TarReaderOptions): Promise<TarReader> {
     const reader = new TarReader(data, options);
     await reader.init();
     return reader;
   }
 
+  /** Create a reader from a readable stream. */
   static async fromStream(stream: ReadableStream<Uint8Array>, options?: TarReaderOptions): Promise<TarReader> {
     const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
     if (options?.signal) readOptions.signal = options.signal;
@@ -74,6 +78,7 @@ export class TarReader {
     return TarReader.fromUint8Array(data, options);
   }
 
+  /** Create a reader from a URL via fetch(). */
   static async fromUrl(url: string | URL, options?: TarReaderOptions): Promise<TarReader> {
     const response = await fetch(typeof url === 'string' ? url : url.toString(), {
       signal: options?.signal ?? null
@@ -85,6 +90,7 @@ export class TarReader {
     return TarReader.fromUint8Array(data, options);
   }
 
+  /** Return stored entries (requires storeEntries=true). */
   entries(): TarEntry[] {
     if (!this.storeEntries) {
       throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Entries are not stored; use iterEntries()');
@@ -93,10 +99,12 @@ export class TarReader {
     return this.entriesList.map((entry) => ({ ...entry }));
   }
 
+  /** Return non-fatal warnings encountered during parsing. */
   warnings(): TarIssue[] {
     return [...this.warningsList];
   }
 
+  /** Iterate entries (from cached entries). */
   async *iterEntries(): AsyncGenerator<TarEntry> {
     if (!this.entriesList) return;
     for (const entry of this.entriesList) {
@@ -104,6 +112,7 @@ export class TarReader {
     }
   }
 
+  /** Open a stream for a specific entry's contents. */
   async open(entry: TarEntry): Promise<ReadableStream<Uint8Array>> {
     if (!this.entriesList) throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Entries not loaded');
     const record = this.entriesList.find((item) => item.name === entry.name && item.size === entry.size);
@@ -116,6 +125,7 @@ export class TarReader {
     return readableFromBytes(slice);
   }
 
+  /** Audit the archive and return a report of issues. */
   async audit(options?: TarAuditOptions): Promise<TarAuditReport> {
     const settings = this.resolveAuditSettings(options);
     const issues: TarIssue[] = [];
@@ -206,6 +216,7 @@ export class TarReader {
     return finalizeAuditReport(issues, summary);
   }
 
+  /** Audit and throw if the archive fails the selected profile. */
   async assertSafe(options?: TarAuditOptions): Promise<void> {
     const report = await this.audit(options);
     if (!report.ok) {
@@ -213,6 +224,7 @@ export class TarReader {
     }
   }
 
+  /** Normalize to a writable stream, producing a report. */
   async normalizeToWritable(
     writable: WritableStream<Uint8Array>,
     options?: TarNormalizeOptions
@@ -305,6 +317,7 @@ export class TarReader {
     return finalizeNormalizeReport(issues, summary);
   }
 
+  /** @internal */
   private resolveAuditSettings(options?: TarAuditOptions): {
     profile: ArchiveProfile;
     strict: boolean;
@@ -323,6 +336,7 @@ export class TarReader {
     };
   }
 
+  /** @internal */
   private async init(): Promise<void> {
     const { entries, warnings } = parseTarEntries(this.data, {
       strict: this.strict,
@@ -408,7 +422,6 @@ function parseTarEntries(data: Uint8Array, options: { strict: boolean; limits: R
     const mtime = parseNumeric(header.subarray(136, 148));
     const typeflag = readString(header, 156, 1) || '0';
     const linkName = readString(header, 157, 100);
-    const magic = readString(header, 257, 6);
     const prefix = readString(header, 345, 155);
 
     let fullName = prefix ? `${prefix}/${name}` : name;
@@ -816,15 +829,21 @@ function finalizeAuditReport(
   issues: TarIssue[],
   summary: { entries: number; warnings: number; errors: number; totalBytes?: number }
 ): TarAuditReport {
+  const sanitizedIssues = issues.map((issue) => ({
+    ...issue,
+    ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
+  }));
   const report = {
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: summary.errors === 0,
     summary,
-    issues
+    issues: sanitizedIssues
   } as TarAuditReport & { toJSON: () => unknown };
   report.toJSON = () => ({
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: report.ok,
     summary: report.summary,
-    issues: issues.map(issueToJson)
+    issues: sanitizedIssues.map(issueToJson)
   });
   return report;
 }
@@ -840,15 +859,21 @@ function finalizeNormalizeReport(
     errors: number;
   }
 ): TarNormalizeReport {
+  const sanitizedIssues = issues.map((issue) => ({
+    ...issue,
+    ...(issue.details ? { details: sanitizeDetails(issue.details) as Record<string, unknown> } : {})
+  }));
   const report = {
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: summary.errors === 0,
     summary,
-    issues
+    issues: sanitizedIssues
   } as TarNormalizeReport & { toJSON: () => unknown };
   report.toJSON = () => ({
+    schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
     ok: report.ok,
     summary: report.summary,
-    issues: issues.map(issueToJson)
+    issues: sanitizedIssues.map(issueToJson)
   });
   return report;
 }

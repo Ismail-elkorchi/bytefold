@@ -2,6 +2,7 @@ import { mkdir, symlink, mkdtemp, rm } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
+import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -26,8 +27,7 @@ import type {
   ZipReaderOptions,
   ZipWarning
 } from '../../types.js';
-import { BufferRandomAccess, FileRandomAccess, HttpRandomAccess } from './RandomAccess.js';
-import type { RandomAccess } from './RandomAccess.js';
+import { BufferRandomAccess, FileRandomAccess, HttpRandomAccess, type RandomAccess } from './RandomAccess.js';
 import { findEocd, type EocdResult } from '../../reader/eocd.js';
 import { iterCentralDirectory, type ZipEntryRecord } from '../../reader/centralDirectory.js';
 import { openEntryStream, openRawStream } from './entryStream.js';
@@ -37,8 +37,7 @@ import { isWebWritable, readableFromBytes, toWebReadable } from '../../streams/a
 import { createCrcTransform } from '../../streams/crcTransform.js';
 import { createMeasureTransform } from '../../streams/measure.js';
 import { createProgressTracker, createProgressTransform } from '../../streams/progress.js';
-import { FileSink, NodeWritableSink, WebWritableSink } from './Sink.js';
-import type { Sink } from './Sink.js';
+import { FileSink, NodeWritableSink, WebWritableSink, type Sink } from './Sink.js';
 import { writeCentralDirectory } from '../../writer/centralDirectoryWriter.js';
 import { finalizeArchive } from '../../writer/finalize.js';
 import { writeRawEntry, type EntryWriteResult } from './entryWriter.js';
@@ -337,7 +336,7 @@ export class ZipReader {
         limits,
         totals
       });
-      const nodeReadable = Readable.fromWeb(stream as any);
+      const nodeReadable = Readable.fromWeb(stream as unknown as NodeReadableStream);
       await pipeline(nodeReadable, createWriteStream(targetPath));
     }
   }

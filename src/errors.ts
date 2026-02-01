@@ -1,3 +1,4 @@
+/** Stable ZIP error codes. */
 export type ZipErrorCode =
   | 'ZIP_HTTP_RANGE_UNSUPPORTED'
   | 'ZIP_HTTP_BAD_RESPONSE'
@@ -27,13 +28,20 @@ export type ZipErrorCode =
   | 'ZIP_ENTRIES_NOT_STORED'
   | 'ZIP_AUDIT_FAILED';
 
+/** Error thrown for ZIP parsing, validation, and write failures. */
 export class ZipError extends Error {
+  /** Machine-readable error code. */
   readonly code: ZipErrorCode;
+  /** Entry name related to the error, if available. */
   readonly entryName?: string | undefined;
+  /** Compression method related to the error, if available. */
   readonly method?: number | undefined;
+  /** Offset (in bytes) related to the error, if available. */
   readonly offset?: bigint | undefined;
-  readonly cause?: unknown;
+  /** Underlying cause, if available. */
+  override readonly cause?: unknown;
 
+  /** Create a ZipError with a stable code. */
   constructor(
     code: ZipErrorCode,
     message: string,
@@ -54,6 +62,7 @@ export class ZipError extends Error {
   }
 }
 
+/** Non-fatal ZIP warning codes. */
 export type ZipWarningCode =
   | 'ZIP_MULTIPLE_EOCD'
   | 'ZIP_BAD_EOCD'
@@ -63,8 +72,9 @@ export type ZipWarningCode =
   | 'ZIP_LIMIT_EXCEEDED'
   | 'ZIP_UNSUPPORTED_FEATURE';
 
-export interface ZipWarning {
+/** Non-fatal warning produced while parsing ZIP structures. */
+export type ZipWarning = {
   code: ZipWarningCode;
   message: string;
   entryName?: string;
-}
+};

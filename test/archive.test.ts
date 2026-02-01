@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { openArchive, TarReader, TarWriter, createArchiveWriter } from '@ismail-elkorchi/bytefold';
+import { ArchiveError, openArchive, TarReader, TarWriter, createArchiveWriter } from '@ismail-elkorchi/bytefold';
 import { getCompressionCapabilities } from '@ismail-elkorchi/bytefold/compress';
 
 const encoder = new TextEncoder();
@@ -123,14 +123,42 @@ test('openArchive detects tar.zst', async (t) => {
 
   const reader = await openArchive(tzstBytes);
   assert.equal(reader.format, 'tar.zst');
+  assert.ok(reader.detection);
+  assert.equal(reader.detection?.detected.container, 'tar');
+  assert.equal(reader.detection?.detected.compression, 'zstd');
+  assert.deepEqual(reader.detection?.detected.layers, ['zstd', 'tar']);
   const names: string[] = [];
   for await (const entry of reader.entries()) {
     names.push(entry.name);
+    const data = await collect(await entry.open());
+    assert.equal(new TextDecoder().decode(data), 'zstd tar');
   }
   assert.deepEqual(names, ['hello.txt']);
 });
 
-test('openArchive detects tar.br', async (t) => {
+test('openArchive does not auto-detect tar.br without hint', async (t) => {
+  const caps = getCompressionCapabilities();
+  if (!caps.algorithms.brotli.compress || !caps.algorithms.brotli.decompress) {
+    t.skip('brotli not supported');
+    return;
+  }
+  const chunks: Uint8Array[] = [];
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      chunks.push(chunk);
+    }
+  });
+  const writer = createArchiveWriter('tar.br', writable);
+  await writer.add('hello.txt', encoder.encode('brotli tar'));
+  await writer.close();
+  const tbrBytes = concatChunks(chunks);
+
+  await assert.rejects(async () => {
+    await openArchive(tbrBytes);
+  }, (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_UNSUPPORTED_FORMAT');
+});
+
+test('openArchive detects tar.br with explicit hint', async (t) => {
   const caps = getCompressionCapabilities();
   if (!caps.algorithms.brotli.compress || !caps.algorithms.brotli.decompress) {
     t.skip('brotli not supported');
@@ -149,9 +177,15 @@ test('openArchive detects tar.br', async (t) => {
 
   const reader = await openArchive(tbrBytes, { format: 'tar.br' });
   assert.equal(reader.format, 'tar.br');
+  assert.ok(reader.detection);
+  assert.equal(reader.detection?.detected.container, 'tar');
+  assert.equal(reader.detection?.detected.compression, 'brotli');
+  assert.deepEqual(reader.detection?.detected.layers, ['brotli', 'tar']);
   const names: string[] = [];
   for await (const entry of reader.entries()) {
     names.push(entry.name);
+    const data = await collect(await entry.open());
+    assert.equal(new TextDecoder().decode(data), 'brotli tar');
   }
   assert.deepEqual(names, ['hello.txt']);
 });

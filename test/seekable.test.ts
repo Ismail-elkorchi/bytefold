@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
+import { ZipReader, ZipWriter, ZipError, type ZipWriterAddOptions } from '@ismail-elkorchi/bytefold/node/zip';
 
 const CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -93,10 +93,11 @@ test('seekable patch mode requires ZIP64 when sizes exceed 4GiB', async () => {
 
   try {
     await assert.rejects(async () => {
-      await writer.add('big.bin', stream, {
+      const addOptions: ZipWriterAddOptions & { declaredUncompressedSize: bigint } = {
         zip64: 'auto',
         declaredUncompressedSize: 0x1_0000_0000n
-      } as any);
+      };
+      await writer.add('big.bin', stream, addOptions);
     }, (err: unknown) => err instanceof ZipError && err.code === 'ZIP_ZIP64_REQUIRED');
   } finally {
     await writer.close().catch(() => {});

@@ -1,0 +1,39 @@
+{
+  "name": "@ismail-elkorchi/bytefold",
+  "version": "0.2.0",
+  "license": "MIT",
+  "exports": {
+    ".": "./mod.ts",
+    "./archive": "./archive/mod.ts",
+    "./compress": "./compress/mod.ts",
+    "./zip": "./zip/mod.ts",
+    "./tar": "./tar/mod.ts",
+    "./deno": "./deno/mod.ts",
+    "./bun": "./bun/mod.ts"
+  },
+  "publish": {
+    "include": [
+      "LICENSE",
+      "README.md",
+      "docs/**",
+      "mod.ts",
+      "archive/mod.ts",
+      "compress/mod.ts",
+      "zip/mod.ts",
+      "tar/mod.ts",
+      "deno/mod.ts",
+      "bun/mod.ts",
+      "src/**",
+      "jsr.json",
+      "package.json"
+    ],
+    "exclude": [
+      "dist-test/**",
+      "test/**",
+      "specs/**",
+      "bench/**",
+      "node_modules/**",
+      "scripts/**"
+    ]
+  }
+}

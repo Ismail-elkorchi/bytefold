@@ -2,6 +2,7 @@
   "name": "@ismail-elkorchi/bytefold",
   "version": "0.2.0",
   "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
+  "license": "MIT",
   "type": "module",
   "engines": {
     "node": ">=24"
@@ -50,9 +51,17 @@
   },
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
+  "files": [
+    "dist/",
+    "LICENSE",
+    "README.md",
+    "docs/",
+    "jsr.json"
+  ],
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "build:test": "tsc -p tsconfig.test.json",
+    "prepack": "npm run version:check && npm run build",
     "test": "npm run build && npm run build:test && node --test dist-test",
     "test:node": "npm run test",
     "test:deno": "npm run build && node ./scripts/run-deno.mjs",
@@ -61,10 +70,29 @@
     "test:interop": "node ./scripts/interop.mjs",
     "test:external-7z": "npm run build && node ./scripts/external-7z.mjs",
     "bench": "npm run build && node ./scripts/bench.mjs",
-    "clean": "node ./scripts/clean.mjs"
+    "clean": "node ./scripts/clean.mjs",
+    "lint": "eslint . --max-warnings=0",
+    "lint:fix": "eslint . --fix",
+    "typecheck": "tsc -p tsconfig.json --noEmit && npm run build && tsc -p tsconfig.test.json --noEmit",
+    "check:node": "npm run lint && npm run typecheck && npm test",
+    "check:all": "npm run lint && npm run typecheck && npm run test:all",
+    "doc:lint": "deno doc --lint --sloppy-imports mod.ts",
+    "doc:test": "deno test --doc --sloppy-imports mod.ts",
+    "jsr:dry": "deno publish --dry-run",
+    "jsr:check": "npm run build && npm run doc:lint && npm run doc:test && npm run jsr:dry",
+    "pack:check": "node ./scripts/verify-pack.mjs",
+    "pack:smoke": "node ./scripts/smoke-pack.mjs",
+    "version:check": "node ./scripts/sync-version.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@typescript-eslint/eslint-plugin": "8.54.0",
+    "@typescript-eslint/parser": "8.54.0",
+    "eslint": "9.39.2",
+    "eslint-plugin-eslint-comments": "3.2.0",
+    "eslint-plugin-promise": "7.2.1",
+    "eslint-plugin-regexp": "3.0.0",
+    "eslint-plugin-unicorn": "62.0.0",
     "typescript": "^5.5.4"
   }
 }

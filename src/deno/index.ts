@@ -1,10 +1,15 @@
 import type { ArchiveOpenOptions } from '../archive/types.js';
-import type { ArchiveReader } from '../archive/index.js';
-import { openArchive as openArchiveCore } from '../archive/index.js';
+import { openArchive as openArchiveCore, type ArchiveReader } from '../archive/index.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
+
+type DenoFile = { writable: WritableStream<Uint8Array>; close: () => void };
+type DenoApi = {
+  readFile: (path: string | URL) => Promise<Uint8Array>;
+  open: (path: string | URL, options?: Record<string, unknown>) => Promise<DenoFile>;
+};
 
 export { ArchiveError } from '../archive/errors.js';
 export type {
@@ -26,7 +31,14 @@ export { createArchiveWriter } from '../archive/index.js';
 export * from '../zip/index.js';
 export * from '../tar/index.js';
 
-const DenoGlobal = (globalThis as any).Deno as any;
+const DenoGlobal = (globalThis as { Deno?: DenoApi }).Deno;
+
+function requireDeno(): DenoApi {
+  if (!DenoGlobal) {
+    throw new Error('Deno global is not available in this runtime.');
+  }
+  return DenoGlobal;
+}
 
 export type DenoArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | string | URL;
 
@@ -39,7 +51,7 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
   }
   if (typeof input === 'string' || input instanceof URL) {
     const path = typeof input === 'string' ? input : input.toString();
-    const data = new Uint8Array(await DenoGlobal.readFile(path));
+    const data = new Uint8Array(await requireDeno().readFile(path));
     return openArchiveCore(data, {
       ...options,
       ...(options?.inputKind ? {} : { inputKind: input instanceof URL ? 'url' : 'file' }),
@@ -52,18 +64,27 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
   });
 }
 
-export async function zipFromFile(path: string, options?: Parameters<typeof ZipReader.fromUint8Array>[1]) {
-  const data = new Uint8Array(await DenoGlobal.readFile(path));
+export async function zipFromFile(
+  path: string,
+  options?: Parameters<typeof ZipReader.fromUint8Array>[1]
+): Promise<ZipReader> {
+  const data = new Uint8Array(await requireDeno().readFile(path));
   return ZipReader.fromUint8Array(data, options);
 }
 
-export async function tarFromFile(path: string, options?: Parameters<typeof TarReader.fromUint8Array>[1]) {
-  const data = new Uint8Array(await DenoGlobal.readFile(path));
+export async function tarFromFile(
+  path: string,
+  options?: Parameters<typeof TarReader.fromUint8Array>[1]
+): Promise<TarReader> {
+  const data = new Uint8Array(await requireDeno().readFile(path));
   return TarReader.fromUint8Array(data, options);
 }
 
-export async function zipToFile(path: string, options?: Parameters<typeof ZipWriter.toWritable>[1]) {
-  const file = await DenoGlobal.open(path, { create: true, write: true, truncate: true });
+export async function zipToFile(
+  path: string,
+  options?: Parameters<typeof ZipWriter.toWritable>[1]
+): Promise<ZipWriter> {
+  const file = await requireDeno().open(path, { create: true, write: true, truncate: true });
   const writer = ZipWriter.toWritable(file.writable, options);
   const close = writer.close.bind(writer);
   writer.close = async (...args: Parameters<typeof close>) => {
@@ -77,8 +98,11 @@ export async function zipToFile(path: string, options?: Parameters<typeof ZipWri
   return writer;
 }
 
-export async function tarToFile(path: string, options?: Parameters<typeof TarWriter.toWritable>[1]) {
-  const file = await DenoGlobal.open(path, { create: true, write: true, truncate: true });
+export async function tarToFile(
+  path: string,
+  options?: Parameters<typeof TarWriter.toWritable>[1]
+): Promise<TarWriter> {
+  const file = await requireDeno().open(path, { create: true, write: true, truncate: true });
   const writer = TarWriter.toWritable(file.writable, options);
   const close = writer.close.bind(writer);
   writer.close = async (...args: Parameters<typeof close>) => {

@@ -35,8 +35,9 @@ Bun subpath (`@ismail-elkorchi/bytefold/bun`)
 
 ## Supported archive formats and wrappers (today)
 - Containers: ZIP, TAR
-- Wrappers: GZIP (`.gz`), TGZ (`.tar.gz`)
-- Auto-open supports: `zip`, `tar`, `gz`, `tgz`
+- Wrappers: GZIP (`.gz`), TGZ (`.tar.gz`), Zstandard (`.zst`), Brotli (`.br`)
+- Layered: `tar.zst`, `tar.br`
+- Auto-open supports: `zip`, `tar`, `gz`, `tgz`, `zst`, `tar.zst` (Brotli requires explicit hint)
 
 ## Compression algorithms per runtime (today)
 - Universal Web Compression Streams (if available): `gzip`, `deflate`, `deflate-raw`
@@ -50,8 +51,10 @@ Detection today:
 - `openArchive(input, { format: 'auto' })` buffers input into a `Uint8Array` (streams are fully read).
 - Detection order:
   1) GZIP magic `1F 8B` → `gz`
-  2) ZIP signatures `PK 03 04`, `PK 05 06`, `PK 07 08`
-  3) TAR header checksum + `ustar` magic (or blank) in first 512 bytes
+  2) Zstandard magic `28 B5 2F FD` → `zst`
+  3) ZIP signatures `PK 03 04`, `PK 05 06`, `PK 07 08`
+  4) TAR header checksum + `ustar` magic (or blank) in first 512 bytes
+- Brotli is not reliably detectable; it requires a filename or explicit format hint.
 - If detected as `gz`, the data is gunzipped; if the payload parses as TAR, format is reported as `tgz`, otherwise `gz`.
 - TAR detection uses checksum + `ustar`/blank magic; false positives are unlikely but still possible for non-TAR 512-byte blocks with valid checksum.
 
@@ -60,6 +63,7 @@ Detection today:
   - ZIP audit/normalize reports (`ZipReader.audit()` / `normalizeToWritable()`) include `toJSON()` that stringifies bigint fields.
   - TAR audit/normalize reports (`TarReader.audit()` / `normalizeToWritable()`) include `toJSON()` with bigint stringification.
   - Archive-level `audit()`/`normalizeToWritable()` wrapper surfaces `toJSON()` when present.
+  - All JSON reports include a `schemaVersion` field for agent contracts.
 - Not JSON-safe by default:
   - `ArchiveEntry.size`, `ZipEntry.*` sizes/offsets, and `TarEntry.size` are `bigint` values.
   - `ZipError.offset` and `ArchiveError.offset` are `bigint`.

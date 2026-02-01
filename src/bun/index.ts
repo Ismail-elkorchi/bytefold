@@ -1,10 +1,15 @@
 import type { ArchiveOpenOptions } from '../archive/types.js';
-import type { ArchiveReader } from '../archive/index.js';
-import { openArchive as openArchiveCore } from '../archive/index.js';
+import { openArchive as openArchiveCore, type ArchiveReader } from '../archive/index.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
+
+type BunFile = { arrayBuffer: () => Promise<ArrayBuffer> };
+type BunApi = {
+  file: (path: string) => BunFile;
+  write: (path: string, data: Uint8Array) => Promise<unknown> | unknown;
+};
 
 export { ArchiveError } from '../archive/errors.js';
 export type {
@@ -26,7 +31,14 @@ export { createArchiveWriter } from '../archive/index.js';
 export * from '../zip/index.js';
 export * from '../tar/index.js';
 
-const BunGlobal = (globalThis as any).Bun as any;
+const BunGlobal = (globalThis as { Bun?: BunApi }).Bun;
+
+function requireBun(): BunApi {
+  if (!BunGlobal) {
+    throw new Error('Bun global is not available in this runtime.');
+  }
+  return BunGlobal;
+}
 
 export type BunArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | string | URL;
 
@@ -39,7 +51,7 @@ export async function openArchive(input: BunArchiveInput, options?: ArchiveOpenO
   }
   if (typeof input === 'string' || input instanceof URL) {
     const path = typeof input === 'string' ? input : input.toString();
-    const data = new Uint8Array(await BunGlobal.file(path).arrayBuffer());
+    const data = new Uint8Array(await requireBun().file(path).arrayBuffer());
     return openArchiveCore(data, {
       ...options,
       ...(options?.inputKind ? {} : { inputKind: input instanceof URL ? 'url' : 'file' }),
@@ -52,17 +64,26 @@ export async function openArchive(input: BunArchiveInput, options?: ArchiveOpenO
   });
 }
 
-export async function zipFromFile(path: string, options?: Parameters<typeof ZipReader.fromUint8Array>[1]) {
-  const data = new Uint8Array(await BunGlobal.file(path).arrayBuffer());
+export async function zipFromFile(
+  path: string,
+  options?: Parameters<typeof ZipReader.fromUint8Array>[1]
+): Promise<ZipReader> {
+  const data = new Uint8Array(await requireBun().file(path).arrayBuffer());
   return ZipReader.fromUint8Array(data, options);
 }
 
-export async function tarFromFile(path: string, options?: Parameters<typeof TarReader.fromUint8Array>[1]) {
-  const data = new Uint8Array(await BunGlobal.file(path).arrayBuffer());
+export async function tarFromFile(
+  path: string,
+  options?: Parameters<typeof TarReader.fromUint8Array>[1]
+): Promise<TarReader> {
+  const data = new Uint8Array(await requireBun().file(path).arrayBuffer());
   return TarReader.fromUint8Array(data, options);
 }
 
-export async function zipToFile(path: string, options?: Parameters<typeof ZipWriter.toWritable>[1]) {
+export async function zipToFile(
+  path: string,
+  options?: Parameters<typeof ZipWriter.toWritable>[1]
+): Promise<ZipWriter> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
     write(chunk) {
@@ -80,12 +101,15 @@ export async function zipToFile(path: string, options?: Parameters<typeof ZipWri
       out.set(chunk, offset);
       offset += chunk.length;
     }
-    await BunGlobal.write(path, out);
+    await requireBun().write(path, out);
   };
   return writer;
 }
 
-export async function tarToFile(path: string, options?: Parameters<typeof TarWriter.toWritable>[1]) {
+export async function tarToFile(
+  path: string,
+  options?: Parameters<typeof TarWriter.toWritable>[1]
+): Promise<TarWriter> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
     write(chunk) {
@@ -103,7 +127,7 @@ export async function tarToFile(path: string, options?: Parameters<typeof TarWri
       out.set(chunk, offset);
       offset += chunk.length;
     }
-    await BunGlobal.write(path, out);
+    await requireBun().write(path, out);
   };
   return writer;
 }

@@ -1,5 +1,4 @@
-import { ZipError } from '../errors.js';
-import type { ZipWarning } from '../errors.js';
+import { ZipError, type ZipWarning } from '../errors.js';
 import { throwIfAborted } from '../abort.js';
 import type { ZipLimits } from '../types.js';
 

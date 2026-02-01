@@ -1,6 +1,7 @@
 import { open } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Writable } from 'node:stream';
+import type { WritableStream as NodeWritableStream } from 'node:stream/web';
 import { toWebWritable } from '../../streams/adapters.js';
 import { WebWritableSink, type SeekableSink, type Sink } from '../../writer/Sink.js';
 
@@ -46,5 +47,5 @@ export function isWebWritable(stream: WritableStream<Uint8Array> | NodeJS.Writab
 
 export function toNodeWritable(stream: WritableStream<Uint8Array> | NodeJS.WritableStream): Writable {
   if (!isWebWritable(stream)) return stream as Writable;
-  return Writable.fromWeb(stream as any) as Writable;
+  return Writable.fromWeb(stream as unknown as NodeWritableStream) as Writable;
 }

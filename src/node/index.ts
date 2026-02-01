@@ -1,8 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import type { ArchiveOpenOptions } from '../archive/types.js';
-import type { ArchiveReader } from '../archive/index.js';
-import { openArchive as openArchiveCore } from '../archive/index.js';
+import { openArchive as openArchiveCore, type ArchiveReader } from '../archive/index.js';
 import { toWebReadable } from '../streams/adapters.js';
 
 export { ArchiveError } from '../archive/errors.js';

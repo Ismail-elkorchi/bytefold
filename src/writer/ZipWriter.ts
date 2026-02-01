@@ -2,12 +2,12 @@ import { ZipError } from '../errors.js';
 import { mergeSignals, throwIfAborted } from '../abort.js';
 import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
 import { WebWritableSink, type SeekableSink, type Sink } from './Sink.js';
-import { writeEntry } from './entryWriter.js';
+import { writeEntry, type EntryWriteResult } from './entryWriter.js';
 import { writeCentralDirectory } from './centralDirectoryWriter.js';
 import { finalizeArchive } from './finalize.js';
-import type { EntryWriteResult } from './entryWriter.js';
 import type { ZipEncryption, ZipWriterAddOptions, ZipWriterCloseOptions, ZipWriterOptions } from '../types.js';
 
+/** Write ZIP archives to a writable stream. */
 export class ZipWriter {
   private readonly entries: EntryWriteResult[] = [];
   private closed = false;
@@ -24,6 +24,7 @@ export class ZipWriter {
     | undefined;
   private readonly signal: AbortSignal | undefined;
 
+  /** @internal */
   protected constructor(
     private readonly sink: Sink,
     options?: ZipWriterOptions
@@ -47,11 +48,13 @@ export class ZipWriter {
     this.signal = options?.signal;
   }
 
+  /** Create a ZIP writer that targets a WritableStream. */
   static toWritable(writable: WritableStream<Uint8Array>, options?: ZipWriterOptions): ZipWriter {
     const sink = new WebWritableSink(writable);
     return new ZipWriter(sink, options);
   }
 
+  /** Add an entry to the ZIP archive. */
   async add(
     name: string,
     source: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
@@ -97,6 +100,7 @@ export class ZipWriter {
     this.entries.push(entry);
   }
 
+  /** Finalize and close the ZIP archive. */
   async close(comment?: string, options?: ZipWriterCloseOptions): Promise<void> {
     const signal = mergeSignals(this.signal, options?.signal);
     throwIfAborted(signal);
@@ -123,6 +127,7 @@ export class ZipWriter {
     this.closed = true;
   }
 
+  /** Async dispose hook for using with `using` in supported runtimes. */
   async [Symbol.asyncDispose](): Promise<void> {
     await this.close();
   }

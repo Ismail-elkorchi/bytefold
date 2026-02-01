@@ -6,7 +6,7 @@ export type ExternalToolErrorCode =
 export class ExternalToolError extends Error {
   readonly code: ExternalToolErrorCode;
   readonly tool?: string;
-  readonly cause?: unknown;
+  override readonly cause?: unknown;
 
   constructor(
     code: ExternalToolErrorCode,

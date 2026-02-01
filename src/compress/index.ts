@@ -1,13 +1,15 @@
-import { createCompressTransform, createDecompressTransform } from '../compression/streams.js';
-import type { CompressionProgress } from '../compression/streams.js';
+import { createCompressTransform, createDecompressTransform, type CompressionProgress } from '../compression/streams.js';
 import { ZipError } from '../errors.js';
 import { CompressionError } from './errors.js';
 import type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions } from './types.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 
 export type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions } from './types.js';
 export type { CompressionBackend, CompressionProgressEvent } from './types.js';
 export { CompressionError } from './errors.js';
+export type { CompressionErrorCode } from './errors.js';
 
+/** Inspect compression support in the current runtime. */
 export function getCompressionCapabilities(): CompressionCapabilities {
   const runtime = detectRuntime();
   const notes: string[] = [];
@@ -49,9 +51,10 @@ export function getCompressionCapabilities(): CompressionCapabilities {
     notes.push('CompressionStream not available in this runtime');
   }
 
-  return { runtime, algorithms, notes };
+  return { schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, runtime, algorithms, notes };
 }
 
+/** Create a TransformStream that compresses chunks with the selected algorithm. */
 export function createCompressor(options: CompressionOptions): TransformStream<Uint8Array, Uint8Array> {
   ensureSupported(options.algorithm, 'compress');
   const transformPromise = createCompressTransform({
@@ -76,6 +79,7 @@ export function createCompressor(options: CompressionOptions): TransformStream<U
   return createLazyTransform(transformPromise);
 }
 
+/** Create a TransformStream that decompresses chunks with the selected algorithm. */
 export function createDecompressor(options: CompressionOptions): TransformStream<Uint8Array, Uint8Array> {
   ensureSupported(options.algorithm, 'decompress');
   const transformPromise = createDecompressTransform({
@@ -144,8 +148,8 @@ function createLazyTransform(
 
   const readable = new ReadableStream<Uint8Array>({
     async pull(controller) {
-      const { reader } = await ensure();
-      const { value, done } = await reader.read();
+      const { reader: streamReader } = await ensure();
+      const { value, done } = await streamReader.read();
       if (done) {
         controller.close();
         return;
@@ -153,23 +157,23 @@ function createLazyTransform(
       if (value) controller.enqueue(value);
     },
     async cancel(reason) {
-      const { reader } = await ensure();
-      await reader.cancel(reason);
+      const { reader: streamReader } = await ensure();
+      await streamReader.cancel(reason);
     }
   });
 
   const writable = new WritableStream<Uint8Array>({
     async write(chunk) {
-      const { writer } = await ensure();
-      await writer.write(chunk);
+      const { writer: streamWriter } = await ensure();
+      await streamWriter.write(chunk);
     },
     async close() {
-      const { writer } = await ensure();
-      await writer.close();
+      const { writer: streamWriter } = await ensure();
+      await streamWriter.close();
     },
     async abort(reason) {
-      const { writer } = await ensure();
-      await writer.abort(reason);
+      const { writer: streamWriter } = await ensure();
+      await streamWriter.abort(reason);
     }
   });
 
@@ -187,11 +191,11 @@ function supportsWebCompression(algorithm: CompressionAlgorithm, mode: Compressi
   if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') return false;
   try {
     if (mode === 'compress') {
-      // eslint-disable-next-line no-new
-      new CompressionStream(algorithm as unknown as CompressionFormat);
+      const stream = new CompressionStream(algorithm as unknown as CompressionFormat);
+      void stream;
     } else {
-      // eslint-disable-next-line no-new
-      new DecompressionStream(algorithm as unknown as CompressionFormat);
+      const stream = new DecompressionStream(algorithm as unknown as CompressionFormat);
+      void stream;
     }
     return true;
   } catch {

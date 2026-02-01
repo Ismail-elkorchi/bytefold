@@ -2,12 +2,12 @@ import { ArchiveError } from '../archive/errors.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
 import { throwIfAborted } from '../abort.js';
-import type { TarWriterAddOptions, TarWriterOptions } from './types.js';
-import type { TarEntryType } from './types.js';
+import type { TarEntryType, TarWriterAddOptions, TarWriterOptions } from './types.js';
 
 const BLOCK_SIZE = 512;
 const TEXT_ENCODER = new TextEncoder();
 
+/** Write TAR archives to a writable stream. */
 export class TarWriter {
   private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
   private readonly deterministic: boolean;
@@ -21,10 +21,12 @@ export class TarWriter {
     this.signal = options?.signal;
   }
 
+  /** Create a TAR writer that targets a WritableStream. */
   static toWritable(writable: WritableStream<Uint8Array>, options?: TarWriterOptions): TarWriter {
     return new TarWriter(writable, options);
   }
 
+  /** Add an entry to the TAR archive. */
   async add(
     name: string,
     source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
@@ -85,6 +87,7 @@ export class TarWriter {
     await this.writePadding(size);
   }
 
+  /** Finalize and close the TAR archive. */
   async close(): Promise<void> {
     if (this.closed) return;
     await this.writeChunk(new Uint8Array(BLOCK_SIZE));
@@ -93,6 +96,7 @@ export class TarWriter {
     this.closed = true;
   }
 
+  /** @internal */
   private async writePaxHeader(
     records: Record<string, string>,
     uid: number,
@@ -120,6 +124,7 @@ export class TarWriter {
     await this.writePadding(BigInt(data.length));
   }
 
+  /** @internal */
   private async pipeData(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader();
     try {
@@ -134,6 +139,7 @@ export class TarWriter {
     }
   }
 
+  /** @internal */
   private async writePadding(size: bigint): Promise<void> {
     const padding = Number((BigInt(BLOCK_SIZE) - (size % BigInt(BLOCK_SIZE))) % BigInt(BLOCK_SIZE));
     if (padding > 0) {
@@ -141,6 +147,7 @@ export class TarWriter {
     }
   }
 
+  /** @internal */
   private async writeChunk(chunk: Uint8Array): Promise<void> {
     throwIfAborted(this.signal);
     await this.writer.write(chunk);
@@ -270,6 +277,8 @@ function typeFlag(type: TarEntryType | 'pax'): number {
       return '4'.charCodeAt(0);
     case 'fifo':
       return '6'.charCodeAt(0);
+    case 'unknown':
+      return '0'.charCodeAt(0);
     case 'pax':
       return 'x'.charCodeAt(0);
     default:

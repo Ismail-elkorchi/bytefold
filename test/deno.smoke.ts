@@ -1,5 +1,6 @@
 import { openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
 import {
+  CompressionError,
   createCompressor,
   createDecompressor,
   getCompressionCapabilities
@@ -34,6 +35,14 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
 }
 
 Deno.test('deno smoke: zip, tar, tgz', async () => {
+  const coreUrl = new URL('../dist/index.js', import.meta.url);
+  const coreModule = await import(coreUrl.href);
+  if (typeof coreModule.openArchive !== 'function') throw new Error('default entrypoint missing openArchive');
+  const coreSource = new TextDecoder().decode(await Deno.readFile(coreUrl.pathname));
+  if (/from\\s+['\"]node:/.test(coreSource) || /import\\s+['\"]node:/.test(coreSource)) {
+    throw new Error('default entrypoint imports node:*');
+  }
+
   const tmp = await Deno.makeTempDir();
   const zipPath = `${tmp}/smoke.zip`;
   const tarPath = `${tmp}/smoke.tar`;
@@ -118,11 +127,35 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     'brotli',
     'zstd'
   ];
+  const unsupportedCompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].compress);
+  if (unsupportedCompress) {
+    let error: unknown;
+    try {
+      createCompressor({ algorithm: unsupportedCompress });
+    } catch (err) {
+      error = err;
+    }
+    if (!(error instanceof CompressionError) || error.code !== 'COMPRESSION_UNSUPPORTED_ALGORITHM') {
+      throw new Error(`expected CompressionError for ${unsupportedCompress} compression`);
+    }
+  }
+  const unsupportedDecompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].decompress);
+  if (unsupportedDecompress) {
+    let error: unknown;
+    try {
+      createDecompressor({ algorithm: unsupportedDecompress });
+    } catch (err) {
+      error = err;
+    }
+    if (!(error instanceof CompressionError) || error.code !== 'COMPRESSION_UNSUPPORTED_ALGORITHM') {
+      throw new Error(`expected CompressionError for ${unsupportedDecompress} decompression`);
+    }
+  }
   for (const algorithm of algorithms) {
     const support = caps.algorithms[algorithm];
     if (!support.compress || !support.decompress) continue;
-    const compressor = await createCompressor({ algorithm });
-    const decompressor = await createDecompressor({ algorithm });
+    const compressor = createCompressor({ algorithm });
+    const decompressor = createDecompressor({ algorithm });
     const roundtrip = await collect(
       readableFromBytes(encoder.encode('bytefold-compress-deno')).pipeThrough(compressor).pipeThrough(decompressor)
     );
@@ -136,7 +169,7 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   if (abortAlgorithm) {
     const controller = new AbortController();
     let aborted = false;
-    const compressor = await createCompressor({
+    const compressor = createCompressor({
       algorithm: abortAlgorithm,
       signal: controller.signal,
       onProgress: () => {

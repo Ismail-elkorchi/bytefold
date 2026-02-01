@@ -6,6 +6,7 @@ import type {
   ArchiveProfile
 } from '../archive/types.js';
 
+/** TAR entry type identifiers. */
 export type TarEntryType =
   | 'file'
   | 'directory'
@@ -16,7 +17,8 @@ export type TarEntryType =
   | 'fifo'
   | 'unknown';
 
-export interface TarEntry {
+/** TAR entry metadata exposed by TarReader. */
+export type TarEntry = {
   name: string;
   size: bigint;
   mtime?: Date;
@@ -28,42 +30,50 @@ export interface TarEntry {
   isDirectory: boolean;
   isSymlink: boolean;
   pax?: Record<string, string>;
-}
+};
 
+/** TAR issue type (alias of archive issues). */
 export type TarIssue = ArchiveIssue;
+/** TAR audit report (alias of archive audit report). */
 export type TarAuditReport = ArchiveAuditReport;
+/** TAR normalize report (alias of archive normalize report). */
 export type TarNormalizeReport = ArchiveNormalizeReport;
 
-export interface TarReaderOptions {
+/** Options for creating TarReader instances. */
+export type TarReaderOptions = {
   profile?: ArchiveProfile;
   strict?: boolean;
   limits?: ArchiveLimits;
   storeEntries?: boolean;
   signal?: AbortSignal;
-}
+};
 
-export interface TarAuditOptions {
+/** Options for auditing TAR archives. */
+export type TarAuditOptions = {
   profile?: ArchiveProfile;
   strict?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
-}
+};
 
-export interface TarNormalizeOptions {
+/** Options for normalizing TAR archives. */
+export type TarNormalizeOptions = {
   deterministic?: boolean;
   onDuplicate?: 'error' | 'last-wins' | 'rename';
   onCaseCollision?: 'error' | 'last-wins' | 'rename';
   onSymlink?: 'error' | 'drop';
   onUnsupported?: 'error' | 'drop';
   signal?: AbortSignal;
-}
+};
 
-export interface TarWriterOptions {
+/** Options for creating TarWriter instances. */
+export type TarWriterOptions = {
   deterministic?: boolean;
   signal?: AbortSignal;
-}
+};
 
-export interface TarWriterAddOptions {
+/** Options for adding entries with TarWriter. */
+export type TarWriterAddOptions = {
   type?: TarEntryType;
   mtime?: Date;
   mode?: number;
@@ -74,4 +84,4 @@ export interface TarWriterAddOptions {
   uname?: string;
   gname?: string;
   pax?: Record<string, string>;
-}
+};
