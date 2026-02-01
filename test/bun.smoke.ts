@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
+import { ArchiveError, openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
 import {
   CompressionError,
   createCompressor,
@@ -94,12 +94,14 @@ test('bun smoke: zip, tar, tgz', async () => {
     expect(tgzArchive.format).toBe('tgz');
 
     const caps = getCompressionCapabilities();
-    const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd'> = [
+    const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd' | 'bzip2' | 'xz'> = [
       'gzip',
       'deflate-raw',
       'deflate',
       'brotli',
-      'zstd'
+      'zstd',
+      'bzip2',
+      'xz'
     ];
     const unsupportedCompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].compress);
     if (unsupportedCompress) {
@@ -166,6 +168,32 @@ test('bun smoke: zip, tar, tgz', async () => {
         abortedOk = true;
       }
       expect(abortedOk).toBe(true);
+    }
+
+    const tarBz2Path = fileURLToPath(new URL('../test/fixtures/fixture.tar.bz2', import.meta.url));
+    const tarBz2Bytes = new Uint8Array(await Bun.file(tarBz2Path).arrayBuffer());
+    const tarBz2Archive = await openArchive(tarBz2Bytes);
+    expect(tarBz2Archive.format).toBe('tar.bz2');
+    let sawHello = false;
+    for await (const entry of tarBz2Archive.entries()) {
+      if (entry.name !== 'hello.txt') continue;
+      const data = await collect(await entry.open());
+      const text = new TextDecoder().decode(data);
+      if (text !== 'hello tar.bz2\n') throw new Error('tar.bz2 content mismatch');
+      sawHello = true;
+    }
+    if (!sawHello) throw new Error('tar.bz2 missing hello.txt');
+
+    const xzPath = fileURLToPath(new URL('../test/fixtures/hello.txt.xz', import.meta.url));
+    const xzBytes = new Uint8Array(await Bun.file(xzPath).arrayBuffer());
+    let xzError: unknown;
+    try {
+      await openArchive(xzBytes);
+    } catch (err) {
+      xzError = err;
+    }
+    if (!(xzError instanceof ArchiveError) || xzError.code !== 'ARCHIVE_UNSUPPORTED_FORMAT') {
+      throw new Error('expected typed error for xz detection');
     }
   } finally {
     await rm(tmp, { recursive: true, force: true });

@@ -50,6 +50,10 @@ function supports(algorithm: CompressionAlgorithm, mode: CompressionMode): boole
         return typeof createZstdCompress === 'function';
       }
       return typeof createZstdDecompress === 'function';
+    case 'bzip2':
+      return false;
+    case 'xz':
+      return false;
     default: {
       const exhaustive: never = algorithm;
       return exhaustive;
@@ -110,6 +114,12 @@ function create(
       const stream =
         mode === 'compress' ? createZstdCompress(params) : createZstdDecompress();
       return toWebTransform(stream, signal);
+    }
+    case 'bzip2': {
+      throw new Error('BZip2 not supported in node:zlib backend');
+    }
+    case 'xz': {
+      throw new Error('XZ not supported in node:zlib backend');
     }
     default: {
       const exhaustive: never = algorithm;

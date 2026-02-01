@@ -151,6 +151,12 @@ export function createArchiveWriter(
   if (format === 'tar.br') {
     return createCompressedTarWriter('tar.br', 'brotli', writable, options);
   }
+  if (format === 'tar.bz2' || format === 'bz2') {
+    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'BZip2 compression is not supported for writing');
+  }
+  if (format === 'tar.xz' || format === 'xz') {
+    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'XZ compression is not supported for writing');
+  }
   if (format === 'gz') {
     return createCompressedStreamWriter('gz', 'gzip', writable, options);
   }
@@ -378,6 +384,35 @@ async function openWithFormat(
     }
     return { reader: new CompressedArchiveReader(decompressed, 'brotli'), format: 'br', notes };
   }
+  if (format === 'bz2' || format === 'tar.bz2') {
+    const decompressed = await decompressToBytes(data, 'bzip2', options);
+    if (format === 'tar.bz2' || detectFormat(decompressed) === 'tar') {
+      if (format !== 'tar.bz2') {
+        notes.push('TAR layer detected inside bzip2 payload');
+      }
+      const tarOptions: TarReaderOptions = {
+        ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.limits !== undefined ? { limits: options.limits } : {})
+      };
+      const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
+      const auditDefaults: TarAuditOptions = { ...tarOptions };
+      return {
+        reader: new TarArchiveReader(
+          tarReader,
+          Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
+          'tar.bz2'
+        ),
+        format: 'tar.bz2',
+        notes
+      };
+    }
+    const name = inferBzip2EntryName(options?.filename);
+    return { reader: new CompressedArchiveReader(decompressed, 'bzip2', name), format: 'bz2', notes };
+  }
+  if (format === 'xz' || format === 'tar.xz') {
+    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'XZ compression detected but is not supported');
+  }
 
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported format: ${format}`);
 }
@@ -397,8 +432,15 @@ function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
   if (data.length >= 2 && data[0] === 0x1f && data[1] === 0x8b) {
     return 'gz';
   }
+  if (data.length >= 4 && data[0] === 0x42 && data[1] === 0x5a && data[2] === 0x68) {
+    const level = data[3] ?? 0;
+    if (level >= 0x31 && level <= 0x39) return 'bz2';
+  }
   if (data.length >= 4 && isZstdHeader(data)) {
     return 'zst';
+  }
+  if (data.length >= 6 && isXzHeader(data)) {
+    return 'xz';
   }
   if (data.length >= 4 && data[0] === 0x50 && data[1] === 0x4b) {
     const sig = ((data[2] ?? 0) << 8) | (data[3] ?? 0);
@@ -416,14 +458,46 @@ function formatFromFilename(filename?: string): ArchiveFormat | undefined {
   if (!filename) return undefined;
   const lower = filename.toLowerCase();
   if (lower.endsWith('.tar.gz') || lower.endsWith('.tgz')) return 'tgz';
+  if (lower.endsWith('.tar.bz2') || lower.endsWith('.tbz2') || lower.endsWith('.tbz')) return 'tar.bz2';
   if (lower.endsWith('.tar.zst') || lower.endsWith('.tzst')) return 'tar.zst';
   if (lower.endsWith('.tar.br') || lower.endsWith('.tbr')) return 'tar.br';
+  if (lower.endsWith('.tar.xz') || lower.endsWith('.txz')) return 'tar.xz';
   if (lower.endsWith('.tar')) return 'tar';
   if (lower.endsWith('.zip')) return 'zip';
   if (lower.endsWith('.gz')) return 'gz';
+  if (lower.endsWith('.bz2')) return 'bz2';
+  if (lower.endsWith('.bz')) return 'bz2';
   if (lower.endsWith('.zst')) return 'zst';
   if (lower.endsWith('.br')) return 'br';
+  if (lower.endsWith('.xz')) return 'xz';
   return undefined;
+}
+
+function inferBzip2EntryName(filename?: string): string {
+  if (!filename) return 'data';
+  const base = filename.split(/[\\/]/).pop() ?? filename;
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.tar.bz2')) {
+    const stem = base.slice(0, -8);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.tbz2')) {
+    const stem = base.slice(0, -5);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.tbz')) {
+    const stem = base.slice(0, -4);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.bz2')) {
+    const stem = base.slice(0, -4);
+    return stem || 'data';
+  }
+  if (lower.endsWith('.bz')) {
+    const stem = base.slice(0, -3);
+    return stem || 'data';
+  }
+  return 'data';
 }
 
 function resolveInputKind(input: ArchiveInput, hint?: ArchiveInputKind): ArchiveInputKind {
@@ -478,6 +552,24 @@ function buildDetectionReport(
       detected.compression = 'brotli';
       detected.layers = ['brotli', 'tar'];
       break;
+    case 'bz2':
+      detected.compression = 'bzip2';
+      detected.layers = ['bzip2'];
+      break;
+    case 'tar.bz2':
+      detected.container = 'tar';
+      detected.compression = 'bzip2';
+      detected.layers = ['bzip2', 'tar'];
+      break;
+    case 'xz':
+      detected.compression = 'xz';
+      detected.layers = ['xz'];
+      break;
+    case 'tar.xz':
+      detected.container = 'tar';
+      detected.compression = 'xz';
+      detected.layers = ['xz', 'tar'];
+      break;
     default:
       detected.layers = [];
   }
@@ -491,11 +583,20 @@ function buildDetectionReport(
 }
 
 const ZSTD_MAGIC = new Uint8Array([0x28, 0xb5, 0x2f, 0xfd]);
+const XZ_MAGIC = new Uint8Array([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]);
 
 function isZstdHeader(data: Uint8Array): boolean {
   if (data.length < ZSTD_MAGIC.length) return false;
   for (let i = 0; i < ZSTD_MAGIC.length; i += 1) {
     if (data[i] !== ZSTD_MAGIC[i]) return false;
+  }
+  return true;
+}
+
+function isXzHeader(data: Uint8Array): boolean {
+  if (data.length < XZ_MAGIC.length) return false;
+  for (let i = 0; i < XZ_MAGIC.length; i += 1) {
+    if (data[i] !== XZ_MAGIC[i]) return false;
   }
   return true;
 }
@@ -543,7 +644,13 @@ async function decompressToBytes(
 ): Promise<Uint8Array> {
   const transform = await createDecompressTransform({
     algorithm,
-    ...(options?.signal ? { signal: options.signal } : {})
+    ...(options?.signal ? { signal: options.signal } : {}),
+    ...(options?.limits?.maxTotalUncompressedBytes !== undefined
+      ? { maxOutputBytes: options.limits.maxTotalUncompressedBytes }
+      : {}),
+    ...(options?.limits?.maxCompressionRatio !== undefined
+      ? { maxCompressionRatio: options.limits.maxCompressionRatio }
+      : {})
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
@@ -831,14 +938,14 @@ class GzipArchiveReader implements ArchiveReader {
 class CompressedArchiveReader implements ArchiveReader {
   format: ArchiveFormat;
   private readonly entry: ArchiveEntry;
-  private readonly algorithm: 'zstd' | 'brotli';
+  private readonly algorithm: 'zstd' | 'brotli' | 'bzip2';
 
-  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli') {
+  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli' | 'bzip2', name = 'data') {
     this.algorithm = algorithm;
-    this.format = algorithm === 'zstd' ? 'zst' : 'br';
+    this.format = algorithm === 'zstd' ? 'zst' : algorithm === 'brotli' ? 'br' : 'bz2';
     this.entry = {
       format: this.format,
-      name: 'data',
+      name,
       size: BigInt(data.length),
       isDirectory: false,
       isSymlink: false,
@@ -861,8 +968,14 @@ class CompressedArchiveReader implements ArchiveReader {
     if (totalBytes !== undefined) summary.totalBytes = totalBytes;
 
     if (options?.limits?.maxTotalUncompressedBytes && this.entry.size > BigInt(options.limits.maxTotalUncompressedBytes)) {
+      const code =
+        this.algorithm === 'zstd'
+          ? 'ZSTD_LIMIT_EXCEEDED'
+          : this.algorithm === 'brotli'
+            ? 'BROTLI_LIMIT_EXCEEDED'
+            : 'BZIP2_LIMIT_EXCEEDED';
       issues.push({
-        code: this.algorithm === 'zstd' ? 'ZSTD_LIMIT_EXCEEDED' : 'BROTLI_LIMIT_EXCEEDED',
+        code,
         severity: 'error',
         message: 'Uncompressed size exceeds limit',
         entryName: this.entry.name

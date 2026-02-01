@@ -36,10 +36,6 @@
       "types": "./dist/node/zip/index.d.ts",
       "default": "./dist/node/zip/index.js"
     },
-    "./node/external": {
-      "types": "./dist/node/external/index.d.ts",
-      "default": "./dist/node/external/index.js"
-    },
     "./deno": {
       "types": "./dist/deno/index.d.ts",
       "default": "./dist/deno/index.js"
@@ -68,7 +64,6 @@
     "test:bun": "npm run build && node ./scripts/run-bun.mjs",
     "test:all": "npm run test:node && npm run test:deno && npm run test:bun",
     "test:interop": "node ./scripts/interop.mjs",
-    "test:external-7z": "npm run build && node ./scripts/external-7z.mjs",
     "bench": "npm run build && node ./scripts/bench.mjs",
     "clean": "node ./scripts/clean.mjs",
     "lint": "eslint . --max-warnings=0",

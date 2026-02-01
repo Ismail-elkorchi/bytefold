@@ -7,10 +7,14 @@ export type ArchiveFormat =
   | 'gz'
   | 'tgz'
   | 'tar.gz'
+  | 'bz2'
+  | 'tar.bz2'
   | 'zst'
   | 'br'
   | 'tar.zst'
-  | 'tar.br';
+  | 'tar.br'
+  | 'xz'
+  | 'tar.xz';
 /** Safety profile for audit/normalize behavior. */
 export type ArchiveProfile = 'compat' | 'strict' | 'agent';
 /** Severity level for archive issues. */

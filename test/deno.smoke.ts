@@ -1,4 +1,4 @@
-import { openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
+import { ArchiveError, openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
 import {
   CompressionError,
   createCompressor,
@@ -120,12 +120,14 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   }
 
   const caps = getCompressionCapabilities();
-  const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd'> = [
+  const algorithms: Array<'gzip' | 'deflate-raw' | 'deflate' | 'brotli' | 'zstd' | 'bzip2' | 'xz'> = [
     'gzip',
     'deflate-raw',
     'deflate',
     'brotli',
-    'zstd'
+    'zstd',
+    'bzip2',
+    'xz'
   ];
   const unsupportedCompress = algorithms.find((algorithm) => !caps.algorithms[algorithm].compress);
   if (unsupportedCompress) {
@@ -222,6 +224,30 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     const tbrBytes = concatChunks(chunks);
     const tbrReader = await openArchive(tbrBytes, { format: 'tar.br' });
     if (tbrReader.format !== 'tar.br') throw new Error('tar.br format not detected');
+  }
+
+  const tarBz2Bytes = await Deno.readFile(new URL('../test/fixtures/fixture.tar.bz2', import.meta.url));
+  const tarBz2Archive = await openArchive(tarBz2Bytes);
+  if (tarBz2Archive.format !== 'tar.bz2') throw new Error('tar.bz2 format not detected');
+  let sawHello = false;
+  for await (const entry of tarBz2Archive.entries()) {
+    if (entry.name !== 'hello.txt') continue;
+    const data = await collect(await entry.open());
+    const text = new TextDecoder().decode(data);
+    if (text !== 'hello tar.bz2\n') throw new Error('tar.bz2 content mismatch');
+    sawHello = true;
+  }
+  if (!sawHello) throw new Error('tar.bz2 missing hello.txt');
+
+  const xzBytes = await Deno.readFile(new URL('../test/fixtures/hello.txt.xz', import.meta.url));
+  let xzError: unknown;
+  try {
+    await openArchive(xzBytes);
+  } catch (err) {
+    xzError = err;
+  }
+  if (!(xzError instanceof ArchiveError) || xzError.code !== 'ARCHIVE_UNSUPPORTED_FORMAT') {
+    throw new Error('expected typed error for xz detection');
   }
 });
 

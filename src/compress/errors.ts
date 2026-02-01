@@ -1,7 +1,9 @@
 /** Stable error codes for compression operations. */
 export type CompressionErrorCode =
   | 'COMPRESSION_UNSUPPORTED_ALGORITHM'
-  | 'COMPRESSION_BACKEND_UNAVAILABLE';
+  | 'COMPRESSION_BACKEND_UNAVAILABLE'
+  | 'COMPRESSION_BZIP2_BAD_DATA'
+  | 'COMPRESSION_BZIP2_CRC_MISMATCH';
 
 /** Error thrown for compression backend failures or unsupported algorithms. */
 export class CompressionError extends Error {

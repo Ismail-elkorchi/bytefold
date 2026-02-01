@@ -12,6 +12,10 @@
 | `br` | compression | ✅ | ✅ | Single-file brotli stream |
 | `tar.zst` | layered | ✅ | ✅ | zstd + tar |
 | `tar.br` | layered | ✅ | ✅ | brotli + tar |
+| `bz2` | compression | ✅ | ❌ | Single-file bzip2 stream (decompress-only) |
+| `tar.bz2` | layered | ✅ | ❌ | bzip2 + tar (decompress-only) |
+| `xz` | compression | ❌ | ❌ | Detected, but not supported |
+| `tar.xz` | layered | ❌ | ❌ | Detected, but not supported |
 
 ## Auto-detection rules
 
@@ -19,7 +23,9 @@
 
 - **ZIP**: PK signatures (`0x50 0x4b` with standard header variants).
 - **GZIP**: magic bytes `1f 8b`.
+- **BZip2**: magic bytes `42 5a 68` (`BZh`) + valid block size digit.
 - **Zstandard**: magic bytes `28 b5 2f fd`.
+- **XZ**: magic bytes `fd 37 7a 58 5a 00`.
 - **TAR**: 512-byte header checksum + ustar/pax detection.
 - **Brotli**: **not reliably detectable** – requires a hint.
 
@@ -34,13 +40,19 @@ Confidence is reported as `high | medium | low` along with notes.
 Common extension hints:
 
 - `.tar.gz` / `.tgz`
+- `.tar.bz2` / `.tbz2` / `.tbz`
 - `.tar.zst` / `.tzst`
 - `.tar.br` / `.tbr`
+- `.tar.xz` / `.txz`
+- `.bz2` / `.bz`
+- `.xz`
 
 ## Layering rules
 
 - If `gzip` or `zstd` payloads contain a TAR stream, `openArchive()` returns `tgz` / `tar.zst`.
 - Brotli payloads are only treated as TAR when explicitly hinted (`format: "tar.br"` or `.tar.br` extension).
+- If a `bzip2` payload contains a TAR stream, `openArchive()` returns `tar.bz2`.
+- For single-file `.bz2` streams, `openArchive()` yields exactly one entry. If a filename hint is provided, the `.bz2`/`.bz` suffix is stripped; otherwise the entry name is `data`.
 
 ## Writer behavior
 
@@ -54,5 +66,6 @@ Single-file compression writers ignore entry names and write a single compressed
 ## Limitations
 
 - Brotli auto-detection requires explicit hints.
-- Native 7z is not supported (see `docs/7z.md`).
+- BZip2 is decompression-only (pure JS); writing `.bz2` / `.tar.bz2` is not yet supported.
+- XZ payloads are detected and rejected with a typed unsupported error.
 - Streaming is prioritized, but some readers buffer to enforce safety limits.

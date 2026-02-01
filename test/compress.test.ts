@@ -10,7 +10,7 @@ import {
 } from '@ismail-elkorchi/bytefold/compress';
 
 const encoder = new TextEncoder();
-const algorithms: CompressionAlgorithm[] = ['gzip', 'deflate-raw', 'deflate', 'brotli', 'zstd'];
+const algorithms: CompressionAlgorithm[] = ['gzip', 'deflate-raw', 'deflate', 'brotli', 'zstd', 'bzip2', 'xz'];
 const input = encoder.encode('bytefold-compress-test-'.repeat(1024));
 const caps = getCompressionCapabilities();
 

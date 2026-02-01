@@ -12,3 +12,4 @@ import './deflate64.test.js';
 import './normalize.test.js';
 import './archive.test.js';
 import './compress.test.js';
+import './bzip2.test.js';

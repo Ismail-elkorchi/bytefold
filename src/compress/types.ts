@@ -1,8 +1,8 @@
 /** Supported compression algorithms. */
-export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd';
+export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd' | 'bzip2' | 'xz';
 
 /** Backend used for compression/decompression in the current runtime. */
-export type CompressionBackend = 'web' | 'node-zlib' | 'none';
+export type CompressionBackend = 'web' | 'node-zlib' | 'pure-js' | 'none';
 
 /** Progress event for compression/decompression streams. */
 export type CompressionProgressEvent = {
@@ -19,6 +19,8 @@ export type CompressionOptions = {
   onProgress?: (ev: CompressionProgressEvent) => void;
   level?: number;
   quality?: number;
+  maxOutputBytes?: bigint | number;
+  maxCompressionRatio?: number;
 };
 
 /** Runtime compression capabilities report. */

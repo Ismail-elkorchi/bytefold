@@ -18,10 +18,14 @@ export function getCompressionCapabilities(): CompressionCapabilities {
     deflate: { compress: false, decompress: false, backend: 'none' },
     'deflate-raw': { compress: false, decompress: false, backend: 'none' },
     brotli: { compress: false, decompress: false, backend: 'none' },
-    zstd: { compress: false, decompress: false, backend: 'none' }
+    zstd: { compress: false, decompress: false, backend: 'none' },
+    bzip2: { compress: false, decompress: true, backend: 'pure-js' },
+    xz: { compress: false, decompress: false, backend: 'none' }
   } as CompressionCapabilities['algorithms'];
 
   for (const algorithm of Object.keys(algorithms) as CompressionAlgorithm[]) {
+    if (algorithm === 'bzip2') continue;
+    if (algorithm === 'xz') continue;
     const webCompress = supportsWebCompression(algorithm, 'compress');
     const webDecompress = supportsWebCompression(algorithm, 'decompress');
 
@@ -62,6 +66,8 @@ export function createCompressor(options: CompressionOptions): TransformStream<U
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.level !== undefined ? { level: options.level } : {}),
     ...(options.quality !== undefined ? { quality: options.quality } : {}),
+    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+    ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
     ...(options.onProgress
       ? {
           onProgress: (event: CompressionProgress) =>
@@ -85,6 +91,8 @@ export function createDecompressor(options: CompressionOptions): TransformStream
   const transformPromise = createDecompressTransform({
     algorithm: options.algorithm,
     ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+    ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
     ...(options.onProgress
       ? {
           onProgress: (event: CompressionProgress) =>

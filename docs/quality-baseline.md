@@ -40,7 +40,6 @@ Repo: @ismail-elkorchi/bytefold
 - `test:bun`: `npm run build && node ./scripts/run-bun.mjs` (Bun smoke tests).
 - `test:all`: runs `test:node`, `test:deno`, `test:bun`.
 - `test:interop`: runs `scripts/interop.mjs`.
-- `test:external-7z`: runs `scripts/external-7z.mjs`.
 - `bench`: runs `scripts/bench.mjs` after build.
 - `clean`: runs `scripts/clean.mjs`.
 

@@ -1,6 +1,7 @@
 import { ZipError } from '../errors.js';
+import { createBzip2DecompressStream } from './bzip2.js';
 
-export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd';
+export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd' | 'bzip2' | 'xz';
 export type CompressionMode = 'compress' | 'decompress';
 
 export type CompressionProgress = {
@@ -14,6 +15,8 @@ export interface CompressionTransformOptions {
   onProgress?: (event: CompressionProgress) => void;
   level?: number;
   quality?: number;
+  maxOutputBytes?: bigint | number;
+  maxCompressionRatio?: number;
 }
 
 export async function createCompressTransform(
@@ -32,6 +35,8 @@ export async function supportsCompressionAlgorithm(
   algorithm: CompressionAlgorithm,
   mode: CompressionMode
 ): Promise<boolean> {
+  if (algorithm === 'bzip2') return mode === 'decompress';
+  if (algorithm === 'xz') return false;
   if (await nodeSupports(algorithm, mode)) return true;
   return supportsWebCompression(algorithm, mode);
 }
@@ -41,6 +46,20 @@ async function createTransform(
   options: CompressionTransformOptions
 ): Promise<ReadableWritablePair<Uint8Array, Uint8Array>> {
   const { algorithm } = options;
+  if (algorithm === 'bzip2') {
+    if (mode !== 'decompress') {
+      throw new ZipError('ZIP_UNSUPPORTED_METHOD', 'BZip2 compression is not supported');
+    }
+    const transform = createBzip2DecompressStream({
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+      ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {})
+    });
+    return attachProgress(transform, options.onProgress);
+  }
+  if (algorithm === 'xz') {
+    throw new ZipError('ZIP_UNSUPPORTED_METHOD', 'XZ compression is not supported');
+  }
   const nodeBackend = await getNodeBackend();
   if (nodeBackend?.supports(algorithm, mode)) {
     const transform = nodeBackend.create(algorithm, mode, options);

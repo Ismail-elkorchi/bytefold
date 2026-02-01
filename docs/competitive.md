@@ -15,11 +15,12 @@
 | Trailing bytes / polyglots | JSZip limitations | ZIP audit flags trailing bytes | `test/audit.test.ts` |
 | Huge compressed bombs | OWASP Zip Bomb | Limits + audit controls | `docs/security.md`, `test/audit.test.ts` |
 | Layered archives brittle | tgz / tar.zst | Auto-detect + layering support | `test/archive.test.ts`, `docs/formats.md` |
+| Common distro artifacts | tar.bz2 | Pure JS bzip2 decompression + layered TAR support | `test/bzip2.test.ts`, `docs/formats.md` |
 
 ## What Bytefold still does NOT do
 
 - Split or multi-volume ZIP archives.
-- Native 7z container support (use the optional `@ismail-elkorchi/bytefold/node/external` bridge).
 - RAR, CAB, or ISO images.
-- Solid archive creation (7z) or advanced archive recovery.
+- Solid archive creation or advanced archive recovery.
 - Brotli auto-detection without an explicit hint or file extension.
+- XZ / tar.xz decompression (detected but unsupported).

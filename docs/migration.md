@@ -60,3 +60,15 @@ File helpers for Deno and Bun are under `@ismail-elkorchi/bytefold/deno` and `@i
 ## Type exports
 
 - Public option/record shapes that were `interface` declarations are now `type` aliases. This removes interface merging support for those types.
+
+## External tools bridge removed
+
+**What changed**: the Node-only external tools bridge (`@ismail-elkorchi/bytefold/node/external`) was removed.
+
+**Why**: Bytefold is now strictly pure JS/TS at runtime and does not spawn external binaries.
+**Migration**:
+
+```diff
+- import { listWith7z, extractWith7z } from '@ismail-elkorchi/bytefold/node/external';
+// Use a standalone CLI outside Bytefold or a separate integration layer.
+```

@@ -31,11 +31,12 @@ const output = inputStream.pipeThrough(compressor).pipeThrough(decompressor);
 
 ## Supported algorithms
 
-`CompressionAlgorithm = "gzip" | "deflate" | "deflate-raw" | "brotli" | "zstd"`
+`CompressionAlgorithm = "gzip" | "deflate" | "deflate-raw" | "brotli" | "zstd" | "bzip2" | "xz"`
 
 - **Node**: prefers `node:zlib` for gzip/deflate/brotli/zstd when available.
 - **Deno/Bun**: uses `CompressionStream` / `DecompressionStream` where available.
-- **Brotli + Zstandard**: Node-only unless your runtime provides native Web streams for them.
+- **BZip2**: pure JS decompression only (no compression yet).
+- **XZ**: detected in archive layer but unsupported in compression streams.
 
 ## Options
 
@@ -46,6 +47,8 @@ type CompressionOptions = {
   onProgress?: (ev: CompressionProgressEvent) => void;
   level?: number;   // gzip/deflate/deflate-raw/zstd
   quality?: number; // brotli
+  maxOutputBytes?: bigint | number;
+  maxCompressionRatio?: number;
 };
 ```
 
@@ -57,6 +60,8 @@ Progress events are monotonic and include `bytesIn`/`bytesOut` and the algorithm
 
 - `COMPRESSION_UNSUPPORTED_ALGORITHM` – algorithm not supported in this runtime.
 - `COMPRESSION_BACKEND_UNAVAILABLE` – backend failed to initialize or crashed.
+- `COMPRESSION_BZIP2_BAD_DATA` – malformed or truncated bzip2 payload.
+- `COMPRESSION_BZIP2_CRC_MISMATCH` – bzip2 CRC mismatch.
 
 ## Backend selection
 
@@ -64,7 +69,8 @@ Selection order is deterministic:
 
 1. If running on Node and `node:zlib` supports the algorithm, use it.
 2. Otherwise, use `CompressionStream` / `DecompressionStream` (gzip/deflate/deflate-raw).
-3. If neither backend supports the algorithm, throw `COMPRESSION_UNSUPPORTED_ALGORITHM`.
+3. For `bzip2`, use the pure JS decompressor (decompress only).
+4. If neither backend supports the algorithm, throw `COMPRESSION_UNSUPPORTED_ALGORITHM`.
 
 ## Runtime examples
 

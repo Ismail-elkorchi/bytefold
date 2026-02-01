@@ -14,7 +14,6 @@ From `package.json` exports:
 - `./archive` → `./dist/archive/index.js`
 - `./node` → `./dist/node/index.js`
 - `./node/zip` → `./dist/node/zip/index.js`
-- `./node/external` → `./dist/node/external/index.js`
 - `./deno` → `./dist/deno/index.js`
 - `./bun` → `./dist/bun/index.js`
 
@@ -38,7 +37,7 @@ Universal (Node + Deno + Bun):
 - `.` (default), `./archive`, `./zip`, `./tar`, `./compress`
 
 Runtime-specific:
-- Node-only: `./node`, `./node/zip`, `./node/external`
+- Node-only: `./node`, `./node/zip`
 - Deno adapters: `./deno`
 - Bun adapters: `./bun`
 
