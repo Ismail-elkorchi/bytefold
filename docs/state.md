@@ -1,6 +1,6 @@
 # Bytefold state report (baseline)
 
-Date: 2026-01-31
+Date: 2026-02-01
 Repo: @ismail-elkorchi/bytefold
 
 ## Public API exports
@@ -35,13 +35,14 @@ Bun subpath (`@ismail-elkorchi/bytefold/bun`)
 
 ## Supported archive formats and wrappers (today)
 - Containers: ZIP, TAR
-- Wrappers: GZIP (`.gz`), TGZ (`.tar.gz`), Zstandard (`.zst`), Brotli (`.br`)
-- Layered: `tar.zst`, `tar.br`
-- Auto-open supports: `zip`, `tar`, `gz`, `tgz`, `zst`, `tar.zst` (Brotli requires explicit hint)
+- Wrappers: GZIP (`.gz`), TGZ (`.tar.gz`), Zstandard (`.zst`), Brotli (`.br`), BZip2 (`.bz2`), XZ (`.xz`)
+- Layered: `tar.zst`, `tar.br`, `tar.bz2`, `tar.xz`
+- Auto-open supports: `zip`, `tar`, `gz`, `tgz`, `zst`, `tar.zst`, `bz2`, `tar.bz2`, `xz`, `tar.xz` (Brotli requires explicit hint)
 
 ## Compression algorithms per runtime (today)
 - Universal Web Compression Streams (if available): `gzip`, `deflate`, `deflate-raw`
 - Node zlib backend (preferred on Node): `gzip`, `deflate`, `deflate-raw`, `brotli`, `zstd` (zstd availability depends on Node build)
+- Pure JS decompression: `bzip2`, `xz` (LZMA2 only)
 - ZIP-specific: `deflate64` handled by internal TS decoder (read only)
 
 Detection today:
@@ -51,11 +52,14 @@ Detection today:
 - `openArchive(input, { format: 'auto' })` buffers input into a `Uint8Array` (streams are fully read).
 - Detection order:
   1) GZIP magic `1F 8B` → `gz`
-  2) Zstandard magic `28 B5 2F FD` → `zst`
-  3) ZIP signatures `PK 03 04`, `PK 05 06`, `PK 07 08`
-  4) TAR header checksum + `ustar` magic (or blank) in first 512 bytes
+  2) BZip2 magic `42 5A 68` → `bz2`
+  3) Zstandard magic `28 B5 2F FD` → `zst`
+  4) XZ magic `FD 37 7A 58 5A 00` → `xz`
+  5) ZIP signatures `PK 03 04`, `PK 05 06`, `PK 07 08`
+  6) TAR header checksum + `ustar` magic (or blank) in first 512 bytes
 - Brotli is not reliably detectable; it requires a filename or explicit format hint.
 - If detected as `gz`, the data is gunzipped; if the payload parses as TAR, format is reported as `tgz`, otherwise `gz`.
+- If detected as `bz2` or `xz`, payloads are decompressed; if the payload parses as TAR, format is reported as `tar.bz2` / `tar.xz`.
 - TAR detection uses checksum + `ustar`/blank magic; false positives are unlikely but still possible for non-TAR 512-byte blocks with valid checksum.
 
 ## JSON-safety status (BigInt handling)
@@ -98,4 +102,7 @@ GZIP wrapper audit (archive layer):
 
 Compression layer (throws `CompressionError`):
 - `COMPRESSION_UNSUPPORTED_ALGORITHM`, `COMPRESSION_BACKEND_UNAVAILABLE`,
-  `COMPRESSION_BZIP2_BAD_DATA`, `COMPRESSION_BZIP2_CRC_MISMATCH`
+  `COMPRESSION_BZIP2_BAD_DATA`, `COMPRESSION_BZIP2_CRC_MISMATCH`,
+  `COMPRESSION_XZ_BAD_DATA`, `COMPRESSION_XZ_UNSUPPORTED_FILTER`,
+  `COMPRESSION_XZ_UNSUPPORTED_CHECK`, `COMPRESSION_XZ_CHECK_MISMATCH`,
+  `COMPRESSION_XZ_LIMIT_EXCEEDED`, `COMPRESSION_LZMA_BAD_DATA`

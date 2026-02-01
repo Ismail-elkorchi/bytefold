@@ -12,6 +12,9 @@ export type CompressionProgressEvent = {
   bytesOut: bigint;
 };
 
+/** Safety profile for compression checks. */
+export type CompressionProfile = 'compat' | 'strict' | 'agent';
+
 /** Options for creating compressors/decompressors. */
 export type CompressionOptions = {
   algorithm: CompressionAlgorithm;
@@ -21,6 +24,8 @@ export type CompressionOptions = {
   quality?: number;
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
+  maxDictionaryBytes?: bigint | number;
+  profile?: CompressionProfile;
 };
 
 /** Runtime compression capabilities report. */

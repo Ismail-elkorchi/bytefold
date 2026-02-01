@@ -81,6 +81,7 @@ export type ArchiveLimits = {
   maxUncompressedEntryBytes?: bigint | number;
   maxTotalUncompressedBytes?: bigint | number;
   maxCompressionRatio?: number;
+  maxDictionaryBytes?: bigint | number;
 };
 
 /** Normalized view of an archive entry. */

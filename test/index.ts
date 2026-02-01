@@ -13,3 +13,5 @@ import './normalize.test.js';
 import './archive.test.js';
 import './compress.test.js';
 import './bzip2.test.js';
+import './xz.test.js';
+import './tar-xz.test.js';

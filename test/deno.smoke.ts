@@ -1,4 +1,4 @@
-import { ArchiveError, openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
+import { openArchive, tarToFile, zipToFile, TarWriter, createArchiveWriter } from '../dist/deno/index.js';
 import {
   CompressionError,
   createCompressor,
@@ -240,15 +240,29 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   if (!sawHello) throw new Error('tar.bz2 missing hello.txt');
 
   const xzBytes = await Deno.readFile(new URL('../test/fixtures/hello.txt.xz', import.meta.url));
-  let xzError: unknown;
-  try {
-    await openArchive(xzBytes);
-  } catch (err) {
-    xzError = err;
+  const xzArchive = await openArchive(xzBytes);
+  if (xzArchive.format !== 'xz') throw new Error('xz format not detected');
+  let sawXzHello = false;
+  for await (const entry of xzArchive.entries()) {
+    const data = await collect(await entry.open());
+    const text = new TextDecoder().decode(data);
+    if (text !== 'hello from bytefold\n') throw new Error('xz content mismatch');
+    sawXzHello = true;
   }
-  if (!(xzError instanceof ArchiveError) || xzError.code !== 'ARCHIVE_UNSUPPORTED_FORMAT') {
-    throw new Error('expected typed error for xz detection');
+  if (!sawXzHello) throw new Error('xz missing entry');
+
+  const txzBytes = await Deno.readFile(new URL('../test/fixtures/fixture.tar.xz', import.meta.url));
+  const txzArchive = await openArchive(txzBytes);
+  if (txzArchive.format !== 'tar.xz') throw new Error('tar.xz format not detected');
+  let sawTxzHello = false;
+  for await (const entry of txzArchive.entries()) {
+    if (entry.name !== 'hello.txt') continue;
+    const data = await collect(await entry.open());
+    const text = new TextDecoder().decode(data);
+    if (text !== 'hello from bytefold\n') throw new Error('tar.xz content mismatch');
+    sawTxzHello = true;
   }
+  if (!sawTxzHello) throw new Error('tar.xz missing hello.txt');
 });
 
 function readableFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {

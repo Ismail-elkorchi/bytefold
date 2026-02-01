@@ -1,5 +1,7 @@
 import { ZipError } from '../errors.js';
 import { createBzip2DecompressStream } from './bzip2.js';
+import { createXzDecompressStream } from './xz.js';
+import type { CompressionProfile } from '../compress/types.js';
 
 export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd' | 'bzip2' | 'xz';
 export type CompressionMode = 'compress' | 'decompress';
@@ -17,6 +19,8 @@ export interface CompressionTransformOptions {
   quality?: number;
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
+  maxDictionaryBytes?: bigint | number;
+  profile?: CompressionProfile;
 }
 
 export async function createCompressTransform(
@@ -36,7 +40,7 @@ export async function supportsCompressionAlgorithm(
   mode: CompressionMode
 ): Promise<boolean> {
   if (algorithm === 'bzip2') return mode === 'decompress';
-  if (algorithm === 'xz') return false;
+  if (algorithm === 'xz') return mode === 'decompress';
   if (await nodeSupports(algorithm, mode)) return true;
   return supportsWebCompression(algorithm, mode);
 }
@@ -58,7 +62,17 @@ async function createTransform(
     return attachProgress(transform, options.onProgress);
   }
   if (algorithm === 'xz') {
-    throw new ZipError('ZIP_UNSUPPORTED_METHOD', 'XZ compression is not supported');
+    if (mode !== 'decompress') {
+      throw new ZipError('ZIP_UNSUPPORTED_METHOD', 'XZ compression is not supported');
+    }
+    const transform = createXzDecompressStream({
+      ...(options.signal ? { signal: options.signal } : {}),
+      ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
+      ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
+      ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+      ...(options.profile ? { profile: options.profile } : {})
+    });
+    return attachProgress(transform, options.onProgress);
   }
   const nodeBackend = await getNodeBackend();
   if (nodeBackend?.supports(algorithm, mode)) {

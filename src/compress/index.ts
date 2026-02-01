@@ -4,7 +4,7 @@ import { CompressionError } from './errors.js';
 import type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions } from './types.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 
-export type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions } from './types.js';
+export type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions, CompressionProfile } from './types.js';
 export type { CompressionBackend, CompressionProgressEvent } from './types.js';
 export { CompressionError } from './errors.js';
 export type { CompressionErrorCode } from './errors.js';
@@ -20,7 +20,7 @@ export function getCompressionCapabilities(): CompressionCapabilities {
     brotli: { compress: false, decompress: false, backend: 'none' },
     zstd: { compress: false, decompress: false, backend: 'none' },
     bzip2: { compress: false, decompress: true, backend: 'pure-js' },
-    xz: { compress: false, decompress: false, backend: 'none' }
+    xz: { compress: false, decompress: true, backend: 'pure-js' }
   } as CompressionCapabilities['algorithms'];
 
   for (const algorithm of Object.keys(algorithms) as CompressionAlgorithm[]) {
@@ -68,6 +68,8 @@ export function createCompressor(options: CompressionOptions): TransformStream<U
     ...(options.quality !== undefined ? { quality: options.quality } : {}),
     ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
     ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
+    ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+    ...(options.profile ? { profile: options.profile } : {}),
     ...(options.onProgress
       ? {
           onProgress: (event: CompressionProgress) =>
@@ -93,6 +95,8 @@ export function createDecompressor(options: CompressionOptions): TransformStream
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
     ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
+    ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+    ...(options.profile ? { profile: options.profile } : {}),
     ...(options.onProgress
       ? {
           onProgress: (event: CompressionProgress) =>

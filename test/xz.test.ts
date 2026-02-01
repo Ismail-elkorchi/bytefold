@@ -2,89 +2,74 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { openArchive } from '@ismail-elkorchi/bytefold';
-import { CompressionError, createDecompressor } from '@ismail-elkorchi/bytefold/compress';
+import { CompressionError, createDecompressor, type CompressionProgressEvent } from '@ismail-elkorchi/bytefold/compress';
 
 const decoder = new TextDecoder();
 
-test('openArchive reads tar.bz2 fixture and extracts entries', async () => {
-  const data = await readFixture('fixture.tar.bz2');
+test('openArchive reads xz fixture and extracts entry', async () => {
+  const data = await readFixture('hello.txt.xz');
   const reader = await openArchive(data);
-  assert.equal(reader.format, 'tar.bz2');
-  assert.ok(reader.detection);
-  assert.equal(reader.detection?.detected.container, 'tar');
-  assert.equal(reader.detection?.detected.compression, 'bzip2');
-  assert.deepEqual(reader.detection?.detected.layers, ['bzip2', 'tar']);
-
-  const entries: Record<string, Uint8Array> = {};
-  for await (const entry of reader.entries()) {
-    entries[entry.name] = await collect(await entry.open());
-  }
-  assert.deepEqual(Object.keys(entries).sort(), ['bin.dat', 'hello.txt']);
-  assert.equal(decoder.decode(entries['hello.txt']!), 'hello tar.bz2\n');
-  assert.equal(entries['bin.dat']!.length, 256);
-  for (let i = 0; i < 256; i += 1) {
-    assert.equal(entries['bin.dat']![i], i);
-  }
-});
-
-test('tar.bz2 audit passes for fixture', async () => {
-  const data = await readFixture('fixture.tar.bz2');
-  const reader = await openArchive(data);
-  const report = await reader.audit({ profile: 'agent' });
-  assert.equal(report.ok, true);
-  assert.equal(report.summary.errors, 0);
-});
-
-test('bz2 single-file name inference honors filename', async () => {
-  const data = await readFixture('hello.txt.bz2');
-  const reader = await openArchive(data, { filename: 'hello.txt.bz2' });
-  assert.equal(reader.format, 'bz2');
+  assert.equal(reader.format, 'xz');
   const entries: string[] = [];
   for await (const entry of reader.entries()) {
     entries.push(entry.name);
     const text = decoder.decode(await collect(await entry.open()));
-    assert.equal(text, 'hello bzip2\n');
-  }
-  assert.deepEqual(entries, ['hello.txt']);
-});
-
-test('bz2 single-file name defaults to data without filename hint', async () => {
-  const data = await readFixture('hello.txt.bz2');
-  const reader = await openArchive(data);
-  assert.equal(reader.format, 'bz2');
-  const entries: string[] = [];
-  for await (const entry of reader.entries()) {
-    entries.push(entry.name);
+    assert.equal(text, 'hello from bytefold\n');
   }
   assert.deepEqual(entries, ['data']);
 });
 
-test('bzip2 corruption throws typed error', async () => {
-  const original = await readFixture('hello.txt.bz2');
+test('xz single-file name honors filename hint', async () => {
+  const data = await readFixture('hello.txt.xz');
+  const reader = await openArchive(data, { filename: 'hello.txt.xz' });
+  const entries: string[] = [];
+  for await (const entry of reader.entries()) {
+    entries.push(entry.name);
+  }
+  assert.deepEqual(entries, ['hello.txt']);
+});
+
+test('xz CRC64 and CRC32 variants decode', async () => {
+  const crc64 = await readFixture('hello.txt.xz');
+  const crc32 = await readFixture('hello.txt.crc32.xz');
+
+  const decompressor = createDecompressor({ algorithm: 'xz' });
+  const output64 = decoder.decode(await collect(chunkStream(crc64).pipeThrough(decompressor)));
+  assert.equal(output64, 'hello from bytefold\n');
+
+  const decompressor32 = createDecompressor({ algorithm: 'xz' });
+  const output32 = decoder.decode(await collect(chunkStream(crc32).pipeThrough(decompressor32)));
+  assert.equal(output32, 'hello from bytefold\n');
+});
+
+test('xz corruption throws typed error', async () => {
+  const original = await readFixture('hello.txt.xz');
   const corrupted = new Uint8Array(original);
   const flipIndex = corrupted.length > 6 ? corrupted.length - 6 : 0;
   corrupted[flipIndex] = (corrupted[flipIndex] ?? 0) ^ 0xff;
 
-  const decompressor = createDecompressor({ algorithm: 'bzip2' });
+  const decompressor = createDecompressor({ algorithm: 'xz' });
   await assert.rejects(
     async () => {
       await collect(chunkStream(corrupted).pipeThrough(decompressor));
     },
     (err: unknown) =>
       err instanceof CompressionError &&
-      (err.code === 'COMPRESSION_BZIP2_BAD_DATA' || err.code === 'COMPRESSION_BZIP2_CRC_MISMATCH')
+      (err.code === 'COMPRESSION_XZ_CHECK_MISMATCH' ||
+        err.code === 'COMPRESSION_XZ_BAD_DATA' ||
+        err.code === 'COMPRESSION_LZMA_BAD_DATA')
   );
 });
 
-test('bzip2 aborts when signal is triggered mid-stream', async () => {
-  const data = await readFixture('fixture.tar.bz2');
+test('xz aborts when signal is triggered mid-stream', async () => {
+  const data = await readFixture('hello.txt.xz');
   const controller = new AbortController();
   let aborted = false;
   const decompressor = createDecompressor({
-    algorithm: 'bzip2',
+    algorithm: 'xz',
     signal: controller.signal,
     onProgress: (ev) => {
-      if (!aborted && ev.bytesIn >= 64n) {
+      if (!aborted && ev.bytesIn >= 8n) {
         aborted = true;
         controller.abort();
       }
@@ -93,13 +78,25 @@ test('bzip2 aborts when signal is triggered mid-stream', async () => {
 
   await assert.rejects(
     async () => {
-      await collect(chunkStream(data, 32).pipeThrough(decompressor));
+      await collect(chunkStream(data, 8).pipeThrough(decompressor));
     },
     (err: unknown) => {
       if (!err || typeof err !== 'object') return false;
       return (err as { name?: string }).name === 'AbortError';
     }
   );
+});
+
+test('xz progress events are monotonic', async () => {
+  const data = await readFixture('hello.txt.xz');
+  const events: CompressionProgressEvent[] = [];
+  const decompressor = createDecompressor({
+    algorithm: 'xz',
+    onProgress: (ev) => events.push(ev)
+  });
+  const output = decoder.decode(await collect(chunkStream(data, 8).pipeThrough(decompressor)));
+  assert.equal(output, 'hello from bytefold\n');
+  assertMonotonic(events);
 });
 
 async function readFixture(name: string): Promise<Uint8Array> {
@@ -144,4 +141,15 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
     offset += chunk.length;
   }
   return out;
+}
+
+function assertMonotonic(events: CompressionProgressEvent[]): void {
+  let lastIn = 0n;
+  let lastOut = 0n;
+  for (const ev of events) {
+    assert.ok(ev.bytesIn >= lastIn);
+    assert.ok(ev.bytesOut >= lastOut);
+    lastIn = ev.bytesIn;
+    lastOut = ev.bytesOut;
+  }
 }

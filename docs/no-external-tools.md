@@ -19,3 +19,8 @@ verification (not for user-facing APIs). Examples:
 - Optional test cases that skip when tools are missing
 
 These scripts must remain separate from runtime code and must not be exposed as public APIs.
+
+## Fixtures
+
+Test fixtures are checked in as static binary data (or base64-decoded at build time). Tests never
+invoke external compression tools to generate fixtures.

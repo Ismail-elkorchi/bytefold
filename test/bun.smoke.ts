@@ -3,7 +3,7 @@ import { mkdtemp, rm } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { ArchiveError, openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
+import { openArchive, TarWriter, tarToFile, zipToFile } from '../dist/bun/index.js';
 import {
   CompressionError,
   createCompressor,
@@ -186,15 +186,30 @@ test('bun smoke: zip, tar, tgz', async () => {
 
     const xzPath = fileURLToPath(new URL('../test/fixtures/hello.txt.xz', import.meta.url));
     const xzBytes = new Uint8Array(await Bun.file(xzPath).arrayBuffer());
-    let xzError: unknown;
-    try {
-      await openArchive(xzBytes);
-    } catch (err) {
-      xzError = err;
+    const xzArchive = await openArchive(xzBytes);
+    if (xzArchive.format !== 'xz') throw new Error('xz format not detected');
+    let sawXzHello = false;
+    for await (const entry of xzArchive.entries()) {
+      const data = await collect(await entry.open());
+      const text = new TextDecoder().decode(data);
+      if (text !== 'hello from bytefold\n') throw new Error('xz content mismatch');
+      sawXzHello = true;
     }
-    if (!(xzError instanceof ArchiveError) || xzError.code !== 'ARCHIVE_UNSUPPORTED_FORMAT') {
-      throw new Error('expected typed error for xz detection');
+    if (!sawXzHello) throw new Error('xz missing entry');
+
+    const txzPath = fileURLToPath(new URL('../test/fixtures/fixture.tar.xz', import.meta.url));
+    const txzBytes = new Uint8Array(await Bun.file(txzPath).arrayBuffer());
+    const txzArchive = await openArchive(txzBytes);
+    if (txzArchive.format !== 'tar.xz') throw new Error('tar.xz format not detected');
+    let sawTxzHello = false;
+    for await (const entry of txzArchive.entries()) {
+      if (entry.name !== 'hello.txt') continue;
+      const data = await collect(await entry.open());
+      const text = new TextDecoder().decode(data);
+      if (text !== 'hello from bytefold\n') throw new Error('tar.xz content mismatch');
+      sawTxzHello = true;
     }
+    if (!sawTxzHello) throw new Error('tar.xz missing hello.txt');
   } finally {
     await rm(tmp, { recursive: true, force: true });
   }

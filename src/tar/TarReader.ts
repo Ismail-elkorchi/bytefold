@@ -21,14 +21,16 @@ const DEFAULT_LIMITS: Required<ArchiveLimits> = {
   maxEntries: 10000,
   maxUncompressedEntryBytes: 512n * 1024n * 1024n,
   maxTotalUncompressedBytes: 2n * 1024n * 1024n * 1024n,
-  maxCompressionRatio: 1000
+  maxCompressionRatio: 1000,
+  maxDictionaryBytes: 64n * 1024n * 1024n
 };
 
 const AGENT_LIMITS: Required<ArchiveLimits> = {
   maxEntries: 5000,
   maxUncompressedEntryBytes: 256n * 1024n * 1024n,
   maxTotalUncompressedBytes: 1024n * 1024n * 1024n,
-  maxCompressionRatio: 200
+  maxCompressionRatio: 200,
+  maxDictionaryBytes: 32n * 1024n * 1024n
 };
 
 const TEXT_DECODER = new TextDecoder('utf-8');
@@ -371,7 +373,8 @@ function normalizeLimits(limits?: ArchiveLimits, defaults: Required<ArchiveLimit
     maxEntries: limits?.maxEntries ?? defaults.maxEntries,
     maxUncompressedEntryBytes: toBigInt(limits?.maxUncompressedEntryBytes) ?? defaults.maxUncompressedEntryBytes,
     maxTotalUncompressedBytes: toBigInt(limits?.maxTotalUncompressedBytes) ?? defaults.maxTotalUncompressedBytes,
-    maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio
+    maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio,
+    maxDictionaryBytes: toBigInt(limits?.maxDictionaryBytes) ?? defaults.maxDictionaryBytes
   };
 }
 

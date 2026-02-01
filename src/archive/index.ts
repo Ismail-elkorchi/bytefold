@@ -411,7 +411,35 @@ async function openWithFormat(
     return { reader: new CompressedArchiveReader(decompressed, 'bzip2', name), format: 'bz2', notes };
   }
   if (format === 'xz' || format === 'tar.xz') {
-    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'XZ compression detected but is not supported');
+    const profile = options?.profile ?? 'strict';
+    const checkType = readXzCheckType(data);
+    if (checkType !== undefined && !isSupportedXzCheck(checkType) && profile === 'compat') {
+      notes.push(`XZ check type ${formatXzCheck(checkType)} is not verified in compat profile`);
+    }
+    const decompressed = await decompressToBytes(data, 'xz', options);
+    if (format === 'tar.xz' || detectFormat(decompressed) === 'tar') {
+      if (format !== 'tar.xz') {
+        notes.push('TAR layer detected inside xz payload');
+      }
+      const tarOptions: TarReaderOptions = {
+        ...(options?.profile !== undefined ? { profile: options.profile } : {}),
+        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.limits !== undefined ? { limits: options.limits } : {})
+      };
+      const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
+      const auditDefaults: TarAuditOptions = { ...tarOptions };
+      return {
+        reader: new TarArchiveReader(
+          tarReader,
+          Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
+          'tar.xz'
+        ),
+        format: 'tar.xz',
+        notes
+      };
+    }
+    const name = inferXzEntryName(options?.filename);
+    return { reader: new CompressedArchiveReader(decompressed, 'xz', name), format: 'xz', notes };
   }
 
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported format: ${format}`);
@@ -494,6 +522,25 @@ function inferBzip2EntryName(filename?: string): string {
     return stem || 'data';
   }
   if (lower.endsWith('.bz')) {
+    const stem = base.slice(0, -3);
+    return stem || 'data';
+  }
+  return 'data';
+}
+
+function inferXzEntryName(filename?: string): string {
+  if (!filename) return 'data';
+  const base = filename.split(/[\\/]/).pop() ?? filename;
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.tar.xz')) {
+    const stem = base.slice(0, -7);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.txz')) {
+    const stem = base.slice(0, -4);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.xz')) {
     const stem = base.slice(0, -3);
     return stem || 'data';
   }
@@ -601,6 +648,26 @@ function isXzHeader(data: Uint8Array): boolean {
   return true;
 }
 
+function readXzCheckType(data: Uint8Array): number | undefined {
+  if (!isXzHeader(data) || data.length < 12) return undefined;
+  const flags0 = data[6]!;
+  const flags1 = data[7]!;
+  if (flags0 !== 0x00 || (flags1 & 0xf0) !== 0) return undefined;
+  return flags1 & 0x0f;
+}
+
+function isSupportedXzCheck(checkType: number): boolean {
+  return checkType === 0x00 || checkType === 0x01 || checkType === 0x04;
+}
+
+function formatXzCheck(checkType: number): string {
+  if (checkType === 0x00) return 'none';
+  if (checkType === 0x01) return 'crc32';
+  if (checkType === 0x04) return 'crc64';
+  if (checkType === 0x0a) return 'sha256';
+  return `0x${checkType.toString(16)}`;
+}
+
 function isTarHeader(block: Uint8Array): boolean {
   const checksumStored = parseOctal(block.subarray(148, 156));
   const checksumActual = computeChecksum(block);
@@ -650,7 +717,11 @@ async function decompressToBytes(
       : {}),
     ...(options?.limits?.maxCompressionRatio !== undefined
       ? { maxCompressionRatio: options.limits.maxCompressionRatio }
-      : {})
+      : {}),
+    ...(options?.limits?.maxDictionaryBytes !== undefined
+      ? { maxDictionaryBytes: options.limits.maxDictionaryBytes }
+      : {}),
+    ...(options?.profile ? { profile: options.profile } : {})
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
@@ -938,11 +1009,11 @@ class GzipArchiveReader implements ArchiveReader {
 class CompressedArchiveReader implements ArchiveReader {
   format: ArchiveFormat;
   private readonly entry: ArchiveEntry;
-  private readonly algorithm: 'zstd' | 'brotli' | 'bzip2';
+  private readonly algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz';
 
-  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli' | 'bzip2', name = 'data') {
+  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz', name = 'data') {
     this.algorithm = algorithm;
-    this.format = algorithm === 'zstd' ? 'zst' : algorithm === 'brotli' ? 'br' : 'bz2';
+    this.format = algorithm === 'zstd' ? 'zst' : algorithm === 'brotli' ? 'br' : algorithm === 'xz' ? 'xz' : 'bz2';
     this.entry = {
       format: this.format,
       name,
@@ -973,7 +1044,9 @@ class CompressedArchiveReader implements ArchiveReader {
           ? 'ZSTD_LIMIT_EXCEEDED'
           : this.algorithm === 'brotli'
             ? 'BROTLI_LIMIT_EXCEEDED'
-            : 'BZIP2_LIMIT_EXCEEDED';
+            : this.algorithm === 'xz'
+              ? 'XZ_LIMIT_EXCEEDED'
+              : 'BZIP2_LIMIT_EXCEEDED';
       issues.push({
         code,
         severity: 'error',
