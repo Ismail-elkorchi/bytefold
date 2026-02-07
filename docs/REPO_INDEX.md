@@ -15,191 +15,15 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 
 ## Git Identity
 
-- HEAD: `0aa0bbd3e3482b415e070daee935f6364e0ff4d5`
+- HEAD: `9d3962232115b9b86f33a0c0a0806a32464a9ae0`
 - Status (`git status --short --branch`):
 ```text
 ## master
- M .github/workflows/ci.yml
- M .github/workflows/release.yml
- M README.md
- D docs/agent.md
- D docs/bench.md
- D docs/compliance.md
- D docs/compress.md
- D docs/formats.md
- D docs/no-external-tools.md
- D docs/normalize.md
- D docs/quality-baseline.md
- D docs/quality.md
- D docs/release-readiness.md
- D docs/releasing.md
- D docs/security.md
- D docs/state.md
- M package.json
- M scripts/run-deno.mjs
- M scripts/verify-pack.mjs
- M specs/winzip_aes.md
- M specs/zstd_compression_format.md
- M src/archive/errors.ts
- M src/archive/index.ts
- M src/archive/types.ts
- M src/bun/index.ts
- M src/compress/errors.ts
- M src/compress/index.ts
- M src/compress/types.ts
- M src/compression/bzip2.ts
- M src/compression/deflate64.ts
- M src/compression/streams.ts
- M src/compression/xz.ts
- M src/deno/index.ts
- M src/errors.ts
- M src/index.ts
- M src/node/index.ts
- M src/node/zip/ZipReader.ts
- M src/node/zip/entryStream.ts
- M src/reader/RandomAccess.ts
- M src/reader/ZipReader.ts
- M src/reader/eocd.ts
- M src/reportSchema.ts
- M src/tar/TarReader.ts
- M src/tar/types.ts
- M src/types.ts
- M test/archive.test.ts
- M test/bun.smoke.ts
- M test/compress.test.ts
- M test/deno.smoke.ts
- M test/encryption.test.ts
- M test/http.test.ts
- M test/index.ts
- M test/shims.d.ts
- M test/xz.test.ts
-?? AGENTS.md
-?? ARCHITECTURE.md
-?? CHANGELOG.md
-?? CONTRIBUTING.md
-?? MIGRATIONS.md
-?? SECURITY.md
-?? SPEC.md
-?? docs/REPO_INDEX.md
-?? docs/REPO_INDEX.md.sha256
-?? repo.manifest.yaml
-?? schemas/
-?? scripts/docs-check.mjs
-?? scripts/dump-context.mjs
-?? scripts/format.mjs
-?? scripts/generate-ambiguous-fixtures.mjs
-?? scripts/generate-casefold-fixtures.mjs
-?? scripts/generate-gzip-fhcrc-fixtures.mjs
-?? scripts/generate-gzip-header-options-fixture.mjs
-?? scripts/generate-resource-ceiling-fixtures.mjs
-?? scripts/generate-unicode-casefold.mjs
-?? scripts/generate-unicode-collision-fixtures.mjs
-?? scripts/generate-xz-bcj-fixtures.mjs
-?? scripts/generate-xz-bcj-startoffset-fixtures.mjs
-?? scripts/generate-xz-concat-bcj-startoffset-fixtures.mjs
-?? scripts/generate-xz-many-blocks-fixture.mjs
-?? scripts/generate-xz-mixed-filters-fixtures.mjs
-?? scripts/generate-xz-preflight-fixtures.mjs
-?? scripts/generate-xz-vli-multibyte-fixtures.mjs
-?? scripts/generate-zip-preflight-fixtures.mjs
-?? scripts/type-surface-manifest.mjs
-?? scripts/vendor-xz-fixtures.mjs
-?? scripts/verify-generated.mjs
-?? scripts/verify-runtime-versions.mjs
-?? specs/http/
-?? specs/unicode/
-?? specs/xz-filter-ids.md
-?? src/archive/httpArchiveErrors.ts
-?? src/archive/xzPreflight.ts
-?? src/archive/zipPreflight.ts
-?? src/compression/xzFilters.ts
-?? src/compression/xzIndexPreflight.ts
-?? src/compression/xzScan.ts
-?? src/crypto/sha256.ts
-?? src/generated/
-?? src/http/
-?? src/limits.ts
-?? src/reader/httpZipErrors.ts
-?? src/streams/emit.ts
-?? src/text/
-?? test/ambiguous-fixtures.test.ts
-?? test/archive-writer-proof.test.ts
-?? test/audit-normalize-proof.test.ts
-?? test/bzip2-aliasing.test.ts
-?? test/casefold-collision.test.ts
-?? test/compression-resource-limits.test.ts
-?? test/context-tools.test.ts
-?? test/deflate64-aliasing.test.ts
-?? test/error-contracts.test.ts
-?? test/export-surface.test.ts
-?? test/fixtures/ambiguous/
-?? test/fixtures/concat-limit.bz2
-?? test/fixtures/concat-limit.xz
-?? test/fixtures/concat-two.xz
-?? test/fixtures/concat.bz2
-?? test/fixtures/concat.gz
-?? test/fixtures/expected/
-?? test/fixtures/export-surface.json
-?? test/fixtures/fixture.tar
-?? test/fixtures/fixture.tar.br
-?? test/fixtures/fixture.tar.zst
-?? test/fixtures/gzip-fhcrc-bad.gz
-?? test/fixtures/gzip-fhcrc-ok.gz
-?? test/fixtures/gzip-header-options.gz
-?? test/fixtures/hello.txt.br
-?? test/fixtures/hello.txt.gz
-?? test/fixtures/hello.txt.zst
-?? test/fixtures/thirdparty/
-?? test/fixtures/type-surface-manifest.json
-?? test/fixtures/xz-bcj/
-?? test/fixtures/xz-check-sha256.xz
-?? test/fixtures/xz-concat/
-?? test/fixtures/xz-dict-huge.xz
-?? test/fixtures/xz-many-blocks.xz
-?? test/fixtures/xz-many-blocks/
-?? test/fixtures/xz-mixed/
-?? test/fixtures/xz-padding-4m.xz
-?? test/fixtures/xz-utils/
-?? test/fixtures/xz-vli/
-?? test/fixtures/zip-preflight/
-?? test/gzip-aliasing.test.ts
-?? test/gzip-fhcrc.test.ts
-?? test/gzip-header-options.test.ts
-?? test/manifest-invariants.test.ts
-?? test/mutation-harness.test.ts
-?? test/packaging-contract.test.ts
-?? test/repo-invariants.test.ts
-?? test/resource-ceilings.test.ts
-?? test/resource-defaults.test.ts
-?? test/schema-contracts.test.ts
-?? test/schema-validator.ts
-?? test/single-file-formats.test.ts
-?? test/spec-doc.test.ts
-?? test/streaming-invariance.test.ts
-?? test/support-matrix-behavior.test.ts
-?? test/support-matrix.test.ts
-?? test/third-party-provenance.test.ts
-?? test/type-surface.test.ts
-?? test/unicode-collision.test.ts
-?? test/xz-aliasing.test.ts
-?? test/xz-bcj-filters.test.ts
-?? test/xz-concat-bcj.test.ts
-?? test/xz-http-error-mapping.test.ts
-?? test/xz-index-limits.test.ts
-?? test/xz-mixed-filters.test.ts
-?? test/xz-seekable-preflight.test.ts
-?? test/xz-thirdparty.test.ts
-?? test/xz-utils-conformance.test.ts
-?? test/xz-vli-boundaries.test.ts
-?? test/zip-seekable-preflight.test.ts
-?? test/zip-tar-thirdparty.test.ts
-?? test/zip-url-seekable-budget.test.ts
-?? tools/
 ```
 
 ## Full File Tree
 
-- total_files: 739
+- total_files: 742
 - total_directories: 66
 
 ```text
@@ -593,6 +417,8 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 │   ├── mutation-harness.test.js.map
 │   ├── normalize.test.js
 │   ├── normalize.test.js.map
+│   ├── packaging-contract.test.js
+│   ├── packaging-contract.test.js.map
 │   ├── repo-invariants.test.js
 │   ├── repo-invariants.test.js.map
 │   ├── resource-ceilings.test.js
@@ -619,6 +445,8 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 │   ├── tar-xz.test.js.map
 │   ├── third-party-provenance.test.js
 │   ├── third-party-provenance.test.js.map
+│   ├── type-surface.test.js
+│   ├── type-surface.test.js.map
 │   ├── unicode-collision.test.js
 │   ├── unicode-collision.test.js.map
 │   ├── unicode-extra.test.js
@@ -996,7 +824,6 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 ├── CHANGELOG.md
 ├── CONTRIBUTING.md
 ├── LICENSE
-├── MIGRATIONS.md
 ├── README.md
 ├── SECURITY.md
 ├── SPEC.md
@@ -1018,15 +845,14 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | .github/workflows/ci.yml | 1715 | fefd5418a0bab77bde35d1e9b141fb7186d62bcfe34a1a3cb05c47f15a2f025d | text | workflow |
 | .github/workflows/release.yml | 1217 | 0928747153565dafbee4a9d405a12fb9d42538ca690bfc33f076c56cea3bb822 | text | workflow |
 | .gitignore | 46 | a3e78b241090c19786a1624e022da24de3cae4805901b80c2e3c216fb2dccac4 | text | config |
-| AGENTS.md | 2150 | 9410b01eac562966f2f89f65010df1771ca29eab042e86a97071242ef59d434f | text | policy |
+| AGENTS.md | 2279 | de8ca5d1868094b0d09c026c3650da38c7d2ac44fc47ba5f9fdee4b76b1cc92e | text | policy |
 | ARCHITECTURE.md | 1807 | 8aab785aa381295793287641eddbe0e7a85a8aa513b27aa53c159ddb7f627786 | text | doc |
 | CHANGELOG.md | 290 | ed0296045c15fca5b6674cfaef8227304572b67f90dac8d853c07e1999f891f3 | text | doc |
 | CONTRIBUTING.md | 614 | 08e6b512b40b53ab7277d705d4b11a74c2ec8e274346888d3e4d0021b3ae890a | text | policy |
 | LICENSE | 1073 | f70756ae4a91f2d4e2a75731359d9a15b287666a4b67a82596cfc9aec13c82cc | text | doc |
-| MIGRATIONS.md | 289 | 6ae2ea0a62f859f8dc690a7efa76cead29b4c5962ab5ca444585f3fb0a3126d1 | text | policy |
-| README.md | 1248 | d59c4295436d30ad57b0c89f5f38aaeb5015221e08b5ef096a225c67d84bfbf2 | text | doc |
+| README.md | 1231 | 6a3df02873657eba3f97720faf4d4364e9f95e83ee05bac8cd5fb12d999471af | text | doc |
 | SECURITY.md | 983 | 4d2d77935974716eeac718140c66b28f6875f6ba9140334d0fad92549a6b7726 | text | policy |
-| SPEC.md | 24318 | 1a20ec08ad1e636cf289173671a5a070766f5d7b6ec5b747d2211a27da09c993 | text | spec |
+| SPEC.md | 24434 | b96647017d797131d1cab7e15699c3d9f847c38020dc2de62472931b17d8b16d | text | spec |
 | archive/mod.ts | 92 | 5857825ad946eae5ce861d05e3d64980b5b1b42a138313d58996802aa41d801f | text | code |
 | bun/mod.ts | 84 | 1e21547a9d63b04e61c7ed96e0cbf3e670d30b3d9967b2ded58e2ba45ac66e3d | text | code |
 | compress/mod.ts | 107 | dd0826d815a2ec32082d432d9b04e76ce749fb23b32c0110901fd19d3a63c582 | text | code |
@@ -1093,6 +919,8 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | dist-test/mutation-harness.test.js.map | 14980 | e52ff30094846569dcc6b21d31df22ad5e0817083cef7c096e68847a3f861b1f | text | other |
 | dist-test/normalize.test.js | 3762 | 7bcb1e5e5d7a1d1a832e233afe2fe80748fb2a7ac1ad7b42542e9352e9779bed | text | other |
 | dist-test/normalize.test.js.map | 4630 | 53bd453b390680d02bb1996eab5cb0f51714daed7399b3f8a61e7fc05981fdd3 | text | other |
+| dist-test/packaging-contract.test.js | 1229 | e9a540bcaa26d149747b29ee5e647109c913e09516f8861554fd33f2e8d156b2 | text | other |
+| dist-test/packaging-contract.test.js.map | 1354 | ba612b2fc51ebf954ab0121dc1132c347aa9d35dd80a18bee5858313530851d2 | text | other |
 | dist-test/repo-invariants.test.js | 1524 | 4e48acaaf4fe24111166160d152da8a13b2af7dc8e80ead04bc39f03034d60b1 | text | other |
 | dist-test/repo-invariants.test.js.map | 1606 | 1656a5fbcb179451fd5c76260775a11ebe270cc0951113d9ec92f2b513b40b04 | text | other |
 | dist-test/resource-ceilings.test.js | 8770 | 05aa6565da203340e1c907549ea2d44be08783f086545402bffb5f6e8921a3fd | text | other |
@@ -1119,6 +947,8 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | dist-test/tar-xz.test.js.map | 2413 | e58555327c1177030f13def618196cb20153a5bf6ce5a55de9f37633fce876fd | text | other |
 | dist-test/third-party-provenance.test.js | 2127 | b30ef3d30640ff2fc0a69f75e8f3b943550b597c1cbcd1c3d83b29bfb3722b58 | text | other |
 | dist-test/third-party-provenance.test.js.map | 2239 | a56e21c6c8290983afed13b7b44ee80ef455f697b7d863e7b76c232391f80425 | text | other |
+| dist-test/type-surface.test.js | 900 | 987cf64e00f5837af75effbcc4718039253bcce4c5a2230f6fee4e64a7ce6cfa | text | other |
+| dist-test/type-surface.test.js.map | 812 | b3f4c584e91ca1abb2ed61cd3a629bc2c9f54dd1f85b79622efec96fa4c19db6 | text | other |
 | dist-test/unicode-collision.test.js | 5606 | a92a440f302bf078ee1c8353aef01f0372ddb11c779661dce9534036ca1397ae | text | other |
 | dist-test/unicode-collision.test.js.map | 6433 | 0aa5abeceddb537b7c3d727dc1d956cce7edfedac342882ffeed73a147b3594f | text | other |
 | dist-test/unicode-extra.test.js | 6237 | 260e3f0ac55cbf4956d786708672b9077a068beb60c487c2ef99763e84ed7926 | text | other |
@@ -1453,8 +1283,8 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | jsr.json | 758 | 9f3a4708dc20ec5f48b11ccefbecb18b813cd43e89223b20567043231e863775 | text | config |
 | mod.ts | 109 | ca872be512d33c2d431548609712bc7602af207c1373cf322074ea22f048078c | text | code |
 | package-lock.json | 72558 | 9e314585afcb76f551ba372ca474ace9792fbcd4317b75d3380fe780930130a0 | text | other |
-| package.json | 3708 | 7187a46d2b3762ead4308c9abc8ffe7d0a0f5ba24644288455d605b2e5448b21 | text | config |
-| repo.manifest.yaml | 5807 | 81f180152fc08771f9eba9ba145c40f4d7b46f230e0a3a696420ae32c8d5db6b | text | config |
+| package.json | 3726 | 4b3ca48a18ba92f201ddb3b81713dda48c0b31e7e6612002e16f8924b04dfa66 | text | config |
+| repo.manifest.yaml | 5963 | 6c23a50fd49ffa323d9c89d476dddf7b3b943ef44655f4e412bd033c2e1695b0 | text | config |
 | schemas/audit-report.schema.json | 1179 | 248027a5fcc6e8b4c3722b7616ecc16521fab6f0c58dd36742f89c732d6fdcba | text | schema |
 | schemas/capabilities-report.schema.json | 812 | f56ec67616cafd0d0b6f5ad40847e39a1024b9aca0641916997dc6dabd116d9b | text | schema |
 | schemas/detection-report.schema.json | 798 | 672d0a1cb83baad301b32e4255b50907fb6b34d3c6be8372e3e2a7c30a5ace5e | text | schema |
@@ -1463,7 +1293,7 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | scripts/bench.mjs | 4651 | 2960582f4b2e4dba1382229081782f4e7095bb0df2d37f3cba9eb87f50a5d71b | text | script |
 | scripts/clean.mjs | 297 | b58ddea43618a14edae79762dfe89ce630d9ef4c40bdc5a8f41ad6b2ce88fac3 | text | script |
 | scripts/docs-check.mjs | 1763 | 7b94adf5036408877c1f57ddf28a175ace2a5009671463c4a2442129ca728ac9 | text | script |
-| scripts/dump-context.mjs | 17099 | da8a249ba1a6851cdec4a5a0a2da827819ffd2388fac4899fdaf26bba7a96668 | text | script |
+| scripts/dump-context.mjs | 17082 | 25ec9d6b45cec3fc343398f4caabf0410b6b9f2efaeda3eaaae07c6ea80f3c33 | text | script |
 | scripts/format.mjs | 1888 | 6740bcdf083dd960b06cf0b4704e541cb32cc093673b9f496d37e974eeb72942 | text | script |
 | scripts/generate-ambiguous-fixtures.mjs | 5382 | ff704e14338de5c242e53071ce4d7b0f54c02de70972c6eadb4deb843bf4ecb7 | text | script |
 | scripts/generate-casefold-fixtures.mjs | 1944 | e69cd9285c80c5cdad40e575b585735743d60146037a0a269daa129f3b9c69f9 | text | script |
@@ -1488,7 +1318,7 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | scripts/type-surface-manifest.mjs | 5858 | 802edaafb72c2b5367cc25621a41be5d0c798a5244f92585002316e0f089bd3e | text | script |
 | scripts/vendor-xz-fixtures.mjs | 1949 | 8703e698da7812bbfcc3c032469f5e032fde111a632886b37346584b338c6d6b | text | script |
 | scripts/verify-generated.mjs | 741 | 87711768fe88ffba4070253f86655c3ccd8f71a3d7630b9702a85dc92488cd47 | text | script |
-| scripts/verify-pack.mjs | 6800 | aa7c4c16145686d801c07a68659dd120cb846a549fcb5f73f12fef76b43ba118 | text | script |
+| scripts/verify-pack.mjs | 7061 | 6cfdc25baaaec3c9dde5c1f94546689b76a8b4e01804a48ed5c8ccc01ebbb96b | text | script |
 | scripts/verify-runtime-versions.mjs | 3520 | 89cca132e6b047373cccaee52041de762dfd0a8560ebd23b0b9892916ab52b1c | text | script |
 | specs/APPNOTE-6.3.10.TXT | 174585 | 0b993022a7d320a0bf704e6980bea36fafd17a6066ab994db0a0c16278a50cd6 | text | spec |
 | specs/APPNOTE.TXT | 174585 | 0b993022a7d320a0bf704e6980bea36fafd17a6066ab994db0a0c16278a50cd6 | text | spec |
@@ -1716,7 +1546,7 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | test/manifest-invariants.test.ts | 2517 | 3fe2b72f7225101eb1431fbc43f15ba9518110a6331e40ae2c80d818a187da2b | text | test |
 | test/mutation-harness.test.ts | 13243 | 6d2c04207f59c5d3cb4f8eec11b2b1dc5a560813a53e109eb6746c85e0d7ae7d | text | test |
 | test/normalize.test.ts | 3884 | 7ee52bb990168ac625a5a2039d1f2f583caa443ec3073b517881d17aa2464817 | text | test |
-| test/packaging-contract.test.ts | 543 | a11ff4996e3ef6378df1205a883f7a6ce5de0ee77e47377772deb261462c11fa | text | test |
+| test/packaging-contract.test.ts | 1468 | f1f2732426601777993da4db76597ef35cce4877dd60a3ee1ee93839b20d3b32 | text | test |
 | test/repo-invariants.test.ts | 1540 | 897c68386beeb1d868531ac055e30489595237ed3b1108e739bee96bc44267d6 | text | test |
 | test/resource-ceilings.test.ts | 8795 | a75d62a579041437e147f30ef706ed3a34e7fd4dfa68ae40e07a3e45d51f2080 | text | test |
 | test/resource-defaults.test.ts | 1920 | b7536cf02e98605b8b50be294d9e9531f7ef0d8b0f5a7adb14cf0086e38b7f05 | text | test |
@@ -1731,7 +1561,7 @@ Scope includes working-tree files and excludes `.git/`, `node_modules/`, `docs/R
 | test/support-matrix.test.ts | 1891 | 0321633772ceb278f0589f499a5275c90a0bc7148f5befb080e87003a6e582c6 | text | test |
 | test/tar-xz.test.ts | 1852 | b6c4d99dbecf376d03e713532751f649d7727be66dfda3077199c2c5ccffe5b7 | text | test |
 | test/third-party-provenance.test.ts | 1942 | 43f932c03fe10f22c648bac8ee7795d2865beaa06ca63fcb60eef37919d33953 | text | test |
-| test/type-surface.test.ts | 1248 | 975f82ce6d4192031c5ad43b9d385745e557b81d5ce9511421ee7483c108bfd0 | text | test |
+| test/type-surface.test.ts | 1242 | d7f147233deefda6b2080d3d0f20e6c53458c3258c12949d72d00cc8cc849c12 | text | test |
 | test/unicode-collision.test.ts | 5684 | 789aac3293bef429e8a89377165013240e6a382471cc7db2fac546c998c3b3a6 | text | test |
 | test/unicode-extra.test.ts | 5998 | 4dd46b7263ad7fafca962c97985f061f86ec84890c2e2aa0f4cfd3b3333969da | text | test |
 | test/xz-aliasing.test.ts | 1076 | cb3e4b9530965a76cd8a1f828e32078ecb7b99d6195b573a137d50f8b1dc2eff | text | test |
