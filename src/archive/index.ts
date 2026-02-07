@@ -91,14 +91,14 @@ type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
 /** Options for auditing archives opened via openArchive(). */
 export type ArchiveAuditOptions = {
   profile?: ArchiveProfile;
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
 };
 
 /** Options for normalization via openArchive(). */
 export type ArchiveNormalizeOptions = {
-  deterministic?: boolean;
+  isDeterministic?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
 };
@@ -115,7 +115,7 @@ export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOpti
     const notes = detection?.notes ?? ['Format inferred from magic bytes'];
     const confidence = detection?.confidence ?? 'high';
     const openOptions: ZipReaderOpenOptions = {
-      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
       ...(options?.password !== undefined ? { password: options.password } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
@@ -343,12 +343,12 @@ async function openWithFormat(
     const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
     const profile = options?.profile;
     if (profile !== undefined) zipOptions.profile = profile as ZipProfile;
-    if (options?.strict !== undefined) zipOptions.strict = options.strict;
+    if (options?.isStrict !== undefined) zipOptions.isStrict = options.isStrict;
     if (options?.limits !== undefined) zipOptions.limits = options.limits;
     if (options?.password !== undefined) zipOptions.password = options.password;
     const reader = await ZipReader.fromUint8Array(data, zipOptions);
     const openOptions: ZipReaderOpenOptions = {
-      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
       ...(options?.password !== undefined ? { password: options.password } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
@@ -361,12 +361,12 @@ async function openWithFormat(
   if (format === 'tar') {
     const tarOptions: TarReaderOptions = { ...(options?.tar ?? {}) };
     if (options?.profile !== undefined) tarOptions.profile = options.profile;
-    if (options?.strict !== undefined) tarOptions.strict = options.strict;
+    if (options?.isStrict !== undefined) tarOptions.isStrict = options.isStrict;
     if (options?.limits !== undefined) tarOptions.limits = options.limits;
     const reader = await TarReader.fromUint8Array(data, tarOptions);
     const auditDefaults: TarAuditOptions = {
       ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
       ...(options?.limits !== undefined ? { limits: options.limits } : {})
     };
     return {
@@ -384,7 +384,7 @@ async function openWithFormat(
       }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
         ...(options?.limits !== undefined ? { limits: options.limits } : {})
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
@@ -410,7 +410,7 @@ async function openWithFormat(
       }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
         ...(options?.limits !== undefined ? { limits: options.limits } : {})
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
@@ -436,7 +436,7 @@ async function openWithFormat(
       }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
         ...(options?.limits !== undefined ? { limits: options.limits } : {})
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
@@ -473,7 +473,7 @@ async function openWithFormat(
       }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
         ...(options?.limits !== undefined ? { limits: options.limits } : {})
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
@@ -534,7 +534,7 @@ async function openWithFormat(
       }
       const tarOptions: TarReaderOptions = {
         ...(options?.profile !== undefined ? { profile: options.profile } : {}),
-        ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+        ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
         ...(options?.limits !== undefined ? { limits: options.limits } : {})
       };
       const tarReader = await TarReader.fromUint8Array(decompressed, tarOptions);
@@ -1192,7 +1192,7 @@ class ZipArchiveReader implements ArchiveReader {
     const profile = options?.profile;
     const zipOptions: ZipAuditOptions = {
       ...(profile !== undefined ? { profile: profile as ZipProfile } : {}),
-      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
       ...(options?.limits !== undefined ? { limits: options.limits } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
@@ -1232,7 +1232,7 @@ class ZipArchiveReader implements ArchiveReader {
     const profile = options?.profile;
     const auditOptions: ZipAuditOptions = {
       ...(profile !== undefined ? { profile: profile as ZipProfile } : {}),
-      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.isStrict !== undefined ? { isStrict: options.isStrict } : {}),
       ...(options?.limits !== undefined ? { limits: options.limits } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
@@ -1244,7 +1244,7 @@ class ZipArchiveReader implements ArchiveReader {
     options?: ArchiveNormalizeOptions
   ): Promise<ArchiveNormalizeReport> {
     const normalizeOptions = {
-      ...(options?.deterministic !== undefined ? { deterministic: options.deterministic } : {}),
+      ...(options?.isDeterministic !== undefined ? { isDeterministic: options.isDeterministic } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
     const report = await this.reader.normalizeToWritable(writable, normalizeOptions);
@@ -1309,11 +1309,11 @@ class TarArchiveReader implements ArchiveReader {
 
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
     const profile = options?.profile ?? this.auditDefaults?.profile;
-    const strict = options?.strict ?? this.auditDefaults?.strict;
+    const isStrict = options?.isStrict ?? this.auditDefaults?.isStrict;
     const limits = options?.limits ?? this.auditDefaults?.limits;
     const tarOptions: TarAuditOptions = {
       ...(profile !== undefined ? { profile } : {}),
-      ...(strict !== undefined ? { strict } : {}),
+      ...(isStrict !== undefined ? { isStrict } : {}),
       ...(limits !== undefined ? { limits } : {}),
       ...(options?.signal ? { signal: options.signal } : {})
     };
@@ -1336,7 +1336,7 @@ class TarArchiveReader implements ArchiveReader {
     const limits = options?.limits ?? this.auditDefaults?.limits;
     enforceResourceLimits(this.preflight, limits, this.auditDefaults?.profile);
     const tarOptions: TarNormalizeOptions = {
-      ...(options?.deterministic !== undefined ? { deterministic: options.deterministic } : {}),
+      ...(options?.isDeterministic !== undefined ? { isDeterministic: options.isDeterministic } : {}),
       ...(options?.signal ? { signal: options.signal } : {}),
       ...(options?.limits !== undefined ? { limits: options.limits } : {})
     };

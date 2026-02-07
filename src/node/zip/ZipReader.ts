@@ -69,7 +69,7 @@ export class ZipReader {
     this.strict = resolved.strict;
     this.limits = resolved.limits;
     this.password = options?.password;
-    this.storeEntries = options?.storeEntries ?? true;
+    this.storeEntries = options?.shouldStoreEntries ?? true;
     this.signal = mergeSignals(options?.signal, options?.http?.signal);
   }
 
@@ -151,6 +151,7 @@ export class ZipReader {
         headers?: Record<string, string>;
         cache?: { blockSize?: number; maxBlocks?: number };
         signal?: AbortSignal;
+        snapshotPolicy?: 'require-strong-etag' | 'best-effort';
       };
     }
   ): Promise<ZipReader> {
@@ -159,7 +160,7 @@ export class ZipReader {
       headers?: Record<string, string>;
       cache?: { blockSize?: number; maxBlocks?: number };
       signal?: AbortSignal;
-      snapshot?: 'require-strong-etag' | 'best-effort';
+      snapshotPolicy?: 'require-strong-etag' | 'best-effort';
     } = options?.http ? { ...options.http } : {};
     if (httpSignal) {
       httpOptions.signal = httpSignal;
@@ -174,7 +175,7 @@ export class ZipReader {
     if (!this.storeEntries) {
       throw new ZipError(
         'ZIP_ENTRIES_NOT_STORED',
-        'Entries are not stored; use iterEntries() or enable storeEntries'
+        'Entries are not stored; use iterEntries() or enable shouldStoreEntries'
       );
     }
     if (!this.entriesList) return [];
@@ -229,7 +230,7 @@ export class ZipReader {
   }
 
   async open(entry: ZipEntry, options?: ZipReaderOpenOptions): Promise<ReadableStream<Uint8Array>> {
-    const strict = options?.strict ?? this.strict;
+    const strict = options?.isStrict ?? this.strict;
     const signal = this.resolveSignal(options?.signal);
     const totals = { totalUncompressed: 0n };
     const params: { strict: boolean; onWarning: (warning: ZipWarning) => void; password?: string } = {
@@ -273,9 +274,9 @@ export class ZipReader {
 
   async extractAll(destDir: string | URL, options?: ZipExtractOptions): Promise<void> {
     const baseDir = typeof destDir === 'string' ? destDir : fileURLToPath(destDir);
-    const strict = options?.strict ?? this.strict;
+    const strict = options?.isStrict ?? this.strict;
     const password = options?.password ?? this.password;
-    const allowSymlinks = options?.allowSymlinks ?? false;
+    const shouldAllowSymlinks = options?.shouldAllowSymlinks ?? false;
     const limits = normalizeLimits(options?.limits ?? this.limits, this.limits);
     const signal = this.resolveSignal(options?.signal);
 
@@ -343,7 +344,7 @@ export class ZipReader {
       }
 
       if (entry.isSymlink) {
-        if (!allowSymlinks) {
+        if (!shouldAllowSymlinks) {
           throw new ZipError('ZIP_SYMLINK_DISALLOWED', 'Symlink entries are disabled by default', {
             entryName: entry.name
           });
@@ -757,7 +758,7 @@ export class ZipReader {
   private async loadEntries(): Promise<void> {
     if (this.entriesList) return;
     for await (const _ of this.iterEntries()) {
-      // iterEntries populates entriesList when storeEntries is enabled.
+      // iterEntries populates entriesList when shouldStoreEntries is enabled.
     }
   }
 
@@ -795,7 +796,7 @@ export class ZipReader {
       profile === this.profile
         ? { strict: this.strict, limits: this.limits }
         : resolveProfileDefaults(profile);
-    const strict = options?.strict ?? defaults.strict;
+    const strict = options?.isStrict ?? defaults.strict;
     const limits = normalizeLimits(options?.limits, defaults.limits);
     return {
       profile,
@@ -814,13 +815,13 @@ export class ZipReader {
     const signal = this.resolveSignal(options?.signal);
     throwIfAborted(signal);
     const mode: 'safe' | 'lossless' = options?.mode ?? 'safe';
-    const deterministic = options?.deterministic ?? true;
+    const deterministic = options?.isDeterministic ?? true;
     const onDuplicate: ZipNormalizeConflict = options?.onDuplicate ?? 'error';
     const onCaseCollision: ZipNormalizeConflict = options?.onCaseCollision ?? 'error';
     const onUnsupported = options?.onUnsupported ?? 'error';
     const onSymlink = options?.onSymlink ?? 'error';
-    const preserveComments = options?.preserveComments ?? false;
-    const preserveTrailingBytes = options?.preserveTrailingBytes ?? false;
+    const preserveComments = options?.shouldPreserveComments ?? false;
+    const preserveTrailingBytes = options?.shouldPreserveTrailingBytes ?? false;
     const limits = normalizeLimits(options?.limits, this.limits);
     const outputMethod = options?.method ?? 8;
     const password = options?.password ?? this.password;
@@ -1492,7 +1493,7 @@ function resolveReaderProfile(options?: ZipReaderOptions): {
   const profile = options?.profile ?? 'strict';
   const defaults = profile === 'agent' ? AGENT_LIMITS : DEFAULT_LIMITS;
   const strictDefault = profile === 'compat' ? false : true;
-  const strict = options?.strict ?? strictDefault;
+  const strict = options?.isStrict ?? strictDefault;
   const limits = normalizeLimits(options?.limits, defaults);
   return { profile, strict, limits };
 }

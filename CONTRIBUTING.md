@@ -22,3 +22,4 @@ update_triggers:
 - Add tests for every bug fix and new guarantee.
 - Update SPEC.md invariants and link tests for each guarantee.
 - Update repo.manifest.yaml when commands or invariants change.
+- Follow naming rules in `docs/NAMING.md` for new/renamed symbols.

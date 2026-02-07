@@ -34,7 +34,7 @@ export interface HttpRandomAccessOptions {
     maxBlocks?: number;
   };
   signal?: AbortSignal;
-  snapshot?: 'require-strong-etag' | 'best-effort';
+  snapshotPolicy?: 'require-strong-etag' | 'best-effort';
 }
 
 export class HttpRandomAccess implements RandomAccess {
@@ -43,12 +43,12 @@ export class HttpRandomAccess implements RandomAccess {
   private readonly blockSize: number;
   private readonly maxBlocks: number;
   private readonly cache = new Map<bigint, Uint8Array>();
-  private sizeValue?: bigint;
+  private resolvedSizeBytes?: bigint;
   private pinnedEtag?: string;
   private pinnedLastModified?: string;
   private readonly signal: AbortSignal | null;
   private readonly snapshotPolicy: 'require-strong-etag' | 'best-effort';
-  private readonly skipRangeAcceptEncoding: boolean;
+  private readonly shouldSkipRangeAcceptEncoding: boolean;
 
   constructor(url: string | URL, options?: HttpRandomAccessOptions) {
     this.url = typeof url === 'string' ? url : url.toString();
@@ -60,21 +60,21 @@ export class HttpRandomAccess implements RandomAccess {
     this.blockSize = Number.isFinite(blockSize) && blockSize > 0 ? Math.floor(blockSize) : 64 * 1024;
     this.maxBlocks = Number.isFinite(maxBlocks) && maxBlocks > 0 ? Math.floor(maxBlocks) : 64;
     this.signal = options?.signal ?? null;
-    this.snapshotPolicy = options?.snapshot ?? 'best-effort';
-    this.skipRangeAcceptEncoding = isNodeRuntime();
+    this.snapshotPolicy = options?.snapshotPolicy ?? 'best-effort';
+    this.shouldSkipRangeAcceptEncoding = isNodeRuntime();
   }
 
   async size(signal?: AbortSignal): Promise<bigint> {
-    if (this.sizeValue !== undefined) return this.sizeValue;
+    if (this.resolvedSizeBytes !== undefined) return this.resolvedSizeBytes;
 
     const headSize = await this.tryHeadSize(signal);
     if (headSize !== undefined) {
-      this.sizeValue = headSize;
+      this.resolvedSizeBytes = headSize;
       return headSize;
     }
 
-    const rangeSize = await this.fetchSizeFromRange(signal);
-    this.sizeValue = rangeSize;
+    const rangeSize = await this.probeSizeWithRangeRequest(signal);
+    this.resolvedSizeBytes = rangeSize;
     return rangeSize;
   }
 
@@ -91,7 +91,7 @@ export class HttpRandomAccess implements RandomAccess {
     const startBlock = offset / blockSize;
     const endBlock = (offset + BigInt(lengthToRead) - 1n) / blockSize;
 
-    const output = new Uint8Array(lengthToRead);
+    const requestedBytes = new Uint8Array(lengthToRead);
 
     for (let blockIndex = startBlock; blockIndex <= endBlock; blockIndex += 1n) {
       throwIfAborted(signal);
@@ -104,10 +104,10 @@ export class HttpRandomAccess implements RandomAccess {
       const copyLength = Number(copyEnd - copyStart);
       if (copyLength <= 0) continue;
       const destOffset = Number(blockStart + copyStart - offset);
-      output.set(block.subarray(Number(copyStart), Number(copyStart) + copyLength), destOffset);
+      requestedBytes.set(block.subarray(Number(copyStart), Number(copyStart) + copyLength), destOffset);
     }
 
-    return output;
+    return requestedBytes;
   }
 
   async close(): Promise<void> {
@@ -130,9 +130,9 @@ export class HttpRandomAccess implements RandomAccess {
       const lengthHeader = response.headers.get('content-length');
       if (!lengthHeader) return undefined;
       try {
-        const parsed = BigInt(lengthHeader);
-        if (parsed < 0n) return undefined;
-        return parsed;
+        const parsedLength = BigInt(lengthHeader);
+        if (parsedLength < 0n) return undefined;
+        return parsedLength;
       } catch {
         return undefined;
       }
@@ -142,11 +142,11 @@ export class HttpRandomAccess implements RandomAccess {
     }
   }
 
-  private async fetchSizeFromRange(signal?: AbortSignal): Promise<bigint> {
+  private async probeSizeWithRangeRequest(signal?: AbortSignal): Promise<bigint> {
     const response = await this.fetchRangeResponse(
       0n,
       0n,
-      signal ? { signal, requireSize: true } : { requireSize: true }
+      signal ? { signal, shouldExpectTotalSize: true } : { shouldExpectTotalSize: true }
     );
     return response.size;
   }
@@ -173,7 +173,7 @@ export class HttpRandomAccess implements RandomAccess {
     const response = await this.fetchRangeResponse(
       start,
       end,
-      signal ? { signal, requireSize: false } : { requireSize: false }
+      signal ? { signal, shouldExpectTotalSize: false } : { shouldExpectTotalSize: false }
     );
     return response.data;
   }
@@ -181,17 +181,17 @@ export class HttpRandomAccess implements RandomAccess {
   private async fetchRangeResponse(
     start: bigint,
     end: bigint,
-    options: { signal?: AbortSignal; requireSize: boolean }
+    options: { signal?: AbortSignal; shouldExpectTotalSize: boolean }
   ): Promise<{ data: Uint8Array; size: bigint }> {
     const requestController = new AbortController();
     const merged = mergeSignals(this.signal, options.signal, requestController.signal);
     const headers = new Headers(this.headers);
-    if (!this.skipRangeAcceptEncoding) {
+    if (!this.shouldSkipRangeAcceptEncoding) {
       applyAcceptEncoding(headers);
     }
     headers.set('Range', `bytes=${start}-${end}`);
-    const ifRange = this.getIfRange();
-    const ifRangeSent = ifRange !== undefined;
+    const ifRange = this.buildIfRangeHeader();
+    const didSendIfRange = ifRange !== undefined;
     if (ifRange) {
       headers.set('If-Range', ifRange);
     }
@@ -226,7 +226,7 @@ export class HttpRandomAccess implements RandomAccess {
 
     if (response.status === 200) {
       const mismatch = this.findValidatorMismatch(response);
-      if (ifRangeSent) {
+      if (didSendIfRange) {
         await rejectFromHeaders('HTTP_RESOURCE_CHANGED', 'Remote resource changed during range session', mismatch ?? {
           expectedEtag: ifRange ?? 'unknown'
         });
@@ -266,33 +266,33 @@ export class HttpRandomAccess implements RandomAccess {
         contentRange
       });
     }
-    const parsed = parsedContentRange!;
+    const parsedRange = parsedContentRange!;
 
-    if (parsed.start !== start || parsed.end !== end) {
+    if (parsedRange.start !== start || parsedRange.end !== end) {
       await rejectFromHeaders('HTTP_RANGE_INVALID', 'Content-Range does not match requested range', {
         requested: `${start}-${end}`,
-        actual: `${parsed.start}-${parsed.end}`
+        actual: `${parsedRange.start}-${parsedRange.end}`
       });
     }
 
-    if (parsed.size === undefined) {
-      if (options.requireSize) {
+    if (parsedRange.size === undefined) {
+      if (options.shouldExpectTotalSize) {
         await rejectFromHeaders('HTTP_SIZE_UNKNOWN', 'Unable to determine remote size from Content-Range');
       }
       await rejectFromHeaders('HTTP_RANGE_INVALID', 'Content-Range did not include a total size', {
         contentRange
       });
     }
-    const parsedSize = parsed.size!;
+    const parsedSize = parsedRange.size!;
 
-    if (this.sizeValue !== undefined && parsedSize !== this.sizeValue) {
+    if (this.resolvedSizeBytes !== undefined && parsedSize !== this.resolvedSizeBytes) {
       await rejectFromHeaders('HTTP_RESOURCE_CHANGED', 'Remote resource changed during range session', {
-        expectedSize: this.sizeValue.toString(),
+        expectedSize: this.resolvedSizeBytes.toString(),
         actualSize: parsedSize.toString()
       });
     }
 
-    const expectedLength = Number(parsed.end - parsed.start + 1n);
+    const expectedLength = Number(parsedRange.end - parsedRange.start + 1n);
     if (!Number.isFinite(expectedLength) || expectedLength < 0) {
       await rejectFromHeaders('HTTP_RANGE_INVALID', 'Content-Range produced an invalid length', {
         contentRange
@@ -348,7 +348,7 @@ export class HttpRandomAccess implements RandomAccess {
     }
   }
 
-  private getIfRange(): string | undefined {
+  private buildIfRangeHeader(): string | undefined {
     if (this.pinnedEtag && isStrongEtag(this.pinnedEtag)) {
       return this.pinnedEtag;
     }
@@ -391,9 +391,9 @@ export class HttpRandomAccess implements RandomAccess {
   private enforceStrongEtag(response: Response): void {
     if (this.snapshotPolicy !== 'require-strong-etag') return;
     const etag = response.headers.get('etag');
-    const strongPinned = this.pinnedEtag ? isStrongEtag(this.pinnedEtag) : false;
-    const strongCurrent = etag ? isStrongEtag(etag) : false;
-    if (strongPinned || strongCurrent) return;
+    const hasStrongPinnedEtag = this.pinnedEtag ? isStrongEtag(this.pinnedEtag) : false;
+    const hasStrongCurrentEtag = etag ? isStrongEtag(etag) : false;
+    if (hasStrongPinnedEtag || hasStrongCurrentEtag) return;
     throw new HttpError('HTTP_STRONG_ETAG_REQUIRED', 'Strong ETag required for HTTP snapshot consistency', {
       context: { url: this.url }
     });
@@ -421,7 +421,7 @@ async function readExpectedBodyBytes(
     });
   }
   const reader = body.getReader();
-  const out = new Uint8Array(expectedLength);
+  const responseBytes = new Uint8Array(expectedLength);
   let offset = 0;
   try {
     while (offset < expectedLength) {
@@ -450,22 +450,22 @@ async function readExpectedBodyBytes(
           }
         });
       }
-      out.set(value, offset);
+      responseBytes.set(value, offset);
       offset += value.length;
     }
-    const trailing = await reader.read();
-    if (!trailing.done && trailing.value && trailing.value.length > 0) {
+    const trailingRead = await reader.read();
+    if (!trailingRead.done && trailingRead.value && trailingRead.value.length > 0) {
       await abortResponse(response, requestController);
       throw new HttpError('HTTP_BAD_RESPONSE', 'HTTP range response body was longer than expected', {
         context: {
           requestedRange,
           contentRange,
           expectedLength: String(expectedLength),
-          actualLength: String(expectedLength + trailing.value.length)
+          actualLength: String(expectedLength + trailingRead.value.length)
         }
       });
     }
-    return out;
+    return responseBytes;
   } catch (err) {
     if (err instanceof HttpError) throw err;
     if (isLikelyContentEncodingError(err)) {

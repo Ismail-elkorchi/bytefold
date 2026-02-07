@@ -19,8 +19,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/archive",
       "dtsPath": "dist/archive/index.d.ts",
-      "sha256": "814dd0d159cc71a8bca811db9f1edeb857bbcfc1ee1ecd232167cbbef00e36de",
-      "bytes": 2179
+      "sha256": "56104370e93e4624c7424835e33d3aa231782f356e751269341503aa7702ab83",
+      "bytes": 2183
     },
     "./bun": {
       "registries": [

@@ -32,7 +32,7 @@ function concat(chunks: Uint8Array[]): Uint8Array {
 test('iterEntries streams without storing entries when disabled', async () => {
   const zip = await writeManyEntries(50000);
   const reader = await ZipReader.fromUint8Array(zip, {
-    storeEntries: false,
+    shouldStoreEntries: false,
     limits: { maxEntries: 100000 }
   });
 

@@ -156,7 +156,7 @@ async function buildArchive(
 }
 
 async function normalizeArchive(reader: {
-  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { deterministic?: boolean }) => Promise<unknown>;
+  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { isDeterministic?: boolean }) => Promise<unknown>;
 }): Promise<{ report: { ok: boolean }; bytes: Uint8Array }> {
   const normalizeToWritable = reader.normalizeToWritable?.bind(reader);
   if (!normalizeToWritable) throw new Error('normalizeToWritable missing');
@@ -166,7 +166,7 @@ async function normalizeArchive(reader: {
       chunks.push(chunk);
     }
   });
-  const report = (await normalizeToWritable(writable, { deterministic: true })) as { ok: boolean };
+  const report = (await normalizeToWritable(writable, { isDeterministic: true })) as { ok: boolean };
   return { report, bytes: concatChunks(chunks) };
 }
 

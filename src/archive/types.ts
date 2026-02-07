@@ -100,7 +100,7 @@ export type ArchiveEntry = {
 export type ArchiveOpenOptions = {
   format?: ArchiveFormat | 'auto';
   profile?: ArchiveProfile;
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
   password?: string;

@@ -2,7 +2,7 @@ import { HttpError, type HttpErrorCode } from '../http/errors.js';
 import { ZipError, type ZipErrorCode } from '../errors.js';
 import type { RandomAccess } from './RandomAccess.js';
 
-const HTTP_TO_ZIP: Record<HttpErrorCode, ZipErrorCode> = {
+const HTTP_ERROR_TO_ZIP_ERROR: Record<HttpErrorCode, ZipErrorCode> = {
   HTTP_RANGE_UNSUPPORTED: 'ZIP_HTTP_RANGE_UNSUPPORTED',
   HTTP_RESOURCE_CHANGED: 'ZIP_HTTP_RESOURCE_CHANGED',
   HTTP_RANGE_INVALID: 'ZIP_HTTP_RANGE_INVALID',
@@ -14,16 +14,16 @@ const HTTP_TO_ZIP: Record<HttpErrorCode, ZipErrorCode> = {
 
 export function mapHttpErrorToZipError(err: unknown): unknown {
   if (!(err instanceof HttpError)) return err;
-  const mapped = HTTP_TO_ZIP[err.code] ?? 'ZIP_HTTP_BAD_RESPONSE';
-  return new ZipError(mapped, err.message, { context: err.context, cause: err.cause });
+  const mappedCode = HTTP_ERROR_TO_ZIP_ERROR[err.code] ?? 'ZIP_HTTP_BAD_RESPONSE';
+  return new ZipError(mappedCode, err.message, { context: err.context, cause: err.cause });
 }
 
 class ZipHttpRandomAccess implements RandomAccess {
-  constructor(private readonly inner: RandomAccess) {}
+  constructor(private readonly upstreamRandomAccess: RandomAccess) {}
 
   async size(signal?: AbortSignal): Promise<bigint> {
     try {
-      return await this.inner.size(signal);
+      return await this.upstreamRandomAccess.size(signal);
     } catch (err) {
       throw mapHttpErrorToZipError(err);
     }
@@ -31,18 +31,18 @@ class ZipHttpRandomAccess implements RandomAccess {
 
   async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
     try {
-      return await this.inner.read(offset, length, signal);
+      return await this.upstreamRandomAccess.read(offset, length, signal);
     } catch (err) {
       throw mapHttpErrorToZipError(err);
     }
   }
 
   async close(): Promise<void> {
-    await this.inner.close();
+    await this.upstreamRandomAccess.close();
   }
 }
 
-export function wrapRandomAccessForZip(reader: RandomAccess): RandomAccess {
-  if (reader instanceof ZipHttpRandomAccess) return reader;
-  return new ZipHttpRandomAccess(reader);
+export function wrapRandomAccessForZip(randomAccess: RandomAccess): RandomAccess {
+  if (randomAccess instanceof ZipHttpRandomAccess) return randomAccess;
+  return new ZipHttpRandomAccess(randomAccess);
 }

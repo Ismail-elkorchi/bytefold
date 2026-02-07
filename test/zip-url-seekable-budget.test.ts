@@ -438,7 +438,7 @@ test('zip over HTTP range: require-strong-etag fails without strong validator', 
       () =>
         openArchive(url, {
           format: 'zip',
-          zip: { http: { snapshot: 'require-strong-etag' } }
+          zip: { http: { snapshotPolicy: 'require-strong-etag' } }
         }),
       (err: unknown) => {
         if (!(err instanceof ZipError)) return false;

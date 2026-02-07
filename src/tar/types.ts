@@ -42,23 +42,23 @@ export type TarNormalizeReport = ArchiveNormalizeReport;
 /** Options for creating TarReader instances. */
 export type TarReaderOptions = {
   profile?: ArchiveProfile;
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: ArchiveLimits;
-  storeEntries?: boolean;
+  shouldStoreEntries?: boolean;
   signal?: AbortSignal;
 };
 
 /** Options for auditing TAR archives. */
 export type TarAuditOptions = {
   profile?: ArchiveProfile;
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: ArchiveLimits;
   signal?: AbortSignal;
 };
 
 /** Options for normalizing TAR archives. */
 export type TarNormalizeOptions = {
-  deterministic?: boolean;
+  isDeterministic?: boolean;
   onDuplicate?: 'error' | 'last-wins' | 'rename';
   onCaseCollision?: 'error' | 'last-wins' | 'rename';
   onSymlink?: 'error' | 'drop';
@@ -69,7 +69,7 @@ export type TarNormalizeOptions = {
 
 /** Options for creating TarWriter instances. */
 export type TarWriterOptions = {
-  deterministic?: boolean;
+  isDeterministic?: boolean;
   signal?: AbortSignal;
 };
 

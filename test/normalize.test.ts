@@ -49,7 +49,7 @@ test('normalize safe mode produces deterministic ordering and recompresses', asy
   ]);
 
   const reader = await ZipReader.fromUint8Array(zip);
-  const { report, data } = await normalizeZip(reader, { mode: 'safe', deterministic: true });
+  const { report, data } = await normalizeZip(reader, { mode: 'safe', isDeterministic: true });
   assert.equal(report.summary.recompressedEntries, 2);
 
   const normalized = await ZipReader.fromUint8Array(data);
@@ -71,7 +71,7 @@ test('normalize lossless preserves raw compressed bytes', async () => {
   const raw = await reader.openRaw(entry);
   const rawBuf = await new Response(raw).arrayBuffer();
 
-  const { data: normalizedData } = await normalizeZip(reader, { mode: 'lossless', deterministic: true });
+  const { data: normalizedData } = await normalizeZip(reader, { mode: 'lossless', isDeterministic: true });
   const normalizedReader = await ZipReader.fromUint8Array(normalizedData);
   const normalizedEntry = normalizedReader.entries()[0]!;
   const normalizedRaw = await normalizedReader.openRaw(normalizedEntry);
@@ -87,7 +87,7 @@ test('normalize can rename duplicate entries', async () => {
   ]);
 
   const reader = await ZipReader.fromUint8Array(zip);
-  const { report, data } = await normalizeZip(reader, { mode: 'safe', deterministic: true, onDuplicate: 'rename' });
+  const { report, data } = await normalizeZip(reader, { mode: 'safe', isDeterministic: true, onDuplicate: 'rename' });
   assert.equal(report.summary.renamedEntries, 1);
 
   const normalized = await ZipReader.fromUint8Array(data);

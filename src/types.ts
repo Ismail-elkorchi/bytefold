@@ -93,8 +93,8 @@ export type ZipLimits = ResourceLimits;
 /** Options for creating ZipReader instances. */
 export type ZipReaderOptions = {
   profile?: ZipProfile;
-  strict?: boolean;
-  storeEntries?: boolean;
+  isStrict?: boolean;
+  shouldStoreEntries?: boolean;
   limits?: ZipLimits;
   password?: string;
   signal?: AbortSignal;
@@ -102,21 +102,21 @@ export type ZipReaderOptions = {
     headers?: Record<string, string>;
     cache?: { blockSize?: number; maxBlocks?: number };
     signal?: AbortSignal;
-    snapshot?: 'require-strong-etag' | 'best-effort';
+    snapshotPolicy?: 'require-strong-etag' | 'best-effort';
   };
 };
 
 /** Options for opening ZIP entries. */
 export type ZipReaderOpenOptions = ZipProgressOptions & {
-  strict?: boolean;
+  isStrict?: boolean;
   password?: string;
   signal?: AbortSignal;
 };
 
 /** Options for extracting ZIP entries. */
 export type ZipExtractOptions = ZipProgressOptions & {
-  strict?: boolean;
-  allowSymlinks?: boolean;
+  isStrict?: boolean;
+  shouldAllowSymlinks?: boolean;
   limits?: ZipLimits;
   password?: string;
   signal?: AbortSignal;
@@ -130,16 +130,16 @@ export type ZipReaderIterOptions = {
 /** Options for auditing ZIP archives. */
 export type ZipAuditOptions = {
   profile?: ZipProfile;
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: ZipLimits;
   signal?: AbortSignal;
 };
 
 /** Options for creating ZipWriter instances. */
 export type ZipWriterOptions = ZipProgressOptions & {
-  forceZip64?: boolean;
+  shouldForceZip64?: boolean;
   defaultMethod?: CompressionMethod;
-  seekable?: 'auto' | 'on' | 'off';
+  sinkSeekabilityPolicy?: 'auto' | 'on' | 'off';
   encryption?: ZipEncryption;
   password?: string;
   signal?: AbortSignal;
@@ -174,14 +174,14 @@ export type ZipNormalizeConflict = 'error' | 'last-wins' | 'rename';
 /** Options for normalizing ZIP archives. */
 export type ZipNormalizeOptions = ZipProgressOptions & {
   mode?: ZipNormalizeMode;
-  deterministic?: boolean;
+  isDeterministic?: boolean;
   method?: CompressionMethod;
   onDuplicate?: ZipNormalizeConflict;
   onCaseCollision?: ZipNormalizeConflict;
   onUnsupported?: 'error' | 'drop';
   onSymlink?: 'error' | 'drop';
-  preserveComments?: boolean;
-  preserveTrailingBytes?: boolean;
+  shouldPreserveComments?: boolean;
+  shouldPreserveTrailingBytes?: boolean;
   password?: string;
   limits?: ZipLimits;
   signal?: AbortSignal;

@@ -60,7 +60,7 @@ test('casefold collisions are detected in audit + normalize + extractAll', async
           }
         });
         if (!reader.normalizeToWritable) throw new Error('normalizeToWritable missing');
-        await reader.normalizeToWritable(writable, { deterministic: true });
+        await reader.normalizeToWritable(writable, { isDeterministic: true });
       },
       (err: unknown) => {
         if (!(err instanceof ZipError)) return false;
@@ -117,7 +117,7 @@ test('turkic mappings are excluded from casefold collisions', async () => {
     }
   });
   if (!reader.normalizeToWritable) throw new Error('normalizeToWritable missing');
-  await reader.normalizeToWritable(writable, { deterministic: true });
+  await reader.normalizeToWritable(writable, { isDeterministic: true });
 
   const nodeReader = await ZipReader.fromUint8Array(bytes);
   await nodeReader.extractAll(await makeTempDir());

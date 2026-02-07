@@ -1,6 +1,6 @@
 {
   "name": "@ismail-elkorchi/bytefold",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
   "license": "MIT",
   "type": "module",

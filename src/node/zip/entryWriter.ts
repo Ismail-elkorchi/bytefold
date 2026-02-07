@@ -294,7 +294,7 @@ async function writeStreamingEntry(sink: Sink | SeekableSink, input: EntryWriteI
     if (input.patchLocalHeader && input.zip64Mode === 'auto' && input.sizeHint === undefined && !input.forceZip64) {
       throw new ZipError(
         'ZIP_ZIP64_REQUIRED',
-        'Entry exceeded 4GiB; enable zip64:"force" (entry) or forceZip64 (writer) for seekable mode',
+        'Entry exceeded 4GiB; enable zip64:"force" (entry) or shouldForceZip64 (writer) for seekable mode',
         { entryName: input.name }
       );
     }

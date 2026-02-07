@@ -175,7 +175,7 @@ Naming is deterministic and sanitized to a single path segment. (tests: `test/si
 - Gzip FNAME: used only after sanitization (basename only; NUL, empty, `.`/`..` rejected). If rejected or missing, fall back to filename or `data`.
 
 ## Normalization determinism
-- Deterministic normalization (`deterministic: true`) emits stable bytes for zip and tar; normalizing an already normalized archive yields byte-identical output. (tests: `test/audit-normalize-proof.test.ts`)
+- Deterministic normalization (`isDeterministic: true`) emits stable bytes for zip and tar; normalizing an already normalized archive yields byte-identical output. (tests: `test/audit-normalize-proof.test.ts`)
 - For tar-wrapped compressed formats, normalization produces a deterministic tar stream and preserves entry names + contents. (tests: `test/audit-normalize-proof.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
 
 ## Ambiguity policy (normalize safe mode)

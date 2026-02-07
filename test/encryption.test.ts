@@ -200,7 +200,7 @@ test('aes headers and crc rules', async () => {
 test('seekable patch mode writes encrypted entries without data descriptor', async () => {
   const data = new TextEncoder().encode('seekable aes');
   const filePath = path.join(tmpdir(), `bytefold-aes-seekable-${Date.now()}.zip`);
-  const writer = await ZipWriter.toFile(filePath, { seekable: 'on' });
+  const writer = await ZipWriter.toFile(filePath, { sinkSeekabilityPolicy: 'on' });
   await writer.add('file.txt', data, {
     method: 8,
     encryption: { type: 'aes', password: PASSWORD, strength: 256, vendorVersion: 2 }

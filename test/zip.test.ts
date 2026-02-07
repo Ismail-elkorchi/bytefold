@@ -8,7 +8,7 @@ import * as zlib from 'node:zlib';
 
 async function writeZip(
   entries: Array<{ name: string; data: Uint8Array; method?: 0 | 8 | 93 }>,
-  writerOptions?: { forceZip64?: boolean }
+  writerOptions?: { shouldForceZip64?: boolean }
 ): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -101,7 +101,7 @@ test('data descriptor signature handling', async () => {
 
 test('zip64 forced', async () => {
   const data = new TextEncoder().encode('zip64');
-  const zip = await writeZip([{ name: 'zip64.txt', data, method: 0 }], { forceZip64: true });
+  const zip = await writeZip([{ name: 'zip64.txt', data, method: 0 }], { shouldForceZip64: true });
 
   assert.ok(findSequence(zip, new Uint8Array([0x50, 0x4b, 0x06, 0x06])) >= 0, 'zip64 EOCD missing');
   assert.ok(findSequence(zip, new Uint8Array([0x50, 0x4b, 0x06, 0x07])) >= 0, 'zip64 locator missing');

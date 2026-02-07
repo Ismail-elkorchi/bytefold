@@ -30,7 +30,7 @@ type MappingCase = {
   options?: {
     zip?: {
       http?: {
-        snapshot?: 'require-strong-etag' | 'best-effort';
+        snapshotPolicy?: 'require-strong-etag' | 'best-effort';
       };
     };
   };
@@ -70,7 +70,7 @@ test('xz seekable preflight maps HTTP failures to archive HTTP codes', async () 
       mode: 'weak-etag',
       expectedArchiveCode: 'ARCHIVE_HTTP_STRONG_ETAG_REQUIRED',
       expectedHttpCode: 'HTTP_STRONG_ETAG_REQUIRED',
-      options: { zip: { http: { snapshot: 'require-strong-etag' } } }
+      options: { zip: { http: { snapshotPolicy: 'require-strong-etag' } } }
     },
     {
       name: 'bad response status',

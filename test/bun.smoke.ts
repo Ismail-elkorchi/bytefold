@@ -30,7 +30,7 @@ const ZIP_LAST_MODIFIED = new Date(0).toUTCString();
 type IssueSummary = { code: string; severity: string; entryName?: string };
 type AuditOptions = {
   profile?: 'compat' | 'strict' | 'agent';
-  strict?: boolean;
+  isStrict?: boolean;
   limits?: Record<string, unknown>;
   signal?: AbortSignal;
 };
@@ -1960,7 +1960,7 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
         try {
           await openArchive(serverStrongRequired.url, {
             format: 'zip',
-            zip: { http: { snapshot: 'require-strong-etag' } }
+            zip: { http: { snapshotPolicy: 'require-strong-etag' } }
           });
         } catch (err) {
           error = err;
@@ -2248,7 +2248,7 @@ function sortIssues(issues: IssueSummary[]): IssueSummary[] {
 }
 
 async function normalizeToBytes(reader: {
-  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { deterministic?: boolean }) => Promise<unknown>;
+  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { isDeterministic?: boolean }) => Promise<unknown>;
 }): Promise<{ report: unknown; bytes: Uint8Array }> {
   const normalizeToWritable = reader.normalizeToWritable?.bind(reader);
   if (!normalizeToWritable) throw new Error('normalizeToWritable missing');
@@ -2258,14 +2258,14 @@ async function normalizeToBytes(reader: {
       chunks.push(chunk);
     }
   });
-  const report = await normalizeToWritable(writable, { deterministic: true });
+  const report = await normalizeToWritable(writable, { isDeterministic: true });
   return { report, bytes: concatChunks(chunks) };
 }
 
 async function assertAuditNormalizeRoundtrip(
   reader: {
     audit: (options?: AuditOptions) => Promise<unknown>;
-    normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { deterministic?: boolean }) => Promise<unknown>;
+    normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { isDeterministic?: boolean }) => Promise<unknown>;
   },
   auditSchema: Record<string, unknown>,
   normalizeSchema: Record<string, unknown>,

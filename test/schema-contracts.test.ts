@@ -70,7 +70,7 @@ async function buildArchive(format: 'zip' | 'tar', name: string, contents: strin
 }
 
 async function normalizeArchive(reader: {
-  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { deterministic?: boolean }) => Promise<unknown>;
+  normalizeToWritable?: (writable: WritableStream<Uint8Array>, options?: { isDeterministic?: boolean }) => Promise<unknown>;
 }): Promise<unknown> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -80,7 +80,7 @@ async function normalizeArchive(reader: {
   });
   const normalizeToWritable = reader.normalizeToWritable?.bind(reader);
   if (!normalizeToWritable) throw new Error('normalizeToWritable missing');
-  return normalizeToWritable(writable, { deterministic: true });
+  return normalizeToWritable(writable, { isDeterministic: true });
 }
 
 function toJson(value: unknown): unknown {

@@ -128,7 +128,7 @@ async function normalizeBytes(bytes: Uint8Array): Promise<Uint8Array> {
   });
   const normalizeToWritable = reader.normalizeToWritable?.bind(reader);
   if (!normalizeToWritable) throw new Error('normalizeToWritable missing');
-  await normalizeToWritable(writable, { deterministic: true });
+  await normalizeToWritable(writable, { isDeterministic: true });
   return concatChunks(chunks);
 }
 

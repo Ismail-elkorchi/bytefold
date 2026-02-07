@@ -317,7 +317,7 @@ function buildZipDetection(
 function resolveZipStrict(options?: ArchiveOpenOptions): boolean {
   const profile = options?.profile ?? 'strict';
   const strictDefault = profile === 'compat' ? false : true;
-  return options?.strict ?? strictDefault;
+  return options?.isStrict ?? strictDefault;
 }
 
 function resolveZipHttpOptions(
@@ -327,7 +327,7 @@ function resolveZipHttpOptions(
   headers?: Record<string, string>;
   cache?: { blockSize?: number; maxBlocks?: number };
   signal?: AbortSignal;
-  snapshot?: 'require-strong-etag' | 'best-effort';
+  snapshotPolicy?: 'require-strong-etag' | 'best-effort';
 } {
   const zipOptions = options?.zip as ZipReaderOptions | undefined;
   const http = zipOptions?.http;
@@ -335,7 +335,7 @@ function resolveZipHttpOptions(
     headers?: Record<string, string>;
     cache?: { blockSize?: number; maxBlocks?: number };
     signal?: AbortSignal;
-    snapshot?: 'require-strong-etag' | 'best-effort';
+    snapshotPolicy?: 'require-strong-etag' | 'best-effort';
   } = {};
   if (http?.headers) httpOptions.headers = http.headers;
   const cache = { ...(defaults ?? {}) };
@@ -346,7 +346,7 @@ function resolveZipHttpOptions(
   if (Object.keys(cache).length > 0) httpOptions.cache = cache;
   const signal = mergeSignals(options?.signal, http?.signal);
   if (signal) httpOptions.signal = signal;
-  if (http?.snapshot) httpOptions.snapshot = http.snapshot;
+  if (http?.snapshotPolicy) httpOptions.snapshotPolicy = http.snapshotPolicy;
   return httpOptions;
 }
 
@@ -354,17 +354,17 @@ function buildZipReaderOptions(options?: ArchiveOpenOptions): ZipReaderOptions {
   const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
   const profile = options?.profile;
   if (profile !== undefined) zipOptions.profile = profile as ZipProfile;
-  if (options?.strict !== undefined) zipOptions.strict = options.strict;
+  if (options?.isStrict !== undefined) zipOptions.isStrict = options.isStrict;
   if (options?.limits !== undefined) zipOptions.limits = options.limits;
   if (options?.password !== undefined) zipOptions.password = options.password;
   return zipOptions;
 }
 
-function resolveArchiveHttpSnapshot(
+function resolveArchiveHttpSnapshotPolicy(
   options?: ArchiveOpenOptions
 ): 'require-strong-etag' | 'best-effort' | undefined {
   const zipOptions = options?.zip as ZipReaderOptions | undefined;
-  return zipOptions?.http?.snapshot;
+  return zipOptions?.http?.snapshotPolicy;
 }
 
 async function openZipFromRandomAccess(
@@ -403,11 +403,11 @@ async function preflightSeekableXzHttp(
   if (!shouldPreflightXz(options?.format, filename)) return undefined;
   const limits = resolveXzPreflightLimits(options?.limits, options?.profile);
   const dictionaryLimit = resolveXzDictionaryLimit(options?.limits, options?.profile);
-  const snapshot = resolveArchiveHttpSnapshot(options);
+  const snapshotPolicy = resolveArchiveHttpSnapshotPolicy(options);
   const reader = new HttpRandomAccess(url, {
     cache: { blockSize: 32 * 1024, maxBlocks: 4 },
     ...(options?.signal ? { signal: options.signal } : {}),
-    ...(snapshot ? { snapshot } : {})
+    ...(snapshotPolicy ? { snapshotPolicy } : {})
   });
   try {
     const size = await reader.size(options?.signal);

@@ -1,7 +1,7 @@
 import { HttpError, type HttpErrorCode } from '../http/errors.js';
 import { ArchiveError, type ArchiveErrorCode } from './errors.js';
 
-const HTTP_TO_ARCHIVE: Record<HttpErrorCode, ArchiveErrorCode> = {
+const HTTP_ERROR_TO_ARCHIVE_ERROR: Record<HttpErrorCode, ArchiveErrorCode> = {
   HTTP_RANGE_UNSUPPORTED: 'ARCHIVE_HTTP_RANGE_UNSUPPORTED',
   HTTP_RANGE_INVALID: 'ARCHIVE_HTTP_RANGE_INVALID',
   HTTP_RESOURCE_CHANGED: 'ARCHIVE_HTTP_RESOURCE_CHANGED',
@@ -13,8 +13,8 @@ const HTTP_TO_ARCHIVE: Record<HttpErrorCode, ArchiveErrorCode> = {
 
 export function mapHttpErrorToArchiveError(err: unknown, context?: Record<string, string>): unknown {
   if (!(err instanceof HttpError)) return err;
-  const code = HTTP_TO_ARCHIVE[err.code] ?? 'ARCHIVE_HTTP_BAD_RESPONSE';
-  return new ArchiveError(code, err.message, {
+  const mappedCode = HTTP_ERROR_TO_ARCHIVE_ERROR[err.code] ?? 'ARCHIVE_HTTP_BAD_RESPONSE';
+  return new ArchiveError(mappedCode, err.message, {
     context: {
       ...(context ?? {}),
       ...(err.context ?? {}),
@@ -23,4 +23,3 @@ export function mapHttpErrorToArchiveError(err: unknown, context?: Record<string
     cause: err
   });
 }
-

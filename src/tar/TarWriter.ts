@@ -17,7 +17,7 @@ export class TarWriter {
 
   private constructor(stream: WritableStream<Uint8Array>, options?: TarWriterOptions) {
     this.writer = stream.getWriter();
-    this.deterministic = options?.deterministic ?? false;
+    this.deterministic = options?.isDeterministic ?? false;
     this.signal = options?.signal;
   }
 

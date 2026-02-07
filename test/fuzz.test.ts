@@ -141,10 +141,10 @@ test('deterministic fuzz-ish roundtrips and mutations', async () => {
 
     let hadError = false;
     try {
-      const reader2 = await ZipReader.fromUint8Array(mutated, { strict: false });
+      const reader2 = await ZipReader.fromUint8Array(mutated, { isStrict: false });
       for (const entry of reader2.entries()) {
         try {
-          const stream = await reader2.open(entry, { strict: false });
+          const stream = await reader2.open(entry, { isStrict: false });
           await new Response(stream).arrayBuffer();
         } catch (err: unknown) {
           if (err instanceof ZipError) {

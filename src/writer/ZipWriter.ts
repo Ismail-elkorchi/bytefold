@@ -29,9 +29,9 @@ export class ZipWriter {
     private readonly sink: Sink,
     options?: ZipWriterOptions
   ) {
-    this.forceZip64 = options?.forceZip64 ?? false;
+    this.forceZip64 = options?.shouldForceZip64 ?? false;
     this.defaultMethod = options?.defaultMethod ?? 8;
-    const seekableMode = options?.seekable ?? 'auto';
+    const seekableMode = options?.sinkSeekabilityPolicy ?? 'auto';
     const seekable = isSeekableSink(sink);
     if (seekableMode === 'on' && !seekable) {
       throw new ZipError('ZIP_SINK_NOT_SEEKABLE', 'Seekable mode requires a seekable sink');

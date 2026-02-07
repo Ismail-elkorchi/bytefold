@@ -41,7 +41,7 @@ test('unicode normalization collisions are deterministic (tar + zip)', async () 
         }
       });
       if (!tarReader.normalizeToWritable) throw new Error('normalizeToWritable missing');
-      await tarReader.normalizeToWritable(writable, { deterministic: true });
+      await tarReader.normalizeToWritable(writable, { isDeterministic: true });
     },
     (err: unknown) => {
       if (!(err instanceof ArchiveError)) return false;
@@ -75,7 +75,7 @@ test('unicode normalization collisions are deterministic (tar + zip)', async () 
         }
       });
       if (!zipReader.normalizeToWritable) throw new Error('normalizeToWritable missing');
-      await zipReader.normalizeToWritable(writable, { deterministic: true });
+      await zipReader.normalizeToWritable(writable, { isDeterministic: true });
     },
     (err: unknown) => {
       if (!(err instanceof ZipError)) return false;

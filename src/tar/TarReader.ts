@@ -47,7 +47,7 @@ export class TarReader {
     this.profile = resolved.profile;
     this.strict = resolved.strict;
     this.limits = resolved.limits;
-    this.storeEntries = options?.storeEntries ?? true;
+    this.storeEntries = options?.shouldStoreEntries ?? true;
     this.signal = options?.signal;
   }
 
@@ -85,7 +85,7 @@ export class TarReader {
     return TarReader.fromUint8Array(data, options);
   }
 
-  /** Return stored entries (requires storeEntries=true). */
+  /** Return stored entries (requires shouldStoreEntries=true). */
   entries(): TarEntry[] {
     if (!this.storeEntries) {
       throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Entries are not stored; use iterEntries()');
@@ -247,7 +247,7 @@ export class TarReader {
       throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Entries not loaded');
     }
     const signal = options?.signal ?? this.signal;
-    const deterministic = options?.deterministic ?? true;
+    const deterministic = options?.isDeterministic ?? true;
     const onDuplicate = options?.onDuplicate ?? 'error';
     const onCaseCollision = options?.onCaseCollision ?? 'error';
     const onSymlink = options?.onSymlink ?? 'error';
@@ -279,7 +279,7 @@ export class TarReader {
     });
 
     const writerOptions = {
-      ...(deterministic ? { deterministic } : {}),
+      ...(deterministic ? { isDeterministic: deterministic } : {}),
       ...(signal ? { signal } : {})
     };
     const writer = TarWriter.toWritable(writable, writerOptions);
@@ -366,7 +366,7 @@ export class TarReader {
   } {
     const profile = options?.profile ?? this.profile;
     const defaults = profile === this.profile ? { strict: this.strict, limits: this.limits } : resolveProfileDefaults(profile);
-    const strict = options?.strict ?? defaults.strict;
+    const strict = options?.isStrict ?? defaults.strict;
     const limits = normalizeLimits(options?.limits, defaults.limits);
     return {
       profile,
@@ -395,7 +395,7 @@ function resolveReaderProfile(options?: TarReaderOptions): {
   const profile = options?.profile ?? 'strict';
   const defaults = profile === 'agent' ? AGENT_LIMITS : DEFAULT_LIMITS;
   const strictDefault = profile === 'compat' ? false : true;
-  const strict = options?.strict ?? strictDefault;
+  const strict = options?.isStrict ?? strictDefault;
   const limits = normalizeLimits(options?.limits, defaults);
   return { profile, strict, limits };
 }

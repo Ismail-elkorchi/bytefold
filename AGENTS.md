@@ -27,6 +27,7 @@ update_triggers:
 ## Definition of Done
 1. `npm run check`
 2. SPEC.md updated for new guarantees and linked to tests.
+3. Naming choices follow `docs/NAMING.md` (especially booleans, boundary adapters, and greppability).
 
 ## Change grammar
 1. New compression algorithm: update `src/compress/types.ts`, `src/compression/streams.ts`, codec registry, tests under `test/`, SPEC.md, and `repo.manifest.yaml`.
