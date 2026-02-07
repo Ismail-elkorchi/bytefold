@@ -19,8 +19,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/archive",
       "dtsPath": "dist/archive/index.d.ts",
-      "sha256": "56104370e93e4624c7424835e33d3aa231782f356e751269341503aa7702ab83",
-      "bytes": 2183
+      "sha256": "47abd4ceb58c5e79ceb6a7cbde3bd3eaf96fa61cf4c78bb6d91fb940870a0eaa",
+      "bytes": 2190
     },
     "./bun": {
       "registries": [
@@ -29,8 +29,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/bun",
       "dtsPath": "dist/bun/index.d.ts",
-      "sha256": "5c4f2c34d14827160a41fe1075605ccbbe7a6cb5dbf5f913135f616905802cb5",
-      "bytes": 1540
+      "sha256": "71c2a4e23343a42a2b3ccee3b07857d9500b6403af698b6669ef95bd1103ae07",
+      "bytes": 1547
     },
     "./compress": {
       "registries": [
@@ -49,8 +49,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/deno",
       "dtsPath": "dist/deno/index.d.ts",
-      "sha256": "d82206bcb1ef8c45b69a76ed9dbe4f7fcbc669a666358c2ff692405347e723a8",
-      "bytes": 1542
+      "sha256": "836403217446272f08a3a76953c78b1b17d0ca82185a276103ec581e3af181f6",
+      "bytes": 1549
     },
     "./node": {
       "registries": [
@@ -58,8 +58,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/node",
       "dtsPath": "dist/node/index.d.ts",
-      "sha256": "a352649195797fa5ce1c97b4a944c315429f33b7752fe1e3a3e8563b96edf772",
-      "bytes": 1089
+      "sha256": "4301cf56add9dc92b66489de72f3394be67b9a7407b450d75071cc86b09989ca",
+      "bytes": 1096
     },
     "./node/zip": {
       "registries": [
@@ -79,6 +79,16 @@
       "dtsPath": "dist/tar/index.d.ts",
       "sha256": "cbe38054696bd9ef280b3e1cf87ac1ea5be11808f7c54e06fa4c1e1bc594d511",
       "bytes": 287
+    },
+    "./web": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/web",
+      "dtsPath": "dist/web/index.d.ts",
+      "sha256": "b12a8c7dd0ee5fedfe508a750bfc9aa8481b8b96ad34174a61c2a4bdade4e0a4",
+      "bytes": 833
     },
     "./zip": {
       "registries": [

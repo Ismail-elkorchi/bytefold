@@ -27,6 +27,36 @@ export class BufferRandomAccess implements RandomAccess {
   }
 }
 
+export class BlobRandomAccess implements RandomAccess {
+  constructor(private readonly blob: Blob) {}
+
+  async size(signal?: AbortSignal): Promise<bigint> {
+    throwIfAborted(signal);
+    return BigInt(this.blob.size);
+  }
+
+  async read(offset: bigint, length: number, signal?: AbortSignal): Promise<Uint8Array> {
+    throwIfAborted(signal);
+    if (length <= 0) return new Uint8Array(0);
+    const size = BigInt(this.blob.size);
+    if (offset >= size) return new Uint8Array(0);
+    const end = minBigInt(offset + BigInt(length), size);
+    const startNumber = Number(offset);
+    const endNumber = Number(end);
+    if (!Number.isSafeInteger(startNumber) || !Number.isSafeInteger(endNumber)) {
+      throw new RangeError('Blob random access offset exceeds safe integer range');
+    }
+    const chunk = this.blob.slice(startNumber, endNumber);
+    const bytes = new Uint8Array(await chunk.arrayBuffer());
+    throwIfAborted(signal);
+    return bytes;
+  }
+
+  async close(): Promise<void> {
+    return;
+  }
+}
+
 export interface HttpRandomAccessOptions {
   headers?: Record<string, string>;
   cache?: {

@@ -43,6 +43,10 @@
     "./bun": {
       "types": "./dist/bun/index.d.ts",
       "default": "./dist/bun/index.js"
+    },
+    "./web": {
+      "types": "./dist/web/index.d.ts",
+      "default": "./dist/web/index.js"
     }
   },
   "main": "./dist/index.js",
@@ -76,7 +80,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit && npm run build && tsc -p tsconfig.test.json --noEmit",
     "check:node": "npm run lint && npm run typecheck && npm test",
     "check:all": "npm run check",
-    "check": "node ./scripts/verify-runtime-versions.mjs && npm run generated:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run test:deno && npm run test:bun && npm run build && npm run jsr:check && npm run pack:check && npm run pack:smoke && npm run docs:check",
+    "web:check": "node ./scripts/web-check.mjs",
+    "check": "node ./scripts/verify-runtime-versions.mjs && npm run generated:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run test:deno && npm run test:bun && npm run web:check && npm run build && npm run jsr:check && npm run pack:check && npm run pack:smoke && npm run docs:check",
     "docs:check": "node ./scripts/docs-check.mjs",
     "context:index": "node ./scripts/dump-context.mjs --index",
     "doc:lint": "deno doc --lint --sloppy-imports mod.ts",
@@ -91,6 +96,7 @@
     "@types/node": "^24.0.0",
     "@typescript-eslint/eslint-plugin": "8.54.0",
     "@typescript-eslint/parser": "8.54.0",
+    "esbuild": "^0.25.11",
     "eslint": "9.39.2",
     "eslint-plugin-eslint-comments": "3.2.0",
     "eslint-plugin-promise": "7.2.1",

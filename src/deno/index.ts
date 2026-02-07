@@ -105,7 +105,7 @@ class DenoFileRandomAccess implements RandomAccess {
   }
 }
 
-export type DenoArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | string | URL;
+export type DenoArchiveInput = Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | string | URL;
 
 type XzPreflightInfo = {
   algorithm: 'xz';
@@ -134,6 +134,12 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
     return openArchiveCore(input, {
       ...options,
       ...(options?.inputKind ? {} : { inputKind: 'bytes' })
+    });
+  }
+  if (isBlobInput(input)) {
+    return openArchiveCore(input, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: 'blob' })
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
@@ -282,6 +288,10 @@ function isHttpUrl(value: string | URL): boolean {
   const url = typeof value === 'string' ? safeParseUrl(value) : value;
   if (!url) return false;
   return url.protocol === 'http:' || url.protocol === 'https:';
+}
+
+function isBlobInput(input: unknown): input is Blob {
+  return typeof Blob !== 'undefined' && input instanceof Blob;
 }
 
 function safeParseUrl(value: string): URL | null {

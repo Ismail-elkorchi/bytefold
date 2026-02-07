@@ -11,6 +11,7 @@ import type {
   ArchiveOpenOptions,
   ArchiveProfile
 } from './types.js';
+import { throwIfAborted } from '../abort.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
 import { createCompressTransform } from '../compression/streams.js';
@@ -19,6 +20,7 @@ import { scanXzResourceRequirements } from '../compression/xzScan.js';
 import { createDecompressor, getCompressionCapabilities } from '../compress/index.js';
 import { CompressionError } from '../compress/errors.js';
 import { crc32 } from '../crc32.js';
+import { BlobRandomAccess } from '../reader/RandomAccess.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
@@ -35,6 +37,7 @@ import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterO
 import type { CompressionAlgorithm } from '../compress/types.js';
 import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import { resolveXzDictionaryLimit, resolveXzIndexLimits } from './xzPreflight.js';
+import { isZipSignature, preflightZip, resolveZipPreflightLimits, shouldPreflightZip } from './zipPreflight.js';
 
 /** Unified archive reader API returned by openArchive(). */
 export type ArchiveReader = {
@@ -78,14 +81,16 @@ type PreflightResourceInfo = {
   preflightBlockLimit?: number;
 };
 
+type ZipDetectionInfo = {
+  inputKind: ArchiveInputKind;
+  confidence: ArchiveDetectionReport['confidence'];
+  notes: string[];
+};
+
 type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
   __preflight?: PreflightResourceInfo;
   __zipReader?: ZipReader;
-  __zipDetection?: {
-    inputKind: ArchiveInputKind;
-    confidence: ArchiveDetectionReport['confidence'];
-    notes: string[];
-  };
+  __zipDetection?: ZipDetectionInfo;
 };
 
 /** Options for auditing archives opened via openArchive(). */
@@ -104,7 +109,7 @@ export type ArchiveNormalizeOptions = {
 };
 
 /** Inputs accepted by openArchive(). */
-export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>;
+export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | Blob;
 
 /** Open an archive with auto-detection (or a forced format). */
 export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
@@ -126,9 +131,13 @@ export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOpti
     reader.detection = buildDetectionReport(inputKind, 'zip', confidence, notes);
     return reader;
   }
+  const formatOption = options?.format ?? 'auto';
+  if (isBlobInput(input)) {
+    const openedZip = await maybeOpenZipFromBlob(input, formatOption, options);
+    if (openedZip) return openedZip;
+  }
   const inputKind = resolveInputKind(input, options?.inputKind);
   const data = await resolveInput(input, options);
-  const formatOption = options?.format ?? 'auto';
   const notes: string[] = [];
   let confidence: ArchiveDetectionReport['confidence'] = 'high';
 
@@ -156,6 +165,92 @@ export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOpti
   const reader = result.reader;
   reader.detection = report;
   return reader;
+}
+
+async function maybeOpenZipFromBlob(
+  input: Blob,
+  formatOption: ArchiveFormat | 'auto',
+  options?: ArchiveOpenOptions
+): Promise<ArchiveReader | undefined> {
+  const filename = options?.filename;
+  if (shouldPreflightZip(formatOption, filename)) {
+    const detection = buildZipDetection(
+      'blob',
+      formatOption === 'zip' ? 'forced' : 'filename'
+    );
+    return openZipFromRandomAccess(new BlobRandomAccess(input), detection, options, filename);
+  }
+  if (formatOption !== 'auto') return undefined;
+  const reader = new BlobRandomAccess(input);
+  try {
+    const signature = await reader.read(0n, 4, options?.signal);
+    if (!isZipSignature(signature)) {
+      await reader.close();
+      return undefined;
+    }
+    const detection = buildZipDetection('blob', 'magic');
+    return openZipFromRandomAccess(reader, detection, options, filename);
+  } catch (err) {
+    await reader.close().catch(() => {});
+    throw err;
+  }
+}
+
+function buildZipDetection(
+  inputKind: ArchiveInputKind,
+  source: 'forced' | 'filename' | 'magic'
+): ZipDetectionInfo {
+  if (source === 'forced') {
+    return { inputKind, confidence: 'high', notes: ['Format forced by options.format'] };
+  }
+  if (source === 'filename') {
+    return { inputKind, confidence: 'medium', notes: ['Format inferred from filename'] };
+  }
+  return { inputKind, confidence: 'high', notes: ['Format inferred from magic bytes'] };
+}
+
+function resolveZipStrict(options?: ArchiveOpenOptions): boolean {
+  const profile = options?.profile ?? 'strict';
+  const strictDefault = profile === 'compat' ? false : true;
+  return options?.isStrict ?? strictDefault;
+}
+
+function buildZipReaderOptions(options?: ArchiveOpenOptions): ZipReaderOptions {
+  const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
+  const profile = options?.profile;
+  if (profile !== undefined) zipOptions.profile = profile as ZipProfile;
+  if (options?.isStrict !== undefined) zipOptions.isStrict = options.isStrict;
+  if (options?.limits !== undefined) zipOptions.limits = options.limits;
+  if (options?.password !== undefined) zipOptions.password = options.password;
+  return zipOptions;
+}
+
+async function openZipFromRandomAccess(
+  reader: BlobRandomAccess,
+  detection: ZipDetectionInfo,
+  options?: ArchiveOpenOptions,
+  filename?: string
+): Promise<ArchiveReader> {
+  try {
+    const limits = resolveZipPreflightLimits(options?.limits, options?.profile);
+    await preflightZip(reader, {
+      strict: resolveZipStrict(options),
+      limits,
+      ...(options?.signal ? { signal: options.signal } : {})
+    });
+    const zipOptions = buildZipReaderOptions(options);
+    const zipReader = await ZipReader.fromRandomAccess(reader, zipOptions);
+    return openArchive(new Uint8Array(0), {
+      ...options,
+      __zipReader: zipReader,
+      __zipDetection: detection,
+      ...(options?.inputKind ? {} : { inputKind: detection.inputKind }),
+      ...(options?.filename ? {} : filename ? { filename } : {})
+    } as ArchiveOpenOptionsInternal);
+  } catch (err) {
+    await reader.close().catch(() => {});
+    throw err;
+  }
 }
 
 /** Create an archive writer for a specific format. */
@@ -560,16 +655,43 @@ async function openWithFormat(
 async function resolveInput(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<Uint8Array> {
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
+  const maxBytes = resolveInputMaxBytes(options);
+  if (isBlobInput(input)) {
+    return readBlobBytes(input, {
+      ...(options?.signal ? { signal: options.signal } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {})
+    });
+  }
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
   if (options?.signal) readOptions.signal = options.signal;
-  if (options?.limits?.maxInputBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxInputBytes;
-  } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
-  } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
-  }
+  if (maxBytes !== undefined) readOptions.maxBytes = maxBytes;
   return readAllBytes(input, readOptions);
+}
+
+function resolveInputMaxBytes(options?: ArchiveOpenOptions): bigint | number | undefined {
+  if (options?.limits?.maxInputBytes !== undefined) {
+    return options.limits.maxInputBytes;
+  }
+  if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
+    return options.limits.maxTotalDecompressedBytes;
+  }
+  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    return options.limits.maxTotalUncompressedBytes;
+  }
+  return undefined;
+}
+
+async function readBlobBytes(
+  input: Blob,
+  options?: { signal?: AbortSignal; maxBytes?: bigint | number }
+): Promise<Uint8Array> {
+  throwIfAborted(options?.signal);
+  if (options?.maxBytes !== undefined && BigInt(input.size) > toBigInt(options.maxBytes)) {
+    throw new RangeError('Stream exceeds maximum allowed size');
+  }
+  const buffer = await input.arrayBuffer();
+  throwIfAborted(options?.signal);
+  return new Uint8Array(buffer);
 }
 
 type ResourceLimitIssue = {
@@ -892,7 +1014,16 @@ function inferXzEntryName(filename?: string): string {
 function resolveInputKind(input: ArchiveInput, hint?: ArchiveInputKind): ArchiveInputKind {
   if (hint) return hint;
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) return 'bytes';
+  if (isBlobInput(input)) return 'blob';
   return 'stream';
+}
+
+function isBlobInput(input: unknown): input is Blob {
+  return typeof Blob !== 'undefined' && input instanceof Blob;
+}
+
+function toBigInt(value: bigint | number): bigint {
+  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 function buildDetectionReport(

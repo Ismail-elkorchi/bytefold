@@ -36,7 +36,7 @@ export type CompressionOptions = {
 /** Runtime compression capabilities report. */
 export type CompressionCapabilities = {
   schemaVersion: string;
-  runtime: 'node' | 'deno' | 'bun' | 'unknown';
+  runtime: 'node' | 'deno' | 'bun' | 'web' | 'unknown';
   algorithms: Record<
     CompressionAlgorithm,
     { compress: boolean; decompress: boolean; backend: CompressionBackend }

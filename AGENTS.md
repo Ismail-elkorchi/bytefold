@@ -14,7 +14,7 @@ update_triggers:
 1. Run `npm run check` before declaring work done and report pass/fail.
 2. Keep runtime dependencies at 0; do not add WASM, native addons, or external tools.
 3. Default entrypoints MUST NOT import `node:*` at module-evaluation time.
-4. Maintain cross-runtime behavior (Node >= 24, Deno, Bun) and deterministic, offline tests.
+4. Maintain cross-runtime behavior (Node >= 24, Deno, Bun, Web) and deterministic, offline tests.
 5. Every behavior guarantee must be captured as a SPEC.md invariant with test references.
 6. Preserve strict TypeScript settings; do not weaken them.
 

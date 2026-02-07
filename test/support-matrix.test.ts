@@ -6,7 +6,7 @@ const SPEC = new URL('../SPEC.md', import.meta.url);
 const ARCHIVE_TYPES = new URL('../src/archive/types.ts', import.meta.url);
 
 const REQUIRED_OPERATIONS = ['detect', 'list', 'audit', 'extract', 'normalize', 'write'];
-const REQUIRED_RUNTIMES = ['node', 'deno', 'bun'];
+const REQUIRED_RUNTIMES = ['node', 'deno', 'bun', 'web'];
 
 test('support matrix block matches ArchiveFormat union', async () => {
   const specText = await readFile(SPEC, 'utf8');

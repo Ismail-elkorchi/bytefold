@@ -11,6 +11,22 @@ update_triggers:
 
 ## Unreleased
 
+### Added
+
+- Web runtime entrypoint `@ismail-elkorchi/bytefold/web` / `./web` with explicit URL full-fetch semantics (no HTTP range sessions in web adapter).
+- Blob/File archive input support (`inputKind: "blob"`) across core and runtime adapters, including seekable ZIP reads via `BlobRandomAccess`.
+- Regression tests for Blob ZIP bounded-read behavior and web adapter URL behavior (`test/web-adapter.test.ts`).
+- Browser bundle contract check `npm run web:check` and deterministic proof test (`test/web-check.test.ts`).
+
+### Changed
+
+- Compression capabilities schema/runtime model now includes `runtime: "web"` when browser-like globals are detected.
+- Support matrix contracts now include Web runtime invariants and snapshot enforcement.
+
+### Tooling
+
+- Added `esbuild` as a dev-only dependency for browser bundle verification; this is verification-only and does not affect runtime dependencies.
+
 ## 0.4.0
 
 ### Breaking changes

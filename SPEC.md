@@ -28,6 +28,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 - `@ismail-elkorchi/bytefold/node/zip`
 - `@ismail-elkorchi/bytefold/deno`
 - `@ismail-elkorchi/bytefold/bun`
+- `@ismail-elkorchi/bytefold/web`
 
 ### jsr (jsr.json exports)
 - `@ismail-elkorchi/bytefold`
@@ -37,6 +38,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 - `@ismail-elkorchi/bytefold/tar`
 - `@ismail-elkorchi/bytefold/deno`
 - `@ismail-elkorchi/bytefold/bun`
+- `@ismail-elkorchi/bytefold/web`
 
 ## Invariants (test-linked)
 1. Runtime dependencies count is zero; package is ESM-only and requires Node >= 24. (tests: `test/repo-invariants.test.ts`)
@@ -77,6 +79,9 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 36. Context index artifacts are deterministic and bounded: `npm run context:index` produces `docs/REPO_INDEX.md` (<= 250 KiB) plus `docs/REPO_INDEX.md.sha256` with stable sorting and no timestamps. (tests: `test/context-tools.test.ts`)
 37. Error JSON `context` never shadows top-level keys (`schemaVersion`, `name`, `code`, `message`, `hint`, `context`, plus top-level optionals such as `entryName`, `method`, `offset`, `algorithm`). (tests: `test/error-contracts.test.ts`, `test/error-json-ambiguity.test.ts`, `test/schema-contracts.test.ts`)
 38. Profile/limits precedence is deterministic across readers and decompressor setup: profile selects defaults, explicit `limits` override only provided fields, and explicit decompressor scalar limits override `limits` for matching knobs. (tests: `test/option-precedence.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
+39. openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits. (tests: `test/archive.test.ts`, `test/web-adapter.test.ts`, `test/schema-contracts.test.ts`)
+40. Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url". (tests: `test/web-adapter.test.ts`)
+41. Browser-facing entrypoint stays web-bundle safe: `npm run web:check` bundles `web/mod.ts` for `platform=browser`, rejects `node:*` imports, and is deterministic across runs. (tests: `test/web-check.test.ts`, `test/repo-invariants.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
@@ -143,7 +148,23 @@ Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit
 | tar.br | ⚠️ (format: `tar.br` or filename) | ✅ | ✅ | ✅ | ✅ | ✅ |
 | br | ⚠️ (format: `br` or filename) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
 
-Matrix proofs: `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/xz.test.ts`, `test/bzip2.test.ts`, `test/tar-xz.test.ts`, `test/single-file-formats.test.ts`, `test/archive-writer-proof.test.ts`, `test/audit-normalize-proof.test.ts`, `test/support-matrix-behavior.test.ts`, `test/support-matrix.test.ts`.
+### Web (Browser)
+| Format | Detect | List | Audit | Extract | Normalize | Write |
+| --- | --- | --- | --- | --- | --- | --- |
+| zip | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| tar | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| tgz / tar.gz | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| gz | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
+| tar.bz2 | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
+| bz2 | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
+| tar.xz | ✅ | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
+| xz | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
+| tar.zst | 🟦 | 🟦 | 🟦 | 🟦 | 🟦 | 🟦 |
+| zst | 🟦 | 🟦 | 🟦 | 🟦 | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
+| tar.br | ⚠️ (format: `tar.br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ✅ | 🟦 |
+| br | ⚠️ (format: `br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
+
+Matrix proofs: `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/xz.test.ts`, `test/bzip2.test.ts`, `test/tar-xz.test.ts`, `test/single-file-formats.test.ts`, `test/archive-writer-proof.test.ts`, `test/audit-normalize-proof.test.ts`, `test/support-matrix-behavior.test.ts`, `test/support-matrix.test.ts`, `test/web-adapter.test.ts`.
 Write proofs: `test/archive-writer-proof.test.ts`, `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`.
 Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`.
 
@@ -165,9 +186,21 @@ Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`
     "tar.xz"
   ],
   "operations": ["detect", "list", "audit", "extract", "normalize", "write"],
-  "runtimes": ["node", "deno", "bun"]
+  "runtimes": ["node", "deno", "bun", "web"]
 }
 ```
+
+## Web runtime notes
+- Entry point: `@ismail-elkorchi/bytefold/web` / `./web`.
+- Supported input kinds in the web adapter: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, `Blob`/`File`, and `http(s)` URL.
+- URL behavior in web adapter: always full-fetch response bytes before archive detection/opening; no seekable HTTP range session is attempted in web adapter by design. (tests: `test/web-adapter.test.ts`)
+- ZIP on Blob uses seekable random access (`blob.slice(start, end).arrayBuffer()`), so listing/extracting ZIP from Blob stays bounded by seek budget and avoids full Blob buffering. (tests: `test/web-adapter.test.ts`)
+- XZ seekable preflight over Blob is not implemented in this iteration; Blob XZ paths use bounded full-buffer input handling and existing decode-time resource ceilings. (tests: `test/web-adapter.test.ts`, `test/resource-ceilings.test.ts`)
+- Compression capability baseline for web runtime:
+  - guaranteed by Compression Streams baseline in this contract: `gzip`, `deflate`, `deflate-raw`;
+  - pure-JS decode support remains for `bzip2` and `xz`;
+  - `brotli`/`zstd` are capability-gated (`COMPRESSION_UNSUPPORTED_ALGORITHM` when unavailable). (tests: `test/web-adapter.test.ts`, `test/support-matrix-behavior.test.ts`, `test/schema-contracts.test.ts`)
+- Runtime detection for capabilities uses `runtime: "web"` when Bun/Deno/Node markers are absent and web compression globals exist (`CompressionStream` or `DecompressionStream`). (tests: `test/compress-runtime-web.test.ts`, `test/schema-contracts.test.ts`)
 
 ## Single-file compressed formats: entry naming
 Naming is deterministic and sanitized to a single path segment. (tests: `test/single-file-formats.test.ts`)

@@ -13,7 +13,7 @@ export type { CompressionErrorCode } from './errors.js';
 const PROBE_PAYLOAD = new TextEncoder().encode('bytefold-probe');
 const RUNTIME = detectRuntime();
 const WEB_PROBES: WebProbeResults | null =
-  RUNTIME === 'bun' || RUNTIME === 'deno' ? await probeWebCompression() : null;
+  RUNTIME === 'bun' || RUNTIME === 'deno' || RUNTIME === 'web' ? await probeWebCompression() : null;
 
 /** Inspect compression support in the current runtime. */
 export function getCompressionCapabilities(): CompressionCapabilities {
@@ -307,6 +307,7 @@ function detectRuntime(): CompressionCapabilities['runtime'] {
   if (typeof (globalThis as { Bun?: unknown }).Bun !== 'undefined') return 'bun';
   if (typeof (globalThis as { Deno?: unknown }).Deno !== 'undefined') return 'deno';
   if (typeof process !== 'undefined' && !!process.versions?.node) return 'node';
+  if (typeof CompressionStream !== 'undefined' || typeof DecompressionStream !== 'undefined') return 'web';
   return 'unknown';
 }
 

@@ -23,3 +23,8 @@ update_triggers:
 - Update SPEC.md invariants and link tests for each guarantee.
 - Update repo.manifest.yaml when commands or invariants change.
 - Follow naming rules in `docs/NAMING.md` for new/renamed symbols.
+
+## Dev dependency policy (justification required)
+- Dev-only dependencies are allowed only when they improve correctness, determinism, or safety and are wired into verification.
+- Current approved dev-only tooling:
+  - `esbuild`: browser bundle verification for `npm run web:check` to prove the web entrypoint does not pull `node:*` builtins.

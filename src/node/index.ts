@@ -50,6 +50,7 @@ export { toWebReadable, toWebWritable, toNodeReadable, toNodeWritable } from '..
 export type NodeArchiveInput =
   | Uint8Array
   | ArrayBuffer
+  | Blob
   | ReadableStream<Uint8Array>
   | NodeJS.ReadableStream
   | string
@@ -82,6 +83,12 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
     return openArchiveCore(input, {
       ...options,
       ...(options?.inputKind ? {} : { inputKind: 'bytes' })
+    });
+  }
+  if (isBlobInput(input)) {
+    return openArchiveCore(input, {
+      ...options,
+      ...(options?.inputKind ? {} : { inputKind: 'blob' })
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
@@ -225,6 +232,10 @@ export async function extractAll(
 
 function isReadableStream(value: unknown): value is ReadableStream<Uint8Array> {
   return !!value && typeof (value as ReadableStream<Uint8Array>).getReader === 'function';
+}
+
+function isBlobInput(input: unknown): input is Blob {
+  return typeof Blob !== 'undefined' && input instanceof Blob;
 }
 
 function isHttpUrl(value: string | URL): boolean {

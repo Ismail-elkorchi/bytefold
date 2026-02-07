@@ -6,7 +6,7 @@
   "required": ["schemaVersion", "runtime", "algorithms", "notes"],
   "properties": {
     "schemaVersion": { "enum": ["1"] },
-    "runtime": { "enum": ["node", "deno", "bun", "unknown"] },
+    "runtime": { "enum": ["node", "deno", "bun", "web", "unknown"] },
     "algorithms": {
       "type": "object",
       "additionalProperties": {

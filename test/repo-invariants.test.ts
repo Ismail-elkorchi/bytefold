@@ -31,13 +31,15 @@ test('default entrypoints avoid node:* imports at module evaluation', async () =
     'src/tar/index.ts',
     'src/deno/index.ts',
     'src/bun/index.ts',
+    'src/web/index.ts',
     'mod.ts',
     'archive/mod.ts',
     'compress/mod.ts',
     'zip/mod.ts',
     'tar/mod.ts',
     'deno/mod.ts',
-    'bun/mod.ts'
+    'bun/mod.ts',
+    'web/mod.ts'
   ];
   const importNode = /^\s*import\s+.*from\s+['"]node:/m;
   for (const file of entrypoints) {

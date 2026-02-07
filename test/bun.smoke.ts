@@ -639,6 +639,16 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
     }
     expect(entries).toEqual(['hello.txt']);
 
+    const zipBlobArchive = await openArchive(new Blob([new Uint8Array(await Bun.file(zipPath).arrayBuffer())], { type: 'application/zip' }));
+    if (zipBlobArchive.detection?.inputKind !== 'blob') throw new Error('blob zip inputKind mismatch');
+    const zipBlobEntries: string[] = [];
+    for await (const entry of zipBlobArchive.entries()) {
+      zipBlobEntries.push(entry.name);
+    }
+    if (zipBlobEntries.length !== 1 || zipBlobEntries[0] !== 'hello.txt') {
+      throw new Error('blob zip entries mismatch');
+    }
+
     const tarArchive = await openArchive(tarPath);
     let sawTar = false;
     for await (const entry of tarArchive.entries()) {

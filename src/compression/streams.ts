@@ -121,7 +121,8 @@ let nodeBackendPromise:
 async function getNodeBackend() {
   if (!isNodeRuntime()) return null;
   if (!nodeBackendPromise) {
-    nodeBackendPromise = import('./node-backend.js')
+    const moduleUrl = new URL('./node-backend.js', import.meta.url).href;
+    nodeBackendPromise = import(moduleUrl)
       .then((mod) => mod.nodeBackend)
       .catch(() => null);
   }

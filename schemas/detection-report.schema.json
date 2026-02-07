@@ -6,7 +6,7 @@
   "required": ["schemaVersion", "inputKind", "detected", "confidence", "notes"],
   "properties": {
     "schemaVersion": { "enum": ["1"] },
-    "inputKind": { "enum": ["file", "url", "bytes", "stream"] },
+    "inputKind": { "enum": ["file", "url", "bytes", "stream", "blob"] },
     "detected": {
       "type": "object",
       "additionalProperties": false,

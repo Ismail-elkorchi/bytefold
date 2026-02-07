@@ -1,5 +1,5 @@
 name: bytefold
-mission: "Multi-format archive reader/writer with deterministic safety for Node, Deno, and Bun."
+mission: "Multi-format archive reader/writer with deterministic safety for Node, Deno, Bun, and Web."
 public_api:
   entrypoints:
     npm:
@@ -12,6 +12,7 @@ public_api:
       - "./node/zip"
       - "./deno"
       - "./bun"
+      - "./web"
     jsr:
       - "."
       - "./archive"
@@ -20,6 +21,7 @@ public_api:
       - "./tar"
       - "./deno"
       - "./bun"
+      - "./web"
 commands:
   check: "npm run check"
   test: "npm run test"
@@ -60,6 +62,8 @@ invariants:
   - "Normalize safe mode is deterministic and lossless mode preserves bytes where documented."
   - "extractAll blocks path traversal."
   - "openArchive auto-detects documented formats; tar.br requires an explicit hint."
+  - 'openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits.'
+  - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'
 trust_boundaries:
   trusted:
     - "src/** runtime code"

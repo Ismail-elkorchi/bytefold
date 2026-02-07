@@ -15,7 +15,8 @@
       "@ismail-elkorchi/bytefold/node/zip": ["dist/node/zip/index.d.ts"],
       "@ismail-elkorchi/bytefold/node/external": ["dist/node/external/index.d.ts"],
       "@ismail-elkorchi/bytefold/deno": ["dist/deno/index.d.ts"],
-      "@ismail-elkorchi/bytefold/bun": ["dist/bun/index.d.ts"]
+      "@ismail-elkorchi/bytefold/bun": ["dist/bun/index.d.ts"],
+      "@ismail-elkorchi/bytefold/web": ["dist/web/index.d.ts"]
     }
   },
   "include": ["test"]

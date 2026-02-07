@@ -22,7 +22,7 @@ export type ArchiveProfile = 'compat' | 'strict' | 'agent';
 /** Severity level for archive issues. */
 export type ArchiveIssueSeverity = 'info' | 'warning' | 'error';
 /** How the archive input was provided. */
-export type ArchiveInputKind = 'file' | 'url' | 'bytes' | 'stream';
+export type ArchiveInputKind = 'file' | 'url' | 'bytes' | 'stream' | 'blob';
 
 /** Detection report for layered archives and compression. */
 export type ArchiveDetectionReport = {

@@ -105,6 +105,58 @@ test('createArchiveWriter (zip) roundtrip', async () => {
   assert.equal(reader.format, 'zip');
 });
 
+test('openArchive supports Blob ZIP input and reports blob inputKind', async () => {
+  const chunks: Uint8Array[] = [];
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      chunks.push(chunk);
+    }
+  });
+  const writer = createArchiveWriter('zip', writable);
+  await writer.add('hello.txt', encoder.encode('blob zip'));
+  await writer.close();
+  const zipBytes = concatChunks(chunks);
+
+  const reader = await openArchive(new Blob([blobPartFromBytes(zipBytes)], { type: 'application/zip' }));
+  assert.equal(reader.format, 'zip');
+  assert.equal(reader.detection?.inputKind, 'blob');
+  const names: string[] = [];
+  for await (const entry of reader.entries()) {
+    names.push(entry.name);
+    const data = await collect(await entry.open());
+    if (entry.name === 'hello.txt') {
+      assert.equal(new TextDecoder().decode(data), 'blob zip');
+    }
+  }
+  assert.deepEqual(names, ['hello.txt']);
+});
+
+test('openArchive supports Blob non-zip input', async () => {
+  const chunks: Uint8Array[] = [];
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      chunks.push(chunk);
+    }
+  });
+  const writer = createArchiveWriter('gz', writable);
+  await writer.add('hello.txt', encoder.encode('blob gz'));
+  await writer.close();
+  const gzBytes = concatChunks(chunks);
+
+  const reader = await openArchive(new Blob([blobPartFromBytes(gzBytes)], { type: 'application/gzip' }), {
+    filename: 'hello.txt.gz'
+  });
+  assert.equal(reader.format, 'gz');
+  assert.equal(reader.detection?.inputKind, 'blob');
+  const entries: string[] = [];
+  for await (const entry of reader.entries()) {
+    entries.push(entry.name);
+    const data = await collect(await entry.open());
+    assert.equal(new TextDecoder().decode(data), 'blob gz');
+  }
+  assert.deepEqual(entries, ['hello.txt']);
+});
+
 test('openArchive detects tar.zst', async () => {
   const caps = getCompressionCapabilities();
   if (!caps.algorithms.zstd.compress || !caps.algorithms.zstd.decompress) {
@@ -256,4 +308,10 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length;
   }
   return out;
+}
+
+function blobPartFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const owned = new Uint8Array(bytes.length);
+  owned.set(bytes);
+  return owned.buffer;
 }

@@ -42,6 +42,12 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
+function blobPartFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const owned = new Uint8Array(bytes.length);
+  owned.set(bytes);
+  return owned.buffer;
+}
+
 async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
   const reader = stream.getReader();
   const chunks: Uint8Array[] = [];
@@ -719,6 +725,18 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     }
   }
   if (zipEntries.length !== 1) throw new Error('zip entries mismatch');
+
+  const zipBlobArchive = await openArchive(
+    new Blob([blobPartFromBytes(await Deno.readFile(zipPath))], { type: 'application/zip' })
+  );
+  if (zipBlobArchive.detection?.inputKind !== 'blob') throw new Error('blob zip inputKind mismatch');
+  const zipBlobEntries: string[] = [];
+  for await (const entry of zipBlobArchive.entries()) {
+    zipBlobEntries.push(entry.name);
+  }
+  if (zipBlobEntries.length !== 1 || zipBlobEntries[0] !== 'hello.txt') {
+    throw new Error('blob zip entries mismatch');
+  }
 
   const tarArchive = await openArchive(tarPath);
   const tarEntries: string[] = [];

@@ -21,6 +21,11 @@ test('audit and normalize reports match JSON schemas', async () => {
   const detectionResult = validateSchema(detectionSchema, detection);
   assert.ok(detectionResult.ok, detectionResult.errors.join('\n'));
 
+  const blobReader = await openArchive(new Blob([blobPartFromBytes(zipBytes)], { type: 'application/zip' }));
+  const blobDetection = toJson(blobReader.detection);
+  const blobDetectionResult = validateSchema(detectionSchema, blobDetection);
+  assert.ok(blobDetectionResult.ok, blobDetectionResult.errors.join('\n'));
+
   const audit = toJson(await zipReader.audit());
   const auditResult = validateSchema(auditSchema, audit);
   assert.ok(auditResult.ok, auditResult.errors.join('\n'));
@@ -96,4 +101,10 @@ function concatChunks(chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length;
   }
   return out;
+}
+
+function blobPartFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const owned = new Uint8Array(bytes.length);
+  owned.set(bytes);
+  return owned.buffer;
 }

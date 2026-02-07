@@ -9,7 +9,8 @@
     "./zip": "./zip/mod.ts",
     "./tar": "./tar/mod.ts",
     "./deno": "./deno/mod.ts",
-    "./bun": "./bun/mod.ts"
+    "./bun": "./bun/mod.ts",
+    "./web": "./web/mod.ts"
   },
   "publish": {
     "include": [
@@ -23,6 +24,7 @@
       "tar/mod.ts",
       "deno/mod.ts",
       "bun/mod.ts",
+      "web/mod.ts",
       "src/**",
       "jsr.json",
       "package.json"

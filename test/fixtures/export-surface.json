@@ -92,5 +92,17 @@
     "tarToFile": "function",
     "zipFromFile": "function",
     "zipToFile": "function"
+  },
+  "@ismail-elkorchi/bytefold/web": {
+    "ArchiveError": "function",
+    "TarReader": "function",
+    "TarWriter": "function",
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "createArchiveWriter": "function",
+    "listCompressionCodecs": "function",
+    "openArchive": "function",
+    "registerCompressionCodec": "function"
   }
 }

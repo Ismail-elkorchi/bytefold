@@ -9,7 +9,7 @@ update_triggers:
 
 # bytefold
 
-Multi-format archive reader/writer for Node 24+, Deno, and Bun (runtime smoke tests: `test/deno.smoke.ts`, `test/bun.smoke.ts`). ESM-only, TypeScript strict, no runtime dependencies (tests: `test/repo-invariants.test.ts`).
+Multi-format archive reader/writer for Node 24+, Deno, Bun, and Web (Browser). ESM-only, TypeScript strict, no runtime dependencies (tests: `test/repo-invariants.test.ts`).
 
 ## Install
 
@@ -35,6 +35,8 @@ for await (const entry of reader.entries()) {
 ```
 
 Support matrix: see `SPEC.md` (Support matrix section).
+
+Web runtime entrypoint: `@ismail-elkorchi/bytefold/web` (URL input is full-fetch by design; no seekable HTTP range sessions in web adapter).
 
 ## Verification
 `npm run check`
