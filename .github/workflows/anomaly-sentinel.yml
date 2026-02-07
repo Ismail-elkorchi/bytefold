@@ -1,0 +1,47 @@
+name: Anomaly Sentinel
+
+on:
+  schedule:
+    - cron: "41 3 * * 2"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: anomaly-sentinel-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check-idempotence:
+    name: Scheduled check + churn gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Checkout
+        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: 24
+          cache: npm
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb
+        with:
+          deno-version: 2.5.6
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3
+        with:
+          bun-version: 1.3.3
+      - name: Install
+        run: npm ci
+      - name: Run one-command truth
+        run: npm run check
+      - name: Verify tracked files are unchanged
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain=v1)" ]]; then
+            echo "Tracked files changed during scheduled check:"
+            git status --porcelain=v1
+            exit 1
+          fi
