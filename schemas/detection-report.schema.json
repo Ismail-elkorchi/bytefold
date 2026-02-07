@@ -1,0 +1,23 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bytefold Archive Detection Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "inputKind", "detected", "confidence", "notes"],
+  "properties": {
+    "schemaVersion": { "enum": ["1"] },
+    "inputKind": { "enum": ["file", "url", "bytes", "stream"] },
+    "detected": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["layers"],
+      "properties": {
+        "container": { "type": "string" },
+        "compression": { "type": "string" },
+        "layers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "confidence": { "enum": ["high", "medium", "low"] },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  }
+}

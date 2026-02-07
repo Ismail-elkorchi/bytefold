@@ -1,13 +1,18 @@
 /** Stable ZIP error codes. */
 export type ZipErrorCode =
   | 'ZIP_HTTP_RANGE_UNSUPPORTED'
+  | 'ZIP_HTTP_RESOURCE_CHANGED'
+  | 'ZIP_HTTP_RANGE_INVALID'
   | 'ZIP_HTTP_BAD_RESPONSE'
   | 'ZIP_HTTP_SIZE_UNKNOWN'
+  | 'ZIP_HTTP_CONTENT_ENCODING'
+  | 'ZIP_HTTP_STRONG_ETAG_REQUIRED'
   | 'ZIP_EOCD_NOT_FOUND'
   | 'ZIP_MULTIPLE_EOCD'
   | 'ZIP_BAD_EOCD'
   | 'ZIP_BAD_ZIP64'
   | 'ZIP_BAD_CENTRAL_DIRECTORY'
+  | 'ZIP_NAME_COLLISION'
   | 'ZIP_UNSUPPORTED_METHOD'
   | 'ZIP_UNSUPPORTED_FEATURE'
   | 'ZIP_UNSUPPORTED_ENCRYPTION'
@@ -40,6 +45,8 @@ export class ZipError extends Error {
   readonly offset?: bigint | undefined;
   /** Underlying cause, if available. */
   override readonly cause?: unknown;
+  /** Additional context for serialization. */
+  readonly context?: Record<string, string> | undefined;
 
   /** Create a ZipError with a stable code. */
   constructor(
@@ -49,6 +56,7 @@ export class ZipError extends Error {
       entryName?: string | undefined;
       method?: number | undefined;
       offset?: bigint | undefined;
+      context?: Record<string, string> | undefined;
       cause?: unknown;
     }
   ) {
@@ -58,7 +66,37 @@ export class ZipError extends Error {
     this.entryName = options?.entryName;
     this.method = options?.method;
     this.offset = options?.offset;
+    this.context = options?.context;
     this.cause = options?.cause;
+  }
+
+  /** JSON-safe serialization with schemaVersion "1". */
+  toJSON(): {
+    schemaVersion: string;
+    name: string;
+    code: ZipErrorCode;
+    message: string;
+    hint: string;
+    context: Record<string, string>;
+    entryName?: string;
+    method?: number;
+    offset?: string;
+  } {
+    const context: Record<string, string> = { code: this.code, ...(this.context ?? {}) };
+    if (this.entryName !== undefined) context.entryName = this.entryName;
+    if (this.method !== undefined) context.method = String(this.method);
+    if (this.offset !== undefined) context.offset = this.offset.toString();
+    return {
+      schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
+      name: this.name,
+      code: this.code,
+      message: this.message,
+      hint: this.message,
+      context,
+      ...(this.entryName !== undefined ? { entryName: this.entryName } : {}),
+      ...(this.method !== undefined ? { method: this.method } : {}),
+      ...(this.offset !== undefined ? { offset: this.offset.toString() } : {})
+    };
   }
 }
 
@@ -78,3 +116,4 @@ export type ZipWarning = {
   message: string;
   entryName?: string;
 };
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from './reportSchema.js';

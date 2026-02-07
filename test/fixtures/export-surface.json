@@ -1,0 +1,96 @@
+{
+  "@ismail-elkorchi/bytefold": {
+    "ArchiveError": "function",
+    "BYTEFOLD_REPORT_SCHEMA_VERSION": "string",
+    "CompressionError": "function",
+    "TarReader": "function",
+    "TarWriter": "function",
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "createArchiveWriter": "function",
+    "createCompressor": "function",
+    "createDecompressor": "function",
+    "getCompressionCapabilities": "function",
+    "listCompressionCodecs": "function",
+    "openArchive": "function",
+    "registerCompressionCodec": "function"
+  },
+  "@ismail-elkorchi/bytefold/archive": {
+    "createArchiveWriter": "function",
+    "openArchive": "function"
+  },
+  "@ismail-elkorchi/bytefold/compress": {
+    "CompressionError": "function",
+    "createCompressor": "function",
+    "createDecompressor": "function",
+    "getCompressionCapabilities": "function"
+  },
+  "@ismail-elkorchi/bytefold/zip": {
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "listCompressionCodecs": "function",
+    "registerCompressionCodec": "function"
+  },
+  "@ismail-elkorchi/bytefold/tar": {
+    "TarReader": "function",
+    "TarWriter": "function"
+  },
+  "@ismail-elkorchi/bytefold/node": {
+    "ArchiveError": "function",
+    "TarReader": "function",
+    "TarWriter": "function",
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "createArchiveWriter": "function",
+    "extractAll": "function",
+    "listCompressionCodecs": "function",
+    "openArchive": "function",
+    "registerCompressionCodec": "function",
+    "toNodeReadable": "function",
+    "toNodeWritable": "function",
+    "toWebReadable": "function",
+    "toWebWritable": "function"
+  },
+  "@ismail-elkorchi/bytefold/node/zip": {
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "listCompressionCodecs": "function",
+    "registerCompressionCodec": "function"
+  },
+  "@ismail-elkorchi/bytefold/deno": {
+    "ArchiveError": "function",
+    "TarReader": "function",
+    "TarWriter": "function",
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "createArchiveWriter": "function",
+    "listCompressionCodecs": "function",
+    "openArchive": "function",
+    "registerCompressionCodec": "function",
+    "tarFromFile": "function",
+    "tarToFile": "function",
+    "zipFromFile": "function",
+    "zipToFile": "function"
+  },
+  "@ismail-elkorchi/bytefold/bun": {
+    "ArchiveError": "function",
+    "TarReader": "function",
+    "TarWriter": "function",
+    "ZipError": "function",
+    "ZipReader": "function",
+    "ZipWriter": "function",
+    "createArchiveWriter": "function",
+    "listCompressionCodecs": "function",
+    "openArchive": "function",
+    "registerCompressionCodec": "function",
+    "tarFromFile": "function",
+    "tarToFile": "function",
+    "zipFromFile": "function",
+    "zipToFile": "function"
+  }
+}

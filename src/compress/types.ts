@@ -1,3 +1,6 @@
+import type { ResourceLimits } from '../limits.js';
+export type { ResourceLimits } from '../limits.js';
+
 /** Supported compression algorithms. */
 export type CompressionAlgorithm = 'gzip' | 'deflate' | 'deflate-raw' | 'brotli' | 'zstd' | 'bzip2' | 'xz';
 
@@ -25,6 +28,8 @@ export type CompressionOptions = {
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
   maxDictionaryBytes?: bigint | number;
+  maxBufferedInputBytes?: number;
+  limits?: ResourceLimits;
   profile?: CompressionProfile;
 };
 

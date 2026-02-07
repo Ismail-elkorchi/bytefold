@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import {
   CompressionError,
   createCompressor,
@@ -8,17 +9,25 @@ import {
   type CompressionAlgorithm,
   type CompressionProgressEvent
 } from '@ismail-elkorchi/bytefold/compress';
+import { validateSchema, type JsonSchema } from './schema-validator.js';
 
 const encoder = new TextEncoder();
 const algorithms: CompressionAlgorithm[] = ['gzip', 'deflate-raw', 'deflate', 'brotli', 'zstd', 'bzip2', 'xz'];
 const input = encoder.encode('bytefold-compress-test-'.repeat(1024));
 const caps = getCompressionCapabilities();
 
+test('compression capabilities report is schema-valid and notes are deduped', async () => {
+  const schema = (await loadSchema('capabilities-report.schema.json')) as JsonSchema;
+  const result = validateSchema(schema, caps);
+  assert.ok(result.ok, result.errors.join('\n'));
+  assert.equal(new Set(caps.notes).size, caps.notes.length);
+});
+
 for (const algorithm of algorithms) {
   test(`compress roundtrip (${algorithm})`, async (t) => {
     const support = caps.algorithms[algorithm];
     if (!support.compress || !support.decompress) {
-      t.skip(`unsupported: ${algorithm} (${support.backend})`);
+      t.skip(`COMPRESSION_UNSUPPORTED_ALGORITHM: ${algorithm} (${support.backend})`);
       return;
     }
 
@@ -151,4 +160,10 @@ function assertMonotonic(
     lastIn = ev.bytesIn;
     lastOut = ev.bytesOut;
   }
+}
+
+async function loadSchema(name: string): Promise<unknown> {
+  const url = new URL(`../schemas/${name}`, import.meta.url);
+  const text = await readFile(url, 'utf8');
+  return JSON.parse(text) as unknown;
 }

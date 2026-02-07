@@ -1,7 +1,12 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
+import { readFile } from 'node:fs/promises';
 import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
+import { HttpRandomAccess } from '../dist/reader/RandomAccess.js';
+import { validateSchema, type JsonSchema } from './schema-validator.js';
+
+const ERROR_SCHEMA = new URL('../schemas/error.schema.json', import.meta.url);
 
 async function buildZip(): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
@@ -109,4 +114,27 @@ test('ZipReader.fromUrl rejects when HTTP range unsupported', async (t) => {
   await assert.rejects(async () => {
     await ZipReader.fromUrl(serverUrl(server));
   }, (err: unknown) => err instanceof ZipError && err.code === 'ZIP_HTTP_RANGE_UNSUPPORTED');
+});
+
+test('HttpRandomAccess throws HttpError for range unsupported', async (t) => {
+  const zip = await buildZip();
+  const server = await startServer(zip, false);
+  t.after(() => server.close());
+
+  const schema = JSON.parse(await readFile(ERROR_SCHEMA, 'utf8')) as JsonSchema;
+  const reader = new HttpRandomAccess(serverUrl(server));
+
+  try {
+    await reader.read(0n, 4);
+    assert.fail('expected HttpRandomAccess to throw');
+  } catch (err) {
+    const error = err as { name?: string; code?: string; toJSON?: () => unknown };
+    assert.equal(error.name, 'HttpError');
+    assert.equal(error.code, 'HTTP_RANGE_UNSUPPORTED');
+    assert.ok(typeof error.toJSON === 'function');
+    const result = validateSchema(schema, error.toJSON());
+    assert.ok(result.ok, result.errors.join('\n'));
+  } finally {
+    await reader.close();
+  }
 });

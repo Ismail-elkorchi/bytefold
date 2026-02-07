@@ -1,0 +1,44 @@
+{
+  "tar-pax-longname.tar": [],
+  "tar-duplicates.tar": [
+    { "code": "TAR_DUPLICATE_ENTRY", "severity": "error", "entryName": "dup.txt" },
+    { "code": "TAR_CASE_COLLISION", "severity": "error", "entryName": "README.TXT" }
+  ],
+  "tar-case-collision.tar": [
+    { "code": "TAR_CASE_COLLISION", "severity": "error", "entryName": "README.TXT" }
+  ],
+  "tar-links.tar": [
+    { "code": "TAR_SYMLINK_PRESENT", "severity": "error", "entryName": "link" }
+  ],
+  "tar-unicode-collision.tar": [
+    { "code": "TAR_UNICODE_COLLISION", "severity": "error", "entryName": "cafe\u0301.txt" }
+  ],
+  "tar-path-traversal.tar": [
+    { "code": "TAR_PATH_TRAVERSAL", "severity": "error", "entryName": "../evil.txt" },
+    { "code": "TAR_PATH_TRAVERSAL", "severity": "error", "entryName": "/abs.txt" },
+    { "code": "TAR_PATH_TRAVERSAL", "severity": "error", "entryName": "C:drive.txt" }
+  ],
+  "zip-duplicates.zip": [
+    { "code": "ZIP_DUPLICATE_ENTRY", "severity": "warning", "entryName": "dup.txt" },
+    { "code": "ZIP_CASE_COLLISION", "severity": "warning", "entryName": "README.TXT" }
+  ],
+  "zip-case-collision.zip": [
+    { "code": "ZIP_CASE_COLLISION", "severity": "warning", "entryName": "README.TXT" }
+  ],
+  "zip-unicode-collision.zip": [
+    { "code": "ZIP_UNICODE_COLLISION", "severity": "error", "entryName": "cafe\u0301.txt" }
+  ],
+  "zip-casefold-fuss.zip": [
+    { "code": "ZIP_CASE_COLLISION", "severity": "warning", "entryName": "Fu\u00df.txt" }
+  ],
+  "zip-casefold-sigma.zip": [
+    { "code": "ZIP_CASE_COLLISION", "severity": "warning", "entryName": "\u03bf\u03c2.txt" }
+  ],
+  "zip-casefold-turkic.zip": [],
+  "zip-paths.zip": [],
+  "zip-path-traversal.zip": [
+    { "code": "ZIP_PATH_TRAVERSAL", "severity": "error", "entryName": "../evil.txt" },
+    { "code": "ZIP_PATH_TRAVERSAL", "severity": "error", "entryName": "/abs.txt" },
+    { "code": "ZIP_PATH_TRAVERSAL", "severity": "error", "entryName": "C:\\\\drive.txt" }
+  ]
+}

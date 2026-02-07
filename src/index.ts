@@ -14,6 +14,7 @@ export type {
   ArchiveOpenOptions,
   ArchiveProfile
 } from './archive/types.js';
+export type { ResourceLimits } from './limits.js';
 
 export * from './zip/index.js';
 export * from './tar/index.js';

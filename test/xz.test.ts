@@ -19,6 +19,19 @@ test('openArchive reads xz fixture and extracts entry', async () => {
   assert.deepEqual(entries, ['data']);
 });
 
+test('xz stream padding fixture extracts entry', async () => {
+  const data = await readFixture('xz-padding-4m.xz');
+  const reader = await openArchive(data, { filename: 'xz-padding-4m.xz' });
+  assert.equal(reader.format, 'xz');
+  let saw = false;
+  for await (const entry of reader.entries()) {
+    const text = decoder.decode(await collect(await entry.open()));
+    assert.equal(text, 'hello from bytefold\n');
+    saw = true;
+  }
+  assert.ok(saw);
+});
+
 test('xz single-file name honors filename hint', async () => {
   const data = await readFixture('hello.txt.xz');
   const reader = await openArchive(data, { filename: 'hello.txt.xz' });
@@ -55,7 +68,7 @@ test('xz corruption throws typed error', async () => {
     },
     (err: unknown) =>
       err instanceof CompressionError &&
-      (err.code === 'COMPRESSION_XZ_CHECK_MISMATCH' ||
+      (err.code === 'COMPRESSION_XZ_BAD_CHECK' ||
         err.code === 'COMPRESSION_XZ_BAD_DATA' ||
         err.code === 'COMPRESSION_LZMA_BAD_DATA')
   );

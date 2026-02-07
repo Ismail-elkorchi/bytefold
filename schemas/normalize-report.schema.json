@@ -1,0 +1,47 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bytefold Archive Normalize Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "ok", "summary", "issues"],
+  "properties": {
+    "schemaVersion": { "enum": ["1"] },
+    "ok": { "type": "boolean" },
+    "summary": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "entries",
+        "outputEntries",
+        "droppedEntries",
+        "renamedEntries",
+        "warnings",
+        "errors"
+      ],
+      "properties": {
+        "entries": { "type": "number" },
+        "outputEntries": { "type": "number" },
+        "droppedEntries": { "type": "number" },
+        "renamedEntries": { "type": "number" },
+        "warnings": { "type": "number" },
+        "errors": { "type": "number" }
+      }
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["code", "severity", "message"],
+        "properties": {
+          "code": { "type": "string" },
+          "severity": { "enum": ["info", "warning", "error"] },
+          "message": { "type": "string" },
+          "entryName": { "type": "string" },
+          "offset": { "type": "string" },
+          "details": { "type": "object", "additionalProperties": true }
+        }
+      }
+    }
+  }
+}

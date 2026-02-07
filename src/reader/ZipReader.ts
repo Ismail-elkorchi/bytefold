@@ -19,6 +19,7 @@ import type {
   ZipWarning
 } from '../types.js';
 import { BufferRandomAccess, HttpRandomAccess, type RandomAccess } from './RandomAccess.js';
+import { wrapRandomAccessForZip } from './httpZipErrors.js';
 import { findEocd, type EocdResult } from './eocd.js';
 import { iterCentralDirectory, type ZipEntryRecord } from './centralDirectory.js';
 import { openEntryStream, openRawStream, type OpenEntryOptions } from './entryStream.js';
@@ -28,25 +29,16 @@ import { readableFromBytes } from '../streams/web.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { createCrcTransform } from '../streams/crcTransform.js';
 import { createProgressTracker, createProgressTransform } from '../streams/progress.js';
+import { normalizePathForCollision, toCollisionKey } from '../text/caseFold.js';
 import { WebWritableSink, type Sink } from '../writer/Sink.js';
 import { writeCentralDirectory } from '../writer/centralDirectoryWriter.js';
 import { finalizeArchive } from '../writer/finalize.js';
 import { writeRawEntry, type EntryWriteResult } from '../writer/entryWriter.js';
 import { getCompressionCodec, hasCompressionCodec } from '../compression/registry.js';
+import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 
-const DEFAULT_LIMITS: Required<ZipLimits> = {
-  maxEntries: 10000,
-  maxUncompressedEntryBytes: 512n * 1024n * 1024n,
-  maxTotalUncompressedBytes: 2n * 1024n * 1024n * 1024n,
-  maxCompressionRatio: 1000
-};
-
-const AGENT_LIMITS: Required<ZipLimits> = {
-  maxEntries: 5000,
-  maxUncompressedEntryBytes: 256n * 1024n * 1024n,
-  maxTotalUncompressedBytes: 1024n * 1024n * 1024n,
-  maxCompressionRatio: 200
-};
+const DEFAULT_LIMITS: Required<ZipLimits> = DEFAULT_RESOURCE_LIMITS;
+const AGENT_LIMITS: Required<ZipLimits> = AGENT_RESOURCE_LIMITS;
 
 /** Read ZIP archives from bytes, streams, or URLs. */
 export class ZipReader {
@@ -86,10 +78,17 @@ export class ZipReader {
     this.signal = mergeSignals(options?.signal, options?.http?.signal);
   }
 
+  /** @internal */
+  static async fromRandomAccess(reader: RandomAccess, options?: ZipReaderOptions): Promise<ZipReader> {
+    const instance = new ZipReader(wrapRandomAccessForZip(reader), options);
+    await instance.init();
+    return instance;
+  }
+
   /** Create a reader from in-memory bytes. */
   static async fromUint8Array(data: Uint8Array, options?: ZipReaderOptions): Promise<ZipReader> {
     const reader = new BufferRandomAccess(data);
-    const instance = new ZipReader(reader, options);
+    const instance = new ZipReader(wrapRandomAccessForZip(reader), options);
     await instance.init();
     return instance;
   }
@@ -101,7 +100,11 @@ export class ZipReader {
   ): Promise<ZipReader> {
     const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
     if (options?.signal) readOptions.signal = options.signal;
-    if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    if (options?.limits?.maxInputBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxInputBytes;
+    } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
+    } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
       readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
     }
     const data = await readAllBytes(stream, readOptions);
@@ -116,6 +119,7 @@ export class ZipReader {
         headers?: Record<string, string>;
         cache?: { blockSize?: number; maxBlocks?: number };
         signal?: AbortSignal;
+        snapshot?: 'require-strong-etag' | 'best-effort';
       };
     }
   ): Promise<ZipReader> {
@@ -124,12 +128,13 @@ export class ZipReader {
       headers?: Record<string, string>;
       cache?: { blockSize?: number; maxBlocks?: number };
       signal?: AbortSignal;
+      snapshot?: 'require-strong-etag' | 'best-effort';
     } = options?.http ? { ...options.http } : {};
     if (httpSignal) {
       httpOptions.signal = httpSignal;
     }
     const reader = new HttpRandomAccess(url, Object.keys(httpOptions).length > 0 ? httpOptions : undefined);
-    const instance = new ZipReader(reader, options);
+    const instance = new ZipReader(wrapRandomAccessForZip(reader), options);
     await instance.init();
     return instance;
   }
@@ -260,8 +265,9 @@ export class ZipReader {
     };
     const unsupportedEntries = new Set<string>();
     const ranges: Array<{ start: bigint; end: bigint; entryName: string }> = [];
-    const seenNames = new Map<string, number>();
-    const seenLower = new Map<string, string>();
+    const seenNames = new Map<string, { count: number; original: string }>();
+    const seenNfc = new Map<string, { original: string; normalized: string }>();
+    const seenCase = new Map<string, { original: string; nfc: string }>();
     let totalUncompressed = 0n;
     let totalExceeded = false;
 
@@ -291,7 +297,13 @@ export class ZipReader {
 
     let eocd: EocdResult;
     try {
-      eocd = await findEocd(this.reader, false, signal);
+      eocd = await findEocd(this.reader, false, signal, {
+        maxSearchBytes: settings.limits.maxZipEocdSearchBytes,
+        maxCommentBytes: settings.limits.maxZipCommentBytes,
+        maxCentralDirectoryBytes: settings.limits.maxZipCentralDirectoryBytes,
+        maxEntries: settings.limits.maxEntries,
+        rejectMultiDisk: true
+      });
     } catch (err) {
       addIssue(issueFromError(err));
       return finalizeAuditReport(issues, summary);
@@ -350,30 +362,51 @@ export class ZipReader {
         summary.entries += 1;
         if (entry.encrypted) summary.encryptedEntries += 1;
 
-        const count = seenNames.get(entry.name) ?? 0;
-        if (count > 0) {
-          addIssue({
-            code: 'ZIP_DUPLICATE_ENTRY',
-            severity: 'warning',
-            message: `Duplicate entry name: ${entry.name}`,
-            entryName: entry.name,
-            details: { occurrences: count + 1 }
-          });
-        }
-        seenNames.set(entry.name, count + 1);
-
-        const lower = entry.name.toLocaleLowerCase('en-US');
-        const existingLower = seenLower.get(lower);
-        if (existingLower && existingLower !== entry.name) {
-          addIssue({
-            code: 'ZIP_CASE_COLLISION',
-            severity: 'warning',
-            message: `Case-insensitive name collision: ${existingLower} vs ${entry.name}`,
-            entryName: entry.name,
-            details: { otherName: existingLower }
-          });
-        } else {
-          seenLower.set(lower, entry.name);
+        const normalizedName = normalizePathForCollision(entry.name, entry.isDirectory);
+        if (normalizedName) {
+          const existing = seenNames.get(normalizedName);
+          if (existing) {
+            existing.count += 1;
+            addIssue({
+              code: 'ZIP_DUPLICATE_ENTRY',
+              severity: 'warning',
+              message: `Duplicate entry name: ${existing.original} vs ${entry.name}`,
+              entryName: entry.name,
+              details: {
+                occurrences: existing.count,
+                otherName: existing.original,
+                key: normalizedName,
+                collisionKind: 'duplicate'
+              }
+            });
+          } else {
+            seenNames.set(normalizedName, { count: 1, original: entry.name });
+            const nfcName = normalizedName.normalize('NFC');
+            const caseKey = toCollisionKey(normalizedName, entry.isDirectory);
+            const existingNfc = seenNfc.get(nfcName);
+            if (existingNfc && existingNfc.normalized !== normalizedName) {
+              addIssue({
+                code: 'ZIP_UNICODE_COLLISION',
+                severity: 'error',
+                message: `Unicode normalization collision: ${existingNfc.original} vs ${entry.name}`,
+                entryName: entry.name,
+                details: { otherName: existingNfc.original, key: nfcName, collisionKind: 'unicode_nfc' }
+              });
+            } else {
+              const existingCase = seenCase.get(caseKey);
+              if (existingCase && existingCase.nfc !== nfcName) {
+                addIssue({
+                  code: 'ZIP_CASE_COLLISION',
+                  severity: 'warning',
+                  message: `Case-insensitive name collision: ${existingCase.original} vs ${entry.name}`,
+                  entryName: entry.name,
+                  details: { otherName: existingCase.original, key: caseKey, collisionKind: 'casefold' }
+                });
+              }
+            }
+            seenNfc.set(nfcName, { original: entry.name, normalized: normalizedName });
+            seenCase.set(caseKey, { original: entry.name, nfc: nfcName });
+          }
         }
 
         for (const issue of entryPathIssues(entry.name)) {
@@ -582,7 +615,13 @@ export class ZipReader {
 
   /** @internal */
   private async init(): Promise<void> {
-    const eocd = await findEocd(this.reader, this.strict, this.signal);
+    const eocd = await findEocd(this.reader, this.strict, this.signal, {
+      maxSearchBytes: this.limits.maxZipEocdSearchBytes,
+      maxCommentBytes: this.limits.maxZipCommentBytes,
+      maxCentralDirectoryBytes: this.limits.maxZipCentralDirectoryBytes,
+      maxEntries: this.limits.maxEntries,
+      rejectMultiDisk: true
+    });
     this.warningsList.push(...eocd.warnings);
     this.eocd = eocd;
 
@@ -957,7 +996,9 @@ export class ZipReader {
   }): Promise<NormalizedEntry[]> {
     const entries: NormalizedEntry[] = [];
     const nameIndex = new Map<string, number>();
-    const lowerIndex = new Map<string, string>();
+    const caseIndex = new Map<string, { original: string; target: string; nfc: string }>();
+    const nfcIndex = new Map<string, { original: string; target: string }>();
+    const originalNames = new Map<string, string>();
 
     const iterOptions = params.signal ? { signal: params.signal } : undefined;
     for await (const entry of this.iterEntries(iterOptions)) {
@@ -969,13 +1010,22 @@ export class ZipReader {
       const existingIndex = nameIndex.get(targetName);
       if (existingIndex !== undefined) {
         if (params.onDuplicate === 'error') {
+          const existingName = originalNames.get(targetName) ?? targetName;
           params.addIssue({
             code: 'ZIP_DUPLICATE_ENTRY',
             severity: 'error',
-            message: `Duplicate entry name: ${targetName}`,
-            entryName: entry.name
+            message: `Duplicate entry name: ${existingName} vs ${entry.name}`,
+            entryName: entry.name,
+            details: { collisionKind: 'duplicate', otherName: existingName, key: targetName }
           });
-          throw new ZipError('ZIP_BAD_CENTRAL_DIRECTORY', 'Duplicate entry name', { entryName: entry.name });
+          throw new ZipError(
+            'ZIP_NAME_COLLISION',
+            'Name collision detected (duplicate). Rename entries to avoid collisions.',
+            {
+              entryName: entry.name,
+              context: buildCollisionContext('duplicate', existingName, entry.name, targetName, 'zip')
+            }
+          );
         }
         if (params.onDuplicate === 'last-wins') {
           entries[existingIndex]!.dropped = true;
@@ -987,25 +1037,53 @@ export class ZipReader {
             entryName: entry.name
           });
         } else if (params.onDuplicate === 'rename') {
-          targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+          targetName = resolveConflictName(targetName, nameIndex, caseIndex);
           renamed = true;
         }
       }
 
-      const lower = targetName.toLocaleLowerCase('en-US');
-      const existingLower = lowerIndex.get(lower);
-      if (existingLower && existingLower !== targetName) {
+      const nfcName = targetName.normalize('NFC');
+      const existingNfc = nfcIndex.get(nfcName);
+      if (existingNfc && existingNfc.target !== targetName) {
+        params.addIssue({
+          code: 'ZIP_UNICODE_COLLISION',
+          severity: 'error',
+          message: `Unicode normalization collision: ${existingNfc.original} vs ${entry.name}`,
+          entryName: entry.name,
+          details: { collisionKind: 'unicode_nfc', otherName: existingNfc.original, key: nfcName }
+        });
+        throw new ZipError(
+          'ZIP_NAME_COLLISION',
+          'Name collision detected (unicode_nfc). Rename entries to avoid collisions.',
+          {
+            entryName: entry.name,
+            context: buildCollisionContext('unicode_nfc', existingNfc.original, entry.name, nfcName, 'zip')
+          }
+        );
+      }
+
+      const caseKey = toCollisionKey(targetName, entry.isDirectory);
+      const existingCase = caseIndex.get(caseKey);
+      if (existingCase && existingCase.target !== targetName) {
         if (params.onCaseCollision === 'error') {
           params.addIssue({
             code: 'ZIP_CASE_COLLISION',
             severity: 'error',
-            message: `Case-insensitive name collision: ${existingLower} vs ${targetName}`,
-            entryName: entry.name
+            message: `Case-insensitive name collision: ${existingCase.original} vs ${entry.name}`,
+            entryName: entry.name,
+            details: { collisionKind: 'casefold', otherName: existingCase.original, key: caseKey }
           });
-          throw new ZipError('ZIP_BAD_CENTRAL_DIRECTORY', 'Case-insensitive name collision', { entryName: entry.name });
+          throw new ZipError(
+            'ZIP_NAME_COLLISION',
+            'Name collision detected (case). Rename entries to avoid collisions.',
+            {
+              entryName: entry.name,
+              context: buildCollisionContext('case', existingCase.original, entry.name, caseKey, 'zip')
+            }
+          );
         }
         if (params.onCaseCollision === 'last-wins') {
-          const previous = nameIndex.get(existingLower);
+          const previous = nameIndex.get(existingCase.target);
           if (previous !== undefined) {
             entries[previous]!.dropped = true;
             params.summary.droppedEntries += 1;
@@ -1017,13 +1095,20 @@ export class ZipReader {
             entryName: entry.name
           });
         } else if (params.onCaseCollision === 'rename') {
-          targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+          targetName = resolveConflictName(targetName, nameIndex, caseIndex);
           renamed = true;
         }
       }
 
       nameIndex.set(targetName, entries.length);
-      lowerIndex.set(targetName.toLocaleLowerCase('en-US'), targetName);
+      originalNames.set(targetName, entry.name);
+      const finalNfc = targetName.normalize('NFC');
+      nfcIndex.set(finalNfc, { original: entry.name, target: targetName });
+    caseIndex.set(toCollisionKey(targetName, entry.isDirectory), {
+      original: entry.name,
+      target: targetName,
+      nfc: finalNfc
+    });
 
       if (renamed) {
         params.summary.renamedEntries += 1;
@@ -1118,7 +1203,7 @@ function normalizeEntryName(
 function resolveConflictName(
   name: string,
   nameIndex: Map<string, number>,
-  lowerIndex: Map<string, string>
+  lowerIndex: Map<string, unknown>
 ): string {
   const trailingSlash = name.endsWith('/');
   const trimmed = trailingSlash ? name.slice(0, -1) : name;
@@ -1131,12 +1216,30 @@ function resolveConflictName(
   let counter = 1;
   while (true) {
     const candidate = `${dir}${base}~${counter}${ext}${trailingSlash ? '/' : ''}`;
-    const lower = candidate.toLocaleLowerCase('en-US');
-    if (!nameIndex.has(candidate) && !lowerIndex.has(lower)) {
+    const caseKey = toCollisionKey(candidate, trailingSlash);
+    if (!nameIndex.has(candidate) && !lowerIndex.has(caseKey)) {
       return candidate;
     }
     counter += 1;
   }
+}
+
+function buildCollisionContext(
+  collisionType: 'duplicate' | 'case' | 'unicode_nfc',
+  nameA: string,
+  nameB: string,
+  key: string,
+  format: 'zip',
+  collisionKind: 'duplicate' | 'casefold' | 'unicode_nfc' = collisionType === 'case' ? 'casefold' : collisionType
+): Record<string, string> {
+  return {
+    collisionType,
+    collisionKind,
+    nameA,
+    nameB,
+    key,
+    format
+  };
 }
 
 async function spoolCompressedEntryToMemory(options: {
@@ -1235,12 +1338,57 @@ function resolveProfileDefaults(profile: ZipProfile): { strict: boolean; limits:
   return { strict: true, limits: DEFAULT_LIMITS };
 }
 
+/** @internal */
+export function __getZipDefaultsForProfile(profile: ZipProfile): Required<ZipLimits> {
+  return resolveProfileDefaults(profile).limits;
+}
+
 function normalizeLimits(limits?: ZipLimits, defaults: Required<ZipLimits> = DEFAULT_LIMITS): Required<ZipLimits> {
+  const maxTotal =
+    toBigInt(limits?.maxTotalDecompressedBytes ?? limits?.maxTotalUncompressedBytes) ??
+    defaults.maxTotalUncompressedBytes;
   return {
     maxEntries: limits?.maxEntries ?? defaults.maxEntries,
     maxUncompressedEntryBytes: toBigInt(limits?.maxUncompressedEntryBytes) ?? defaults.maxUncompressedEntryBytes,
-    maxTotalUncompressedBytes: toBigInt(limits?.maxTotalUncompressedBytes) ?? defaults.maxTotalUncompressedBytes,
-    maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio
+    maxTotalUncompressedBytes: maxTotal,
+    maxTotalDecompressedBytes: maxTotal,
+    maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio,
+    maxDictionaryBytes: toBigInt(limits?.maxDictionaryBytes) ?? defaults.maxDictionaryBytes,
+    maxXzDictionaryBytes:
+      toBigInt(limits?.maxXzDictionaryBytes ?? limits?.maxDictionaryBytes) ?? defaults.maxXzDictionaryBytes,
+    maxXzBufferedBytes:
+      typeof limits?.maxXzBufferedBytes === 'number' && Number.isFinite(limits.maxXzBufferedBytes)
+        ? Math.max(1, Math.floor(limits.maxXzBufferedBytes))
+        : defaults.maxXzBufferedBytes,
+    maxXzIndexRecords:
+      typeof limits?.maxXzIndexRecords === 'number' && Number.isFinite(limits.maxXzIndexRecords)
+        ? Math.max(1, Math.floor(limits.maxXzIndexRecords))
+        : defaults.maxXzIndexRecords,
+    maxXzIndexBytes:
+      typeof limits?.maxXzIndexBytes === 'number' && Number.isFinite(limits.maxXzIndexBytes)
+        ? Math.max(8, Math.floor(limits.maxXzIndexBytes))
+        : defaults.maxXzIndexBytes,
+    maxXzPreflightBlockHeaders:
+      typeof limits?.maxXzPreflightBlockHeaders === 'number' && Number.isFinite(limits.maxXzPreflightBlockHeaders)
+        ? Math.max(0, Math.floor(limits.maxXzPreflightBlockHeaders))
+        : defaults.maxXzPreflightBlockHeaders,
+    maxZipCentralDirectoryBytes:
+      typeof limits?.maxZipCentralDirectoryBytes === 'number' && Number.isFinite(limits.maxZipCentralDirectoryBytes)
+        ? Math.max(0, Math.floor(limits.maxZipCentralDirectoryBytes))
+        : defaults.maxZipCentralDirectoryBytes,
+    maxZipCommentBytes:
+      typeof limits?.maxZipCommentBytes === 'number' && Number.isFinite(limits.maxZipCommentBytes)
+        ? Math.max(0, Math.floor(limits.maxZipCommentBytes))
+        : defaults.maxZipCommentBytes,
+    maxZipEocdSearchBytes:
+      typeof limits?.maxZipEocdSearchBytes === 'number' && Number.isFinite(limits.maxZipEocdSearchBytes)
+        ? Math.max(22, Math.floor(limits.maxZipEocdSearchBytes))
+        : defaults.maxZipEocdSearchBytes,
+    maxBzip2BlockSize:
+      typeof limits?.maxBzip2BlockSize === 'number' && Number.isFinite(limits.maxBzip2BlockSize)
+        ? Math.max(1, Math.min(9, Math.floor(limits.maxBzip2BlockSize)))
+        : defaults.maxBzip2BlockSize,
+    maxInputBytes: toBigInt(limits?.maxInputBytes) ?? defaults.maxInputBytes
   };
 }
 

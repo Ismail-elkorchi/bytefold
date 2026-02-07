@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
 import { ArchiveError, openArchive, TarReader, TarWriter, createArchiveWriter } from '@ismail-elkorchi/bytefold';
 import { getCompressionCapabilities } from '@ismail-elkorchi/bytefold/compress';
 
@@ -104,11 +105,10 @@ test('createArchiveWriter (zip) roundtrip', async () => {
   assert.equal(reader.format, 'zip');
 });
 
-test('openArchive detects tar.zst', async (t) => {
+test('openArchive detects tar.zst', async () => {
   const caps = getCompressionCapabilities();
   if (!caps.algorithms.zstd.compress || !caps.algorithms.zstd.decompress) {
-    t.skip('zstd not supported');
-    return;
+    assert.fail('zstd support is required by the support matrix; update runtime policy or SPEC.md if unavailable');
   }
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -136,11 +136,10 @@ test('openArchive detects tar.zst', async (t) => {
   assert.deepEqual(names, ['hello.txt']);
 });
 
-test('openArchive does not auto-detect tar.br without hint', async (t) => {
+test('openArchive does not auto-detect tar.br without hint', async () => {
   const caps = getCompressionCapabilities();
   if (!caps.algorithms.brotli.compress || !caps.algorithms.brotli.decompress) {
-    t.skip('brotli not supported');
-    return;
+    assert.fail('brotli support is required by the support matrix; update runtime policy or SPEC.md if unavailable');
   }
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -158,11 +157,10 @@ test('openArchive does not auto-detect tar.br without hint', async (t) => {
   }, (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_UNSUPPORTED_FORMAT');
 });
 
-test('openArchive detects tar.br with explicit hint', async (t) => {
+test('openArchive detects tar.br with explicit hint', async () => {
   const caps = getCompressionCapabilities();
   if (!caps.algorithms.brotli.compress || !caps.algorithms.brotli.decompress) {
-    t.skip('brotli not supported');
-    return;
+    assert.fail('brotli support is required by the support matrix; update runtime policy or SPEC.md if unavailable');
   }
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -188,6 +186,40 @@ test('openArchive detects tar.br with explicit hint', async (t) => {
     assert.equal(new TextDecoder().decode(data), 'brotli tar');
   }
   assert.deepEqual(names, ['hello.txt']);
+});
+
+test('openArchive reads tar.zst fixture', async () => {
+  const caps = getCompressionCapabilities();
+  if (!caps.algorithms.zstd.compress || !caps.algorithms.zstd.decompress) {
+    assert.fail('zstd support is required by the support matrix; update runtime policy or SPEC.md if unavailable');
+  }
+  const bytes = new Uint8Array(await readFile(new URL('../test/fixtures/fixture.tar.zst', import.meta.url)));
+  const reader = await openArchive(bytes);
+  assert.equal(reader.format, 'tar.zst');
+  const entries: string[] = [];
+  for await (const entry of reader.entries()) {
+    entries.push(entry.name);
+    const data = await collect(await entry.open());
+    assert.equal(new TextDecoder().decode(data), 'hello fixture\n');
+  }
+  assert.deepEqual(entries, ['hello.txt']);
+});
+
+test('openArchive reads tar.br fixture with explicit hint', async () => {
+  const caps = getCompressionCapabilities();
+  if (!caps.algorithms.brotli.compress || !caps.algorithms.brotli.decompress) {
+    assert.fail('brotli support is required by the support matrix; update runtime policy or SPEC.md if unavailable');
+  }
+  const bytes = new Uint8Array(await readFile(new URL('../test/fixtures/fixture.tar.br', import.meta.url)));
+  const reader = await openArchive(bytes, { format: 'tar.br' });
+  assert.equal(reader.format, 'tar.br');
+  const entries: string[] = [];
+  for await (const entry of reader.entries()) {
+    entries.push(entry.name);
+    const data = await collect(await entry.open());
+    assert.equal(new TextDecoder().decode(data), 'hello fixture\n');
+  }
+  assert.deepEqual(entries, ['hello.txt']);
 });
 
 test('agent workflow: open → audit → assertSafe → extract', async () => {

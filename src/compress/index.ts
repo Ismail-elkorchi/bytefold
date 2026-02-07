@@ -3,16 +3,29 @@ import { ZipError } from '../errors.js';
 import { CompressionError } from './errors.js';
 import type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions } from './types.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
+import type { ResourceLimits } from '../limits.js';
 
 export type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions, CompressionProfile } from './types.js';
 export type { CompressionBackend, CompressionProgressEvent } from './types.js';
 export { CompressionError } from './errors.js';
 export type { CompressionErrorCode } from './errors.js';
 
+const PROBE_PAYLOAD = new TextEncoder().encode('bytefold-probe');
+const RUNTIME = detectRuntime();
+const WEB_PROBES: WebProbeResults | null =
+  RUNTIME === 'bun' || RUNTIME === 'deno' ? await probeWebCompression() : null;
+
 /** Inspect compression support in the current runtime. */
 export function getCompressionCapabilities(): CompressionCapabilities {
-  const runtime = detectRuntime();
+  const runtime = RUNTIME;
   const notes: string[] = [];
+  const noteSet = new Set<string>();
+  const addNote = (note: string) => {
+    if (!noteSet.has(note)) {
+      noteSet.add(note);
+      notes.push(note);
+    }
+  };
   const algorithms = {
     gzip: { compress: false, decompress: false, backend: 'none' },
     deflate: { compress: false, decompress: false, backend: 'none' },
@@ -26,12 +39,10 @@ export function getCompressionCapabilities(): CompressionCapabilities {
   for (const algorithm of Object.keys(algorithms) as CompressionAlgorithm[]) {
     if (algorithm === 'bzip2') continue;
     if (algorithm === 'xz') continue;
-    const webCompress = supportsWebCompression(algorithm, 'compress');
-    const webDecompress = supportsWebCompression(algorithm, 'decompress');
-
     if (runtime === 'node') {
-      const nodeCompress = supportsNodeZlib(algorithm, 'compress', notes);
-      const nodeDecompress = supportsNodeZlib(algorithm, 'decompress', notes);
+      const nodeSupport = probeNodeCompression(algorithm);
+      const nodeCompress = nodeSupport?.compress ?? false;
+      const nodeDecompress = nodeSupport?.decompress ?? false;
       if (nodeCompress || nodeDecompress) {
         algorithms[algorithm] = {
           compress: nodeCompress,
@@ -41,18 +52,31 @@ export function getCompressionCapabilities(): CompressionCapabilities {
         continue;
       }
     }
-
-    if (webCompress || webDecompress) {
+    const webSupport = WEB_PROBES && WEB_PROBES[algorithm] ? WEB_PROBES[algorithm] : { compress: false, decompress: false, backend: 'none' as const };
+    if (webSupport.compress || webSupport.decompress) {
       algorithms[algorithm] = {
-        compress: webCompress,
-        decompress: webDecompress,
-        backend: 'web'
+        compress: webSupport.compress,
+        decompress: webSupport.decompress,
+        backend: webSupport.backend
       };
     }
   }
 
-  if (runtime !== 'node' && typeof CompressionStream === 'undefined') {
-    notes.push('CompressionStream not available in this runtime');
+  if (runtime === 'deno') {
+    if (
+      algorithms.brotli.compress ||
+      algorithms.brotli.decompress ||
+      algorithms.zstd.compress ||
+      algorithms.zstd.decompress
+    ) {
+      addNote('Brotli and zstd are disabled on Deno for deterministic support.');
+    }
+    algorithms.brotli = { compress: false, decompress: false, backend: 'none' };
+    algorithms.zstd = { compress: false, decompress: false, backend: 'none' };
+  }
+
+  if (runtime !== 'node' && WEB_PROBES?.note) {
+    addNote(WEB_PROBES.note);
   }
 
   return { schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, runtime, algorithms, notes };
@@ -61,14 +85,16 @@ export function getCompressionCapabilities(): CompressionCapabilities {
 /** Create a TransformStream that compresses chunks with the selected algorithm. */
 export function createCompressor(options: CompressionOptions): TransformStream<Uint8Array, Uint8Array> {
   ensureSupported(options.algorithm, 'compress');
+  const resolved = resolveCompressionLimits(options);
   const transformPromise = createCompressTransform({
     algorithm: options.algorithm,
     ...(options.signal ? { signal: options.signal } : {}),
     ...(options.level !== undefined ? { level: options.level } : {}),
     ...(options.quality !== undefined ? { quality: options.quality } : {}),
-    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
-    ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
-    ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+    ...(resolved.maxOutputBytes !== undefined ? { maxOutputBytes: resolved.maxOutputBytes } : {}),
+    ...(resolved.maxCompressionRatio !== undefined ? { maxCompressionRatio: resolved.maxCompressionRatio } : {}),
+    ...(resolved.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: resolved.maxDictionaryBytes } : {}),
+    ...(resolved.maxBufferedInputBytes !== undefined ? { maxBufferedInputBytes: resolved.maxBufferedInputBytes } : {}),
     ...(options.profile ? { profile: options.profile } : {}),
     ...(options.onProgress
       ? {
@@ -90,12 +116,24 @@ export function createCompressor(options: CompressionOptions): TransformStream<U
 /** Create a TransformStream that decompresses chunks with the selected algorithm. */
 export function createDecompressor(options: CompressionOptions): TransformStream<Uint8Array, Uint8Array> {
   ensureSupported(options.algorithm, 'decompress');
+  const resolved = resolveCompressionLimits(options);
+  const debug = (options as {
+    __xzDebug?: {
+      maxBufferedInputBytes?: number;
+      maxDictionaryBytesUsed?: number;
+      totalBytesIn?: number;
+      totalBytesOut?: number;
+    };
+  }).__xzDebug;
   const transformPromise = createDecompressTransform({
     algorithm: options.algorithm,
     ...(options.signal ? { signal: options.signal } : {}),
-    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
-    ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
-    ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+    ...(resolved.maxOutputBytes !== undefined ? { maxOutputBytes: resolved.maxOutputBytes } : {}),
+    ...(resolved.maxCompressionRatio !== undefined ? { maxCompressionRatio: resolved.maxCompressionRatio } : {}),
+    ...(resolved.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: resolved.maxDictionaryBytes } : {}),
+    ...(resolved.maxBufferedInputBytes !== undefined ? { maxBufferedInputBytes: resolved.maxBufferedInputBytes } : {}),
+    ...(resolved.maxBzip2BlockSize !== undefined ? { maxBzip2BlockSize: resolved.maxBzip2BlockSize } : {}),
+    ...(debug ? { __xzDebug: debug } : {}),
     ...(options.profile ? { profile: options.profile } : {}),
     ...(options.onProgress
       ? {
@@ -111,7 +149,47 @@ export function createDecompressor(options: CompressionOptions): TransformStream
   }).catch((err) => {
     throw mapCompressionError(options.algorithm, err);
   });
-  return createLazyTransform(transformPromise);
+  const base = createLazyTransform(transformPromise);
+  if (resolved.maxOutputBytes !== undefined) {
+    return applyOutputLimit(base, resolved.maxOutputBytes, options.algorithm);
+  }
+  return base;
+}
+
+function resolveCompressionLimits(options: CompressionOptions): {
+  maxOutputBytes?: bigint | number;
+  maxCompressionRatio?: number;
+  maxDictionaryBytes?: bigint | number;
+  maxBufferedInputBytes?: number;
+  maxBzip2BlockSize?: number;
+} {
+  const limits = options.limits as (ResourceLimits & {
+    maxTotalUncompressedBytes?: bigint | number;
+    maxDictionaryBytes?: bigint | number;
+  });
+  const resolved: {
+    maxOutputBytes?: bigint | number;
+    maxCompressionRatio?: number;
+    maxDictionaryBytes?: bigint | number;
+    maxBufferedInputBytes?: number;
+    maxBzip2BlockSize?: number;
+  } = {};
+  const maxOutputBytes =
+    options.maxOutputBytes ??
+    limits?.maxTotalDecompressedBytes ??
+    limits?.maxTotalUncompressedBytes;
+  if (maxOutputBytes !== undefined) resolved.maxOutputBytes = maxOutputBytes;
+  const maxCompressionRatio = options.maxCompressionRatio ?? limits?.maxCompressionRatio;
+  if (maxCompressionRatio !== undefined) resolved.maxCompressionRatio = maxCompressionRatio;
+  const maxDictionaryBytes =
+    options.maxDictionaryBytes ??
+    limits?.maxXzDictionaryBytes ??
+    limits?.maxDictionaryBytes;
+  if (maxDictionaryBytes !== undefined) resolved.maxDictionaryBytes = maxDictionaryBytes;
+  const maxBufferedInputBytes = options.maxBufferedInputBytes ?? limits?.maxXzBufferedBytes;
+  if (maxBufferedInputBytes !== undefined) resolved.maxBufferedInputBytes = maxBufferedInputBytes;
+  if (limits?.maxBzip2BlockSize !== undefined) resolved.maxBzip2BlockSize = limits.maxBzip2BlockSize;
+  return resolved;
 }
 
 function mapCompressionError(algorithm: CompressionAlgorithm, err: unknown): CompressionError {
@@ -129,6 +207,39 @@ function mapCompressionError(algorithm: CompressionAlgorithm, err: unknown): Com
     algorithm,
     cause: err
   });
+}
+
+function applyOutputLimit(
+  transform: TransformStream<Uint8Array, Uint8Array>,
+  maxBytes: bigint | number,
+  algorithm: CompressionAlgorithm
+): TransformStream<Uint8Array, Uint8Array> {
+  const limit = toBigInt(maxBytes);
+  const limiterState = { total: 0n };
+  const limiter = new TransformStream<Uint8Array, Uint8Array>({
+    transform(chunk, controller) {
+      const nextTotal = limiterState.total + BigInt(chunk.length);
+      if (nextTotal > limit) {
+        throw new CompressionError('COMPRESSION_RESOURCE_LIMIT', 'Decompressed output exceeds limit', {
+          algorithm,
+          context: {
+            limitBytes: limit.toString(),
+            observedBytes: nextTotal.toString()
+          }
+        });
+      }
+      limiterState.total = nextTotal;
+      controller.enqueue(chunk);
+    }
+  });
+  return {
+    readable: transform.readable.pipeThrough(limiter),
+    writable: transform.writable
+  } as TransformStream<Uint8Array, Uint8Array>;
+}
+
+function toBigInt(value: bigint | number): bigint {
+  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 type CompressionMode = 'compress' | 'decompress';
@@ -199,49 +310,127 @@ function detectRuntime(): CompressionCapabilities['runtime'] {
   return 'unknown';
 }
 
-function supportsWebCompression(algorithm: CompressionAlgorithm, mode: CompressionMode): boolean {
-  if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') return false;
+type ProbeResult = { compress: boolean; decompress: boolean; backend: 'web' | 'none' };
+type WebProbeResults = Record<CompressionAlgorithm, ProbeResult> & { note?: string };
+
+async function probeWebCompression(): Promise<WebProbeResults> {
+  if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') {
+    return {
+      gzip: { compress: false, decompress: false, backend: 'none' },
+      deflate: { compress: false, decompress: false, backend: 'none' },
+      'deflate-raw': { compress: false, decompress: false, backend: 'none' },
+      brotli: { compress: false, decompress: false, backend: 'none' },
+      zstd: { compress: false, decompress: false, backend: 'none' },
+      bzip2: { compress: false, decompress: false, backend: 'none' },
+      xz: { compress: false, decompress: false, backend: 'none' },
+      note: 'CompressionStream not available in this runtime'
+    };
+  }
+  const results: WebProbeResults = {
+    gzip: { compress: false, decompress: false, backend: 'none' },
+    deflate: { compress: false, decompress: false, backend: 'none' },
+    'deflate-raw': { compress: false, decompress: false, backend: 'none' },
+    brotli: { compress: false, decompress: false, backend: 'none' },
+    zstd: { compress: false, decompress: false, backend: 'none' },
+    bzip2: { compress: false, decompress: false, backend: 'none' },
+    xz: { compress: false, decompress: false, backend: 'none' }
+  };
+  const algorithms: CompressionAlgorithm[] = ['gzip', 'deflate', 'deflate-raw', 'brotli', 'zstd'];
+  for (const algorithm of algorithms) {
+    const ok = await probeWebRoundtrip(algorithm);
+    results[algorithm] = { compress: ok, decompress: ok, backend: ok ? 'web' : 'none' };
+  }
+  return results;
+}
+
+async function probeWebRoundtrip(algorithm: CompressionAlgorithm): Promise<boolean> {
+  const payload = PROBE_PAYLOAD;
   try {
-    if (mode === 'compress') {
-      const stream = new CompressionStream(algorithm as unknown as CompressionFormat);
-      void stream;
-    } else {
-      const stream = new DecompressionStream(algorithm as unknown as CompressionFormat);
-      void stream;
-    }
-    return true;
+    const compressPair = new CompressionStream(algorithm as unknown as CompressionFormat) as unknown as ReadableWritablePair<
+      Uint8Array,
+      Uint8Array
+    >;
+    const decompressPair = new DecompressionStream(
+      algorithm as unknown as CompressionFormat
+    ) as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
+    const compressed = await collectStream(readableFromBytes(payload).pipeThrough(compressPair));
+    const decompressed = await collectStream(readableFromBytes(compressed).pipeThrough(decompressPair));
+    return bytesEqual(payload, decompressed);
   } catch {
     return false;
   }
 }
 
-function supportsNodeZlib(
-  algorithm: CompressionAlgorithm,
-  _mode: CompressionMode,
-  notes: string[]
-): boolean {
-  if (typeof process === 'undefined' || !process.versions?.node) return false;
-  if (algorithm === 'gzip' || algorithm === 'deflate' || algorithm === 'deflate-raw') return true;
+function probeNodeCompression(algorithm: CompressionAlgorithm): { compress: boolean; decompress: boolean } | null {
+  const binding = getNodeZlibBinding();
+  if (!binding) return null;
+  if (algorithm === 'gzip' || algorithm === 'deflate' || algorithm === 'deflate-raw') {
+    const ok = 'Zlib' in binding;
+    return { compress: ok, decompress: ok };
+  }
   if (algorithm === 'brotli') {
-    notes.push('Brotli support inferred from Node runtime (no direct sync probe).');
-    return true;
+    const ok = 'BrotliEncoder' in binding && 'BrotliDecoder' in binding;
+    return { compress: ok, decompress: ok };
   }
   if (algorithm === 'zstd') {
-    const zstdFlag = (process as unknown as { config?: { variables?: Record<string, unknown> } }).config?.variables
-      ?.node_use_zstd;
-    const zstdVersion = (process.versions as Record<string, string | undefined>).zstd;
-    const enabled =
-      typeof zstdFlag === 'boolean'
-        ? zstdFlag
-        : typeof zstdFlag === 'number'
-          ? zstdFlag !== 0
-          : typeof zstdFlag === 'string'
-            ? zstdFlag !== '0' && zstdFlag.toLowerCase() !== 'false'
-            : !!zstdVersion;
-    if (!enabled) {
-      notes.push('Zstandard support not detected from Node build flags.');
-    }
-    return enabled;
+    const ok = 'ZstdCompress' in binding && 'ZstdDecompress' in binding;
+    return { compress: ok, decompress: ok };
   }
-  return false;
+  return null;
+}
+
+function getNodeZlibBinding(): Record<string, unknown> | null {
+  if (typeof process === 'undefined' || !process.versions?.node) return null;
+  const bindingFn = (process as unknown as { binding?: (name: string) => unknown }).binding;
+  if (!bindingFn) return null;
+  try {
+    const binding = bindingFn.call(process, 'zlib');
+    if (binding && typeof binding === 'object') return binding as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function readableFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {
+  return new ReadableStream({
+    start(controller) {
+      controller.enqueue(data);
+      controller.close();
+    }
+  });
+}
+
+async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      if (value) chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return concatChunks(chunks);
+}
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i += 1) {
+    if (a[i] !== b[i]) return false;
+  }
+  return true;
 }

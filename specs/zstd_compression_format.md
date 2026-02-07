@@ -1,3 +1,11 @@
+---
+role: reference
+audience: maintainers
+source_of_truth: upstream
+update_triggers:
+  - upstream spec updates
+---
+
 Zstandard Compression Format
 ============================
 

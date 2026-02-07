@@ -1,3 +1,6 @@
+import type { ResourceLimits } from './limits.js';
+export type { ResourceLimits } from './limits.js';
+
 /** ZIP compression method identifiers. */
 export type CompressionMethod = 0 | 8 | 9 | 93 | (number & {});
 
@@ -85,12 +88,7 @@ export type ZipWarning = {
 };
 
 /** Limits used when reading or extracting ZIP archives. */
-export type ZipLimits = {
-  maxEntries?: number;
-  maxUncompressedEntryBytes?: bigint | number;
-  maxTotalUncompressedBytes?: bigint | number;
-  maxCompressionRatio?: number;
-};
+export type ZipLimits = ResourceLimits;
 
 /** Options for creating ZipReader instances. */
 export type ZipReaderOptions = {
@@ -104,6 +102,7 @@ export type ZipReaderOptions = {
     headers?: Record<string, string>;
     cache?: { blockSize?: number; maxBlocks?: number };
     signal?: AbortSignal;
+    snapshot?: 'require-strong-etag' | 'best-effort';
   };
 };
 

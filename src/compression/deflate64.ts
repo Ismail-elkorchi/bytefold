@@ -1,4 +1,5 @@
 import { ZipError } from '../errors.js';
+import { emitStable } from '../streams/emit.js';
 import { throwIfAborted } from '../abort.js';
 import type { ZipDecompressionOptions } from './types.js';
 
@@ -403,7 +404,7 @@ class Deflate64Inflater {
 
   private flushOutput(controller: TransformStreamDefaultController<Uint8Array>): void {
     if (this.outputLen === 0) return;
-    controller.enqueue(this.output.subarray(0, this.outputLen));
+    emitStable(controller, this.output.subarray(0, this.outputLen));
     this.outputLen = 0;
   }
 

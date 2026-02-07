@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bytefold Error",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "name", "code", "message", "hint", "context"],
+  "properties": {
+    "schemaVersion": { "enum": ["1"] },
+    "name": { "type": "string" },
+    "code": { "type": "string" },
+    "message": { "type": "string" },
+    "hint": { "type": "string" },
+    "context": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "entryName": { "type": "string" },
+    "method": { "type": "number" },
+    "algorithm": { "type": "string" },
+    "offset": { "type": "string" }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "schemaVersion": "1",
+  "package": "@ismail-elkorchi/bytefold",
+  "entrypoints": {
+    ".": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold",
+      "dtsPath": "dist/index.d.ts",
+      "sha256": "d8f318ca7b6d73ead6e881d6db86d18829c945690072cf539eb5d5da6d001cf3",
+      "bytes": 613
+    },
+    "./archive": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/archive",
+      "dtsPath": "dist/archive/index.d.ts",
+      "sha256": "814dd0d159cc71a8bca811db9f1edeb857bbcfc1ee1ecd232167cbbef00e36de",
+      "bytes": 2179
+    },
+    "./bun": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/bun",
+      "dtsPath": "dist/bun/index.d.ts",
+      "sha256": "5c4f2c34d14827160a41fe1075605ccbbe7a6cb5dbf5f913135f616905802cb5",
+      "bytes": 1540
+    },
+    "./compress": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/compress",
+      "dtsPath": "dist/compress/index.d.ts",
+      "sha256": "caca70209072c35fd74f544bf05df80fd9fd894fbf41c036e117a76ab472bdc1",
+      "bytes": 919
+    },
+    "./deno": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/deno",
+      "dtsPath": "dist/deno/index.d.ts",
+      "sha256": "d82206bcb1ef8c45b69a76ed9dbe4f7fcbc669a666358c2ff692405347e723a8",
+      "bytes": 1542
+    },
+    "./node": {
+      "registries": [
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/node",
+      "dtsPath": "dist/node/index.d.ts",
+      "sha256": "a352649195797fa5ce1c97b4a944c315429f33b7752fe1e3a3e8563b96edf772",
+      "bytes": 1089
+    },
+    "./node/zip": {
+      "registries": [
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/node/zip",
+      "dtsPath": "dist/node/zip/index.d.ts",
+      "sha256": "440eda9a79cba08127f3190ffa23924d25e138c2eeea8e0ca2e0e9701e729807",
+      "bytes": 815
+    },
+    "./tar": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/tar",
+      "dtsPath": "dist/tar/index.d.ts",
+      "sha256": "cbe38054696bd9ef280b3e1cf87ac1ea5be11808f7c54e06fa4c1e1bc594d511",
+      "bytes": 287
+    },
+    "./zip": {
+      "registries": [
+        "jsr",
+        "npm"
+      ],
+      "npmSpecifier": "@ismail-elkorchi/bytefold/zip",
+      "dtsPath": "dist/zip/index.d.ts",
+      "sha256": "eb413e262ae6b69c65edc16213e6ba896dcef2c76b515a2d792edfb6c737d6c2",
+      "bytes": 875
+    }
+  }
+}

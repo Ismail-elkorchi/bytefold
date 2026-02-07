@@ -1,0 +1,25 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "Bytefold Compression Capabilities Report",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "runtime", "algorithms", "notes"],
+  "properties": {
+    "schemaVersion": { "enum": ["1"] },
+    "runtime": { "enum": ["node", "deno", "bun", "unknown"] },
+    "algorithms": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["compress", "decompress", "backend"],
+        "properties": {
+          "compress": { "type": "boolean" },
+          "decompress": { "type": "boolean" },
+          "backend": { "type": "string" }
+        }
+      }
+    },
+    "notes": { "type": "array", "items": { "type": "string" } }
+  }
+}

@@ -1,5 +1,6 @@
 import { throwIfAborted } from '../abort.js';
 import { CompressionError } from '../compress/errors.js';
+import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 
 const BLOCK_MAGIC = 0x314159265359n;
 const END_MAGIC = 0x177245385090n;
@@ -8,6 +9,8 @@ const GROUP_SIZE = 50;
 
 const RUNA = 0;
 const RUNB = 1;
+const OUTPUT_CHUNK_SIZE = 8192;
+const DEFAULT_MAX_BLOCK_SIZE = DEFAULT_RESOURCE_LIMITS.maxBzip2BlockSize;
 const BZIP2_CRC_POLY = 0x04c11db7;
 const BZIP2_CRC_TABLE = (() => {
   const table = new Uint32Array(256);
@@ -29,6 +32,7 @@ export type Bzip2DecompressOptions = {
   signal?: AbortSignal;
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
+  maxBlockSize?: number;
 };
 
 export function createBzip2DecompressStream(
@@ -50,10 +54,11 @@ export function createBzip2DecompressStream(
         compressedSize: totalIn,
         ...(options.signal ? { signal: options.signal } : {}),
         ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
-        ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {})
+        ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
+        ...(options.maxBlockSize !== undefined ? { maxBlockSize: options.maxBlockSize } : {})
       };
       const output = decodeBzip2(input, decodeOptions);
-      for (const part of splitChunks(output)) {
+      for (const part of splitChunks(output, OUTPUT_CHUNK_SIZE)) {
         if (options.signal) throwIfAborted(options.signal);
         controller.enqueue(part);
       }
@@ -61,39 +66,93 @@ export function createBzip2DecompressStream(
   });
 }
 
+export function readBzip2BlockSize(data: Uint8Array): number | undefined {
+  if (data.length < 4) return undefined;
+  if (data[0] !== 0x42 || data[1] !== 0x5a || data[2] !== 0x68) return undefined;
+  const level = (data[3] ?? 0) - 0x30;
+  if (level < 1 || level > 9) return undefined;
+  return level;
+}
+
 type DecodeOptions = {
   signal?: AbortSignal;
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
+  maxBlockSize?: number;
   compressedSize: number;
 };
 
+type DecodeState = {
+  signal?: AbortSignal;
+  maxOutputBytes?: bigint;
+  maxRatioBytes?: bigint;
+  totalOut: bigint;
+  maxBlockSize?: number;
+};
+
 function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
-  if (input.length < 4) {
-    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Truncated bzip2 header');
-  }
-  if (input[0] !== 0x42 || input[1] !== 0x5a || input[2] !== 0x68) {
-    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Invalid bzip2 header');
-  }
-  const level = (input[3] ?? 0) - 0x30;
-  if (level < 1 || level > 9) {
-    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Invalid bzip2 block size');
-  }
-  const maxBlockSize = level * 100000;
-  const reader = new BitReader(input, 4);
-
-  let combinedCrc = 0;
-  const outputChunks: Uint8Array[] = [];
-  let totalOut = 0n;
-
   const maxOutputBytes = options.maxOutputBytes !== undefined ? toBigInt(options.maxOutputBytes) : undefined;
   const maxRatioBytes =
     options.maxCompressionRatio !== undefined
       ? BigInt(Math.ceil(options.compressedSize * options.maxCompressionRatio))
       : undefined;
+  const state: DecodeState = { totalOut: 0n };
+  if (options.signal) state.signal = options.signal;
+  if (maxOutputBytes !== undefined) state.maxOutputBytes = maxOutputBytes;
+  if (maxRatioBytes !== undefined) state.maxRatioBytes = maxRatioBytes;
+  if (options.maxBlockSize !== undefined) state.maxBlockSize = options.maxBlockSize;
+
+  const outputChunks: Uint8Array[] = [];
+  let offset = 0;
+  while (offset < input.length) {
+    const result = decodeBzip2Stream(input, offset, state);
+    outputChunks.push(result.output);
+    offset = result.offset;
+  }
+  return concatChunks(outputChunks);
+}
+
+function decodeBzip2Stream(
+  input: Uint8Array,
+  offset: number,
+  state: DecodeState
+): { output: Uint8Array; offset: number } {
+  if (offset + 4 > input.length) {
+    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Truncated bzip2 header');
+  }
+  if (input[offset] !== 0x42 || input[offset + 1] !== 0x5a || input[offset + 2] !== 0x68) {
+    const message = offset === 0 ? 'Invalid bzip2 header' : 'Trailing bytes after bzip2 stream';
+    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', message);
+  }
+  const level = (input[offset + 3] ?? 0) - 0x30;
+  if (level < 1 || level > 9) {
+    throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Invalid bzip2 block size');
+  }
+  const maxBlockSize =
+    typeof state.maxBlockSize === 'number' && Number.isFinite(state.maxBlockSize)
+      ? Math.max(1, Math.min(9, Math.floor(state.maxBlockSize)))
+      : DEFAULT_MAX_BLOCK_SIZE;
+  if (level > maxBlockSize) {
+    throw new CompressionError(
+      'COMPRESSION_RESOURCE_LIMIT',
+      `BZip2 block size ${level} exceeds limit`,
+      {
+        algorithm: 'bzip2',
+        context: {
+          requiredBlockSize: String(level),
+          limitBlockSize: String(maxBlockSize)
+        }
+      }
+    );
+  }
+  const blockSizeBytes = level * 100000;
+  const reader = new BitReader(input, offset + 4);
+
+  let combinedCrc = 0;
+  const outputChunks: Uint8Array[] = [];
 
   while (true) {
-    if (options.signal) throwIfAborted(options.signal);
+    if (state.signal) throwIfAborted(state.signal);
     const magic = reader.readUint48();
     if (magic === null) {
       throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Unexpected end of bzip2 stream');
@@ -106,7 +165,7 @@ function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
       if ((storedCombined >>> 0) !== (combinedCrc >>> 0)) {
         throw new CompressionError('COMPRESSION_BZIP2_CRC_MISMATCH', 'BZip2 combined CRC mismatch');
       }
-      break;
+      return { output: concatChunks(outputChunks), offset: reader.getByteOffset() };
     }
     if (magic !== BLOCK_MAGIC) {
       throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'Invalid bzip2 block header');
@@ -154,7 +213,7 @@ function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
     const selectors = readSelectors(reader, nGroups, nSelectors);
     const tables = readHuffmanTables(reader, nGroups, alphaSize);
 
-    const decoded = new Uint8Array(maxBlockSize);
+    const decoded = new Uint8Array(blockSizeBytes);
     let decodedLength = 0;
 
     const mtf: number[] = [...symbols];
@@ -177,7 +236,7 @@ function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
     const eob = nInUse + 1;
 
     while (true) {
-      if (options.signal) throwIfAborted(options.signal);
+      if (state.signal) throwIfAborted(state.signal);
       let sym = decodeSymbol();
       if (sym === eob) break;
 
@@ -221,7 +280,7 @@ function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
 
     const bwtBlock = decoded.subarray(0, decodedLength);
     const unbwt = inverseBwt(bwtBlock, origPtr);
-    const rleDecoded = decodeRle1(unbwt, options.signal);
+    const rleDecoded = decodeRle1(unbwt, state.signal);
 
     const crc = computeCrc(rleDecoded);
     if ((crc >>> 0) !== (blockCrc >>> 0)) {
@@ -230,18 +289,16 @@ function decodeBzip2(input: Uint8Array, options: DecodeOptions): Uint8Array {
 
     combinedCrc = ((combinedCrc << 1) | (combinedCrc >>> 31)) ^ (crc >>> 0);
 
-    totalOut += BigInt(rleDecoded.length);
-    if (maxOutputBytes !== undefined && totalOut > maxOutputBytes) {
+    state.totalOut += BigInt(rleDecoded.length);
+    if (state.maxOutputBytes !== undefined && state.totalOut > state.maxOutputBytes) {
       throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'BZip2 output exceeds maxOutputBytes');
     }
-    if (maxRatioBytes !== undefined && totalOut > maxRatioBytes) {
+    if (state.maxRatioBytes !== undefined && state.totalOut > state.maxRatioBytes) {
       throw new CompressionError('COMPRESSION_BZIP2_BAD_DATA', 'BZip2 output exceeds maxCompressionRatio');
     }
 
     outputChunks.push(rleDecoded);
   }
-
-  return concatChunks(outputChunks);
 }
 
 class BitReader {
@@ -284,6 +341,14 @@ class BitReader {
     const low = this.readBits(24);
     if (high === null || low === null) return null;
     return (BigInt(high) << 24n) | BigInt(low);
+  }
+
+  getByteOffset(): number {
+    return this.offset;
+  }
+
+  getBitCount(): number {
+    return this.bitCount;
   }
 }
 

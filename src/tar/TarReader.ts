@@ -1,8 +1,10 @@
 import { ArchiveError } from '../archive/errors.js';
+import { normalizePathForCollision, toCollisionKey } from '../text/caseFold.js';
 import type { ArchiveLimits, ArchiveProfile } from '../archive/types.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromBytes } from '../streams/web.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
+import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import type {
   TarAuditOptions,
   TarAuditReport,
@@ -17,21 +19,8 @@ import { throwIfAborted } from '../abort.js';
 
 const BLOCK_SIZE = 512;
 
-const DEFAULT_LIMITS: Required<ArchiveLimits> = {
-  maxEntries: 10000,
-  maxUncompressedEntryBytes: 512n * 1024n * 1024n,
-  maxTotalUncompressedBytes: 2n * 1024n * 1024n * 1024n,
-  maxCompressionRatio: 1000,
-  maxDictionaryBytes: 64n * 1024n * 1024n
-};
-
-const AGENT_LIMITS: Required<ArchiveLimits> = {
-  maxEntries: 5000,
-  maxUncompressedEntryBytes: 256n * 1024n * 1024n,
-  maxTotalUncompressedBytes: 1024n * 1024n * 1024n,
-  maxCompressionRatio: 200,
-  maxDictionaryBytes: 32n * 1024n * 1024n
-};
+const DEFAULT_LIMITS: Required<ArchiveLimits> = DEFAULT_RESOURCE_LIMITS;
+const AGENT_LIMITS: Required<ArchiveLimits> = AGENT_RESOURCE_LIMITS;
 
 const TEXT_DECODER = new TextDecoder('utf-8');
 
@@ -73,7 +62,11 @@ export class TarReader {
   static async fromStream(stream: ReadableStream<Uint8Array>, options?: TarReaderOptions): Promise<TarReader> {
     const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
     if (options?.signal) readOptions.signal = options.signal;
-    if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    if (options?.limits?.maxInputBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxInputBytes;
+    } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
+      readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
+    } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
       readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
     }
     const data = await readAllBytes(stream, readOptions);
@@ -152,8 +145,9 @@ export class TarReader {
       return finalizeAuditReport(issues, summary);
     }
 
-    const seenNames = new Map<string, number>();
-    const seenLower = new Map<string, string>();
+    const seenNames = new Map<string, string>();
+    const seenNfc = new Map<string, { original: string; normalized: string }>();
+    const seenCase = new Map<string, { original: string; nfc: string }>();
     let total = 0n;
 
     for (const entry of this.entriesList) {
@@ -180,28 +174,46 @@ export class TarReader {
         });
       }
 
-      const existingIndex = seenNames.get(entry.name);
-      if (existingIndex !== undefined) {
-        addIssue({
-          code: 'TAR_DUPLICATE_ENTRY',
-          severity: settings.strict ? 'error' : 'warning',
-          message: `Duplicate entry name: ${entry.name}`,
-          entryName: entry.name
-        });
+      const normalizedName = normalizePathForCollision(entry.name, entry.isDirectory);
+      if (normalizedName) {
+        const existing = seenNames.get(normalizedName);
+        if (existing !== undefined) {
+          addIssue({
+            code: 'TAR_DUPLICATE_ENTRY',
+            severity: settings.strict ? 'error' : 'warning',
+            message: `Duplicate entry name: ${existing} vs ${entry.name}`,
+            entryName: entry.name,
+            details: { otherName: existing, key: normalizedName, collisionKind: 'duplicate' }
+          });
+        } else {
+          const nfcName = normalizedName.normalize('NFC');
+          const caseKey = toCollisionKey(normalizedName, entry.isDirectory);
+          const existingNfc = seenNfc.get(nfcName);
+          if (existingNfc && existingNfc.normalized !== normalizedName) {
+            addIssue({
+              code: 'TAR_UNICODE_COLLISION',
+              severity: 'error',
+              message: `Unicode normalization collision: ${existingNfc.original} vs ${entry.name}`,
+              entryName: entry.name,
+              details: { otherName: existingNfc.original, key: nfcName, collisionKind: 'unicode_nfc' }
+            });
+          } else {
+            const existingCase = seenCase.get(caseKey);
+            if (existingCase && existingCase.nfc !== nfcName) {
+              addIssue({
+                code: 'TAR_CASE_COLLISION',
+                severity: settings.strict ? 'error' : 'warning',
+                message: `Case-insensitive name collision: ${existingCase.original} vs ${entry.name}`,
+                entryName: entry.name,
+                details: { otherName: existingCase.original, key: caseKey, collisionKind: 'casefold' }
+              });
+            }
+          }
+          seenNames.set(normalizedName, entry.name);
+          seenNfc.set(nfcName, { original: entry.name, normalized: normalizedName });
+          seenCase.set(caseKey, { original: entry.name, nfc: nfcName });
+        }
       }
-      seenNames.set(entry.name, summary.entries - 1);
-
-      const lower = entry.name.toLocaleLowerCase('en-US');
-      const existingLower = seenLower.get(lower);
-      if (existingLower && existingLower !== entry.name) {
-        addIssue({
-          code: 'TAR_CASE_COLLISION',
-          severity: settings.strict ? 'error' : 'warning',
-          message: `Case-insensitive name collision: ${existingLower} vs ${entry.name}`,
-          entryName: entry.name
-        });
-      }
-      seenLower.set(lower, entry.name);
 
       if (entry.isSymlink && settings.symlinkSeverity !== 'info') {
         addIssue({
@@ -277,9 +289,35 @@ export class TarReader {
       summary.entries += 1;
       if (item.dropped) continue;
       const entry = item.entry;
-      if (entry.isSymlink && onSymlink === 'drop') {
-        summary.droppedEntries += 1;
-        continue;
+      if (entry.isSymlink) {
+        addIssue({
+          code: 'TAR_SYMLINK_PRESENT',
+          severity: 'error',
+          message: 'Symlink entries are not allowed during normalization',
+          entryName: entry.name
+        });
+        if (onSymlink === 'drop') {
+          summary.droppedEntries += 1;
+          continue;
+        }
+        throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Symlink entries are not allowed during normalization', {
+          entryName: entry.name
+        });
+      }
+      if (entry.type === 'link') {
+        addIssue({
+          code: 'TAR_UNSUPPORTED_ENTRY',
+          severity: 'error',
+          message: 'Hardlink entries are not allowed during normalization',
+          entryName: entry.name
+        });
+        if (onUnsupported === 'drop') {
+          summary.droppedEntries += 1;
+          continue;
+        }
+        throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Hardlink entries are not allowed during normalization', {
+          entryName: entry.name
+        });
       }
 
       const data = entry.isDirectory
@@ -368,13 +406,57 @@ function resolveProfileDefaults(profile: ArchiveProfile): { strict: boolean; lim
   return { strict: true, limits: DEFAULT_LIMITS };
 }
 
+/** @internal */
+export function __getTarDefaultsForProfile(profile: ArchiveProfile): Required<ArchiveLimits> {
+  return resolveProfileDefaults(profile).limits;
+}
+
 function normalizeLimits(limits?: ArchiveLimits, defaults: Required<ArchiveLimits> = DEFAULT_LIMITS): Required<ArchiveLimits> {
+  const maxTotal =
+    toBigInt(limits?.maxTotalDecompressedBytes ?? limits?.maxTotalUncompressedBytes) ??
+    defaults.maxTotalUncompressedBytes;
   return {
     maxEntries: limits?.maxEntries ?? defaults.maxEntries,
     maxUncompressedEntryBytes: toBigInt(limits?.maxUncompressedEntryBytes) ?? defaults.maxUncompressedEntryBytes,
-    maxTotalUncompressedBytes: toBigInt(limits?.maxTotalUncompressedBytes) ?? defaults.maxTotalUncompressedBytes,
+    maxTotalUncompressedBytes: maxTotal,
+    maxTotalDecompressedBytes: maxTotal,
     maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio,
-    maxDictionaryBytes: toBigInt(limits?.maxDictionaryBytes) ?? defaults.maxDictionaryBytes
+    maxDictionaryBytes: toBigInt(limits?.maxDictionaryBytes) ?? defaults.maxDictionaryBytes,
+    maxXzDictionaryBytes:
+      toBigInt(limits?.maxXzDictionaryBytes ?? limits?.maxDictionaryBytes) ?? defaults.maxXzDictionaryBytes,
+    maxXzBufferedBytes:
+      typeof limits?.maxXzBufferedBytes === 'number' && Number.isFinite(limits.maxXzBufferedBytes)
+        ? Math.max(1, Math.floor(limits.maxXzBufferedBytes))
+        : defaults.maxXzBufferedBytes,
+    maxXzIndexRecords:
+      typeof limits?.maxXzIndexRecords === 'number' && Number.isFinite(limits.maxXzIndexRecords)
+        ? Math.max(1, Math.floor(limits.maxXzIndexRecords))
+        : defaults.maxXzIndexRecords,
+    maxXzIndexBytes:
+      typeof limits?.maxXzIndexBytes === 'number' && Number.isFinite(limits.maxXzIndexBytes)
+        ? Math.max(8, Math.floor(limits.maxXzIndexBytes))
+        : defaults.maxXzIndexBytes,
+    maxXzPreflightBlockHeaders:
+      typeof limits?.maxXzPreflightBlockHeaders === 'number' && Number.isFinite(limits.maxXzPreflightBlockHeaders)
+        ? Math.max(0, Math.floor(limits.maxXzPreflightBlockHeaders))
+        : defaults.maxXzPreflightBlockHeaders,
+    maxZipCentralDirectoryBytes:
+      typeof limits?.maxZipCentralDirectoryBytes === 'number' && Number.isFinite(limits.maxZipCentralDirectoryBytes)
+        ? Math.max(0, Math.floor(limits.maxZipCentralDirectoryBytes))
+        : defaults.maxZipCentralDirectoryBytes,
+    maxZipCommentBytes:
+      typeof limits?.maxZipCommentBytes === 'number' && Number.isFinite(limits.maxZipCommentBytes)
+        ? Math.max(0, Math.floor(limits.maxZipCommentBytes))
+        : defaults.maxZipCommentBytes,
+    maxZipEocdSearchBytes:
+      typeof limits?.maxZipEocdSearchBytes === 'number' && Number.isFinite(limits.maxZipEocdSearchBytes)
+        ? Math.max(22, Math.floor(limits.maxZipEocdSearchBytes))
+        : defaults.maxZipEocdSearchBytes,
+    maxBzip2BlockSize:
+      typeof limits?.maxBzip2BlockSize === 'number' && Number.isFinite(limits.maxBzip2BlockSize)
+        ? Math.max(1, Math.min(9, Math.floor(limits.maxBzip2BlockSize)))
+        : defaults.maxBzip2BlockSize,
+    maxInputBytes: toBigInt(limits?.maxInputBytes) ?? defaults.maxInputBytes
   };
 }
 
@@ -680,7 +762,9 @@ function collectNormalizedEntries(
 ): Array<{ entry: TarEntryRecord; normalizedName: string; dropped: boolean }> {
   const out: Array<{ entry: TarEntryRecord; normalizedName: string; dropped: boolean }> = [];
   const nameIndex = new Map<string, number>();
-  const lowerIndex = new Map<string, string>();
+  const caseIndex = new Map<string, { original: string; target: string; nfc: string }>();
+  const nfcIndex = new Map<string, { original: string; target: string }>();
+  const originalNames = new Map<string, string>();
 
   for (const entry of entries) {
     const normalizedName = normalizeEntryName(entry.name, entry.isDirectory, params.addIssue);
@@ -690,49 +774,89 @@ function collectNormalizedEntries(
     const existingIndex = nameIndex.get(targetName);
     if (existingIndex !== undefined) {
       if (params.onDuplicate === 'error') {
+        const existingName = originalNames.get(targetName) ?? targetName;
         params.addIssue({
           code: 'TAR_DUPLICATE_ENTRY',
           severity: 'error',
-          message: `Duplicate entry name: ${targetName}`,
-          entryName: entry.name
+          message: `Duplicate entry name: ${existingName} vs ${entry.name}`,
+          entryName: entry.name,
+          details: { collisionKind: 'duplicate', otherName: existingName, key: targetName }
         });
-        throw new ArchiveError('ARCHIVE_BAD_HEADER', 'Duplicate entry name', { entryName: entry.name });
+        throw new ArchiveError('ARCHIVE_NAME_COLLISION', 'Name collision detected (duplicate). Rename entries to avoid collisions.', {
+          entryName: entry.name,
+          context: buildCollisionContext('duplicate', existingName, entry.name, targetName, 'tar')
+        });
       }
       if (params.onDuplicate === 'last-wins') {
         out[existingIndex]!.dropped = true;
         params.summary.droppedEntries += 1;
       } else if (params.onDuplicate === 'rename') {
-        targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+        targetName = resolveConflictName(targetName, nameIndex, caseIndex);
         renamed = true;
       }
     }
 
-    const lower = targetName.toLocaleLowerCase('en-US');
-    const existingLower = lowerIndex.get(lower);
-    if (existingLower && existingLower !== targetName) {
+    const nfcName = targetName.normalize('NFC');
+    const existingNfc = nfcIndex.get(nfcName);
+    if (existingNfc && existingNfc.target !== targetName) {
+      params.addIssue({
+        code: 'TAR_UNICODE_COLLISION',
+        severity: 'error',
+        message: `Unicode normalization collision: ${existingNfc.original} vs ${entry.name}`,
+        entryName: entry.name,
+        details: { collisionKind: 'unicode_nfc', otherName: existingNfc.original, key: nfcName }
+      });
+      throw new ArchiveError(
+        'ARCHIVE_NAME_COLLISION',
+        'Name collision detected (unicode_nfc). Rename entries to avoid collisions.',
+        {
+          entryName: entry.name,
+          context: buildCollisionContext('unicode_nfc', existingNfc.original, entry.name, nfcName, 'tar')
+        }
+      );
+    }
+
+    const caseKey = toCollisionKey(targetName, entry.isDirectory);
+    const existingCase = caseIndex.get(caseKey);
+    if (existingCase && existingCase.target !== targetName) {
       if (params.onCaseCollision === 'error') {
         params.addIssue({
           code: 'TAR_CASE_COLLISION',
           severity: 'error',
-          message: `Case-insensitive name collision: ${existingLower} vs ${targetName}`,
-          entryName: entry.name
+          message: `Case-insensitive name collision: ${existingCase.original} vs ${entry.name}`,
+          entryName: entry.name,
+          details: { collisionKind: 'casefold', otherName: existingCase.original, key: caseKey }
         });
-        throw new ArchiveError('ARCHIVE_BAD_HEADER', 'Case-insensitive name collision', { entryName: entry.name });
+        throw new ArchiveError(
+          'ARCHIVE_NAME_COLLISION',
+          'Name collision detected (case). Rename entries to avoid collisions.',
+          {
+            entryName: entry.name,
+            context: buildCollisionContext('case', existingCase.original, entry.name, caseKey, 'tar')
+          }
+        );
       }
       if (params.onCaseCollision === 'last-wins') {
-        const previous = nameIndex.get(existingLower);
+        const previous = nameIndex.get(existingCase.target);
         if (previous !== undefined) {
           out[previous]!.dropped = true;
           params.summary.droppedEntries += 1;
         }
       } else if (params.onCaseCollision === 'rename') {
-        targetName = resolveConflictName(targetName, nameIndex, lowerIndex);
+        targetName = resolveConflictName(targetName, nameIndex, caseIndex);
         renamed = true;
       }
     }
 
     nameIndex.set(targetName, out.length);
-    lowerIndex.set(targetName.toLocaleLowerCase('en-US'), targetName);
+    originalNames.set(targetName, entry.name);
+    const finalNfc = targetName.normalize('NFC');
+    nfcIndex.set(finalNfc, { original: entry.name, target: targetName });
+    caseIndex.set(toCollisionKey(targetName, entry.isDirectory), {
+      original: entry.name,
+      target: targetName,
+      nfc: finalNfc
+    });
 
     if (renamed) {
       params.summary.renamedEntries += 1;
@@ -798,7 +922,25 @@ function normalizeEntryName(entryName: string, isDirectory: boolean, addIssue: (
   return name;
 }
 
-function resolveConflictName(name: string, nameIndex: Map<string, number>, lowerIndex: Map<string, string>): string {
+function buildCollisionContext(
+  collisionType: 'duplicate' | 'case' | 'unicode_nfc',
+  nameA: string,
+  nameB: string,
+  key: string,
+  format: 'tar',
+  collisionKind: 'duplicate' | 'casefold' | 'unicode_nfc' = collisionType === 'case' ? 'casefold' : collisionType
+): Record<string, string> {
+  return {
+    collisionType,
+    collisionKind,
+    nameA,
+    nameB,
+    key,
+    format
+  };
+}
+
+function resolveConflictName(name: string, nameIndex: Map<string, number>, lowerIndex: Map<string, unknown>): string {
   const trailingSlash = name.endsWith('/');
   const trimmed = trailingSlash ? name.slice(0, -1) : name;
   const slashIndex = trimmed.lastIndexOf('/');
@@ -810,8 +952,8 @@ function resolveConflictName(name: string, nameIndex: Map<string, number>, lower
   let counter = 1;
   while (true) {
     const candidate = `${dir}${base}~${counter}${ext}${trailingSlash ? '/' : ''}`;
-    const lower = candidate.toLocaleLowerCase('en-US');
-    if (!nameIndex.has(candidate) && !lowerIndex.has(lower)) {
+    const caseKey = toCollisionKey(candidate, trailingSlash);
+    if (!nameIndex.has(candidate) && !lowerIndex.has(caseKey)) {
       return candidate;
     }
     counter += 1;

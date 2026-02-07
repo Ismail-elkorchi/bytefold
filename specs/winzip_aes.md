@@ -1,3 +1,11 @@
+---
+role: reference
+audience: maintainers
+source_of_truth: upstream
+update_triggers:
+  - upstream spec updates
+---
+
 
 # AES Encryption Information:
 Encryption Specification AE-1 and AE-2

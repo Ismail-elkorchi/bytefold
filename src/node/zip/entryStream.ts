@@ -172,7 +172,8 @@ export async function openEntryStream(
   });
   dataStream = dataStream.pipeThrough(createProgressTransform(decryptTracker));
 
-  return decodeAndValidate(dataStream, local.method, entry, options, entry.crc32);
+  const decoded = await decodeAndValidate(dataStream, local.method, entry, options, entry.crc32);
+  return wrapZipCryptoErrors(decoded, entry.name);
 }
 
 async function decodeAndValidate(
@@ -262,6 +263,42 @@ function createRangeStream(
     },
     cancel() {
       return;
+    }
+  });
+}
+
+function wrapZipCryptoErrors(stream: ReadableStream<Uint8Array>, entryName: string): ReadableStream<Uint8Array> {
+  const reader = stream.getReader();
+  let done = false;
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      if (done) return;
+      try {
+        const { value, done: readerDone } = await reader.read();
+        if (readerDone) {
+          done = true;
+          reader.releaseLock();
+          controller.close();
+          return;
+        }
+        if (value) controller.enqueue(value);
+      } catch (err) {
+        done = true;
+        reader.releaseLock();
+        if (err instanceof ZipError) {
+          controller.error(err);
+          return;
+        }
+        controller.error(new ZipError('ZIP_BAD_CRC', 'Corrupted encrypted data', { entryName, cause: err }));
+      }
+    },
+    async cancel(reason) {
+      done = true;
+      try {
+        await reader.cancel(reason);
+      } finally {
+        reader.releaseLock();
+      }
     }
   });
 }

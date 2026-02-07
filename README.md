@@ -1,6 +1,15 @@
+---
+role: overview
+audience: users
+source_of_truth: README.md
+update_triggers:
+  - public API changes
+  - supported formats or codecs
+---
+
 # bytefold
 
-Multi-format archive reader/writer for the 2026+ agent stack. ZIP + TAR + GZIP + Zstandard + Brotli + BZip2 (decompress), with audit-first safety, deterministic normalization, and first-class support for Node 24+, Deno, and Bun. ESM-only, TypeScript-first, no runtime deps.
+Multi-format archive reader/writer for Node 24+, Deno, and Bun (runtime smoke tests: `test/deno.smoke.ts`, `test/bun.smoke.ts`). ESM-only, TypeScript strict, no runtime dependencies (tests: `test/repo-invariants.test.ts`).
 
 ## Install
 
@@ -25,113 +34,13 @@ for await (const entry of reader.entries()) {
 }
 ```
 
-Supported auto formats: ZIP, TAR, GZ, TGZ, ZST, TAR.ZST, BZ2, TAR.BZ2. Brotli (BR/TAR.BR) requires an explicit hint or filename extension. XZ/TAR.XZ are detected but unsupported.
+Support matrix: see `SPEC.md` (Support matrix section).
 
-## ZIP API (core)
+## Verification
+`npm run check`
 
-```js
-import { ZipWriter, ZipReader } from '@ismail-elkorchi/bytefold/zip';
-
-const writer = ZipWriter.toWritable(writableStream);
-await writer.add('hello.txt', new TextEncoder().encode('hello'));
-await writer.close();
-
-const reader = await ZipReader.fromUint8Array(zipBytes);
-const entry = reader.entries()[0]!;
-const stream = await reader.open(entry);
-```
-
-## TAR API (core)
-
-```js
-import { TarWriter, TarReader } from '@ismail-elkorchi/bytefold/tar';
-
-const writer = TarWriter.toWritable(writableStream);
-await writer.add('greet.txt', new TextEncoder().encode('hello tar'));
-await writer.close();
-
-const reader = await TarReader.fromUint8Array(tarBytes);
-for (const entry of reader.entries()) {
-  console.log(entry.name, entry.size);
-}
-```
-
-## Node-only ZIP features (encryption, file helpers)
-
-```js
-import { ZipWriter, ZipReader } from '@ismail-elkorchi/bytefold/node/zip';
-
-const writer = await ZipWriter.toFile('./secret.zip', {
-  encryption: { type: 'aes', password: 'pw', strength: 256, vendorVersion: 2 }
-});
-await writer.add('secret.txt', new TextEncoder().encode('secret'));
-await writer.close();
-
-const reader = await ZipReader.fromFile('./secret.zip');
-const entry = reader.entries()[0]!;
-const stream = await reader.open(entry, { password: 'pw' });
-```
-
-## Deno + Bun file adapters
-
-```js
-// Deno
-import { openArchive, zipToFile } from '@ismail-elkorchi/bytefold/deno';
-
-const writer = await zipToFile('./out.zip');
-await writer.add('hello.txt', new TextEncoder().encode('deno'));
-await writer.close();
-
-const reader = await openArchive('./out.zip');
-```
-
-```js
-// Bun
-import { openArchive, zipToFile } from '@ismail-elkorchi/bytefold/bun';
-
-const writer = await zipToFile('./out.zip');
-await writer.add('hello.txt', new TextEncoder().encode('bun'));
-await writer.close();
-```
-
-## Safety features
-
-- Audit + assertSafe for untrusted archives
-- Path traversal protections (ZIP + TAR)
-- Limits: max entries, max entry bytes, max total bytes
-- Deterministic normalization for ZIP + TAR
-
-## Compression backend
-
-- Web Compression Streams (gzip, deflate-raw)
-- Node zlib preferred when available (zstd/brotli supported in Node builds that include them)
-- Pure JS bzip2 decompression (no compression yet)
-
-## Compression API (cross-runtime)
-
-```js
-import { createCompressor, createDecompressor } from '@ismail-elkorchi/bytefold/compress';
-
-const gzip = createCompressor({ algorithm: 'gzip' });
-const gunzip = createDecompressor({ algorithm: 'gzip' });
-input.pipeThrough(gzip).pipeThrough(gunzip);
-```
-
-## Supported ZIP methods
-
-- Store (method 0)
-- Deflate (method 8, raw DEFLATE)
-- Deflate64 (method 9, built-in TS decoder)
-- Zstandard (method 93, Node zlib when available)
-
-## Runtime notes
-
-- Default entrypoint is universal (no Node builtins on import).
-- Node-only adapters are under `@ismail-elkorchi/bytefold/node`.
-- Deno/Bun file adapters are under `@ismail-elkorchi/bytefold/deno` and `@ismail-elkorchi/bytefold/bun`.
-
-## Quality gates
-
-- `npm run lint`
-- `npm run typecheck`
-- `npm run check:all`
+## Docs
+- `SPEC.md` (invariants, API entrypoints, error/report model)
+- `ARCHITECTURE.md` (module map and data flow)
+- `SECURITY.md` (threat model and reporting)
+- `CONTRIBUTING.md`, `MIGRATIONS.md`, `CHANGELOG.md`

@@ -1,4 +1,6 @@
 import type { CompressionAlgorithm } from '../compress/types.js';
+import type { ResourceLimits } from '../limits.js';
+export type { ResourceLimits } from '../limits.js';
 
 /** Supported archive and compression format identifiers. */
 export type ArchiveFormat =
@@ -76,13 +78,7 @@ export type ArchiveNormalizeReport = {
 };
 
 /** Limits for archive processing and validation. */
-export type ArchiveLimits = {
-  maxEntries?: number;
-  maxUncompressedEntryBytes?: bigint | number;
-  maxTotalUncompressedBytes?: bigint | number;
-  maxCompressionRatio?: number;
-  maxDictionaryBytes?: bigint | number;
-};
+export type ArchiveLimits = ResourceLimits;
 
 /** Normalized view of an archive entry. */
 export type ArchiveEntry = {

@@ -10,7 +10,7 @@ if (which.status !== 0 || !denoPath) {
 
 const result = spawnSync(
   denoPath,
-  ['test', '--allow-read', '--allow-write', 'test/deno.smoke.ts'],
+  ['test', '--allow-read', '--allow-write', '--allow-net=127.0.0.1,localhost', 'test/deno.smoke.ts'],
   { stdio: 'inherit' }
 );
 process.exit(result.status ?? 1);

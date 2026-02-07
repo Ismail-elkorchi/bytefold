@@ -20,6 +20,15 @@ export interface CompressionTransformOptions {
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
   maxDictionaryBytes?: bigint | number;
+  maxBufferedInputBytes?: number;
+  maxBzip2BlockSize?: number;
+  /** @internal */
+  __xzDebug?: {
+    maxBufferedInputBytes?: number;
+    maxDictionaryBytesUsed?: number;
+    totalBytesIn?: number;
+    totalBytesOut?: number;
+  };
   profile?: CompressionProfile;
 }
 
@@ -57,7 +66,8 @@ async function createTransform(
     const transform = createBzip2DecompressStream({
       ...(options.signal ? { signal: options.signal } : {}),
       ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
-      ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {})
+      ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
+      ...(options.maxBzip2BlockSize !== undefined ? { maxBlockSize: options.maxBzip2BlockSize } : {})
     });
     return attachProgress(transform, options.onProgress);
   }
@@ -70,6 +80,8 @@ async function createTransform(
       ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: options.maxOutputBytes } : {}),
       ...(options.maxCompressionRatio !== undefined ? { maxCompressionRatio: options.maxCompressionRatio } : {}),
       ...(options.maxDictionaryBytes !== undefined ? { maxDictionaryBytes: options.maxDictionaryBytes } : {}),
+      ...(options.maxBufferedInputBytes !== undefined ? { maxBufferedInputBytes: options.maxBufferedInputBytes } : {}),
+      ...(options.__xzDebug ? { __xzDebug: options.__xzDebug } : {}),
       ...(options.profile ? { profile: options.profile } : {})
     });
     return attachProgress(transform, options.onProgress);

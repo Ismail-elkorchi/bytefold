@@ -1,31 +1,48 @@
 import { throwIfAborted } from '../abort.js';
-import { concatBytes, readUint32LE } from '../binary.js';
+import { readUint32LE } from '../binary.js';
 import { Crc32 } from '../crc32.js';
 import { Crc64 } from '../crc64.js';
+import { Sha256 } from '../crypto/sha256.js';
 import { CompressionError } from '../compress/errors.js';
 import type { CompressionProfile } from '../compress/types.js';
+import { emitStable } from '../streams/emit.js';
+import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
+import { createFilterChain, validateFilterChain, type ByteSink, type FilterSpec } from './xzFilters.js';
 
 export type XzDecompressOptions = {
   signal?: AbortSignal;
   maxOutputBytes?: bigint | number;
   maxCompressionRatio?: number;
   maxDictionaryBytes?: bigint | number;
+  maxBufferedInputBytes?: number;
+  profile?: CompressionProfile;
+};
+
+export type XzLimitOptions = {
+  maxDictionaryBytes?: bigint | number;
+  maxBufferedInputBytes?: number;
   profile?: CompressionProfile;
 };
 
 const HEADER_MAGIC = new Uint8Array([0xfd, 0x37, 0x7a, 0x58, 0x5a, 0x00]);
 const FOOTER_MAGIC = new Uint8Array([0x59, 0x5a]);
-const LZMA2_FILTER_ID = 0x21n;
 const OUTPUT_CHUNK_SIZE = 32 * 1024;
-const DEFAULT_MAX_DICTIONARY = 64 * 1024 * 1024;
-const AGENT_MAX_DICTIONARY = 32 * 1024 * 1024;
+const DEFAULT_MAX_BUFFERED_INPUT = DEFAULT_RESOURCE_LIMITS.maxXzBufferedBytes;
 
 type ResolvedOptions = {
   signal?: AbortSignal;
   maxOutputBytes?: bigint;
-  maxRatioBytes?: bigint;
+  maxCompressionRatio?: number;
   maxDictionaryBytes: bigint;
+  maxBufferedInputBytes: number;
   profile: CompressionProfile;
+};
+
+type XzDebugHook = {
+  maxBufferedInputBytes?: number;
+  maxDictionaryBytesUsed?: number;
+  totalBytesIn?: number;
+  totalBytesOut?: number;
 };
 
 type BlockRecord = {
@@ -36,84 +53,246 @@ type BlockRecord = {
 export function createXzDecompressStream(
   options: XzDecompressOptions = {}
 ): ReadableWritablePair<Uint8Array, Uint8Array> {
-  const chunks: Uint8Array[] = [];
-  let totalIn = 0;
+  const profile = options.profile ?? 'strict';
+  const limitOptions: XzLimitOptions = { profile };
+  if (options.maxDictionaryBytes !== undefined) limitOptions.maxDictionaryBytes = options.maxDictionaryBytes;
+  if (options.maxBufferedInputBytes !== undefined) limitOptions.maxBufferedInputBytes = options.maxBufferedInputBytes;
+  const resolvedLimits = resolveXzLimits(limitOptions);
+  const resolved: ResolvedOptions = {
+    maxDictionaryBytes: resolvedLimits.maxDictionaryBytes,
+    maxBufferedInputBytes: resolvedLimits.maxBufferedInputBytes,
+    profile,
+    ...(options.signal ? { signal: options.signal } : {}),
+    ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: toBigInt(options.maxOutputBytes) } : {}),
+    ...(typeof options.maxCompressionRatio === 'number' && Number.isFinite(options.maxCompressionRatio)
+      ? options.maxCompressionRatio > 0
+        ? { maxCompressionRatio: options.maxCompressionRatio }
+        : {}
+      : {})
+  };
+  const debug = (options as { __xzDebug?: XzDebugHook }).__xzDebug;
+  let decoder: XzDecoder | null = null;
   return new TransformStream<Uint8Array, Uint8Array>({
+    start(controller) {
+      decoder = new XzDecoder(resolved, (part) => emitStable(controller, part), debug);
+    },
     transform(chunk) {
       if (options.signal) throwIfAborted(options.signal);
       if (!chunk || chunk.length === 0) return;
-      chunks.push(chunk);
-      totalIn += chunk.length;
+      decoder?.push(chunk);
     },
-    flush(controller) {
+    flush() {
       if (options.signal) throwIfAborted(options.signal);
-      const input = concatBytes(chunks);
-      const profile = options.profile ?? 'strict';
-      const maxRatioBytes =
-        typeof options.maxCompressionRatio === 'number' && Number.isFinite(options.maxCompressionRatio)
-          ? options.maxCompressionRatio > 0
-            ? BigInt(Math.ceil(totalIn * options.maxCompressionRatio))
-            : undefined
-          : undefined;
-      const resolved: ResolvedOptions = {
-        maxDictionaryBytes: resolveMaxDictionaryBytes(options.maxDictionaryBytes, profile),
-        profile,
-        ...(options.signal ? { signal: options.signal } : {}),
-        ...(options.maxOutputBytes !== undefined ? { maxOutputBytes: toBigInt(options.maxOutputBytes) } : {}),
-        ...(maxRatioBytes !== undefined ? { maxRatioBytes } : {})
-      };
-      const decoder = new XzDecoder(input, resolved, (part) => controller.enqueue(part));
-      decoder.decode();
+      decoder?.finish();
     }
   });
 }
 
+export function resolveXzLimits(options: XzLimitOptions = {}): {
+  maxDictionaryBytes: bigint;
+  maxBufferedInputBytes: number;
+} {
+  const profile = options.profile ?? 'strict';
+  return {
+    maxDictionaryBytes: resolveMaxDictionaryBytes(options.maxDictionaryBytes, profile),
+    maxBufferedInputBytes:
+      typeof options.maxBufferedInputBytes === 'number' && Number.isFinite(options.maxBufferedInputBytes)
+        ? Math.max(1, Math.floor(options.maxBufferedInputBytes))
+        : DEFAULT_MAX_BUFFERED_INPUT
+  };
+}
+
+export function readXzDictionarySize(data: Uint8Array): number | undefined {
+  if (data.length < 12) return undefined;
+  for (let i = 0; i < HEADER_MAGIC.length; i += 1) {
+    if (data[i] !== HEADER_MAGIC[i]) return undefined;
+  }
+  let offset = 12;
+  if (offset >= data.length) return undefined;
+  const headerSizeByte = data[offset]!;
+  if (headerSizeByte === 0x00) return undefined;
+  const headerSize = (headerSizeByte + 1) * 4;
+  if (headerSize < 8 || headerSize > 1024) return undefined;
+  if (offset + headerSize > data.length) return undefined;
+  const header = data.subarray(offset, offset + headerSize);
+  try {
+    const storedCrc = readUint32LE(header, header.length - 4);
+    const crc = new Crc32();
+    crc.update(header.subarray(0, header.length - 4));
+    if (crc.digest() !== storedCrc) return undefined;
+
+    let pos = 1;
+    const flags = header[pos++]!;
+    if ((flags & 0x3c) !== 0) return undefined;
+    const filterCount = (flags & 0x03) + 1;
+    if (filterCount > 4) return undefined;
+
+    const hasCompressedSize = (flags & 0x40) !== 0;
+    const hasUncompressedSize = (flags & 0x80) !== 0;
+    if (hasCompressedSize) {
+      const read = readVliFromBuffer(header, pos);
+      pos = read.offset;
+    }
+    if (hasUncompressedSize) {
+      const read = readVliFromBuffer(header, pos);
+      pos = read.offset;
+    }
+
+    const filters: FilterSpec[] = [];
+    for (let i = 0; i < filterCount; i += 1) {
+      const id = readVliFromBuffer(header, pos);
+      pos = id.offset;
+      const propsSize = readVliFromBuffer(header, pos);
+      pos = propsSize.offset;
+      const propsBytes = toNumberOrThrow(propsSize.value, 'Filter property size');
+      if (pos + propsBytes > header.length - 4) return undefined;
+      const props = header.subarray(pos, pos + propsBytes);
+      pos += propsBytes;
+      filters.push({ id: id.value, props });
+    }
+    const { lzma2Props } = validateFilterChain(filters);
+    return decodeDictionarySize(lzma2Props);
+  } catch {
+    return undefined;
+  }
+}
+
+type BlockState = {
+  headerSize: number;
+  expectedCompressed?: number;
+  expectedUncompressed?: bigint;
+  compressedConsumed: number;
+  outputStart: bigint;
+  check: DataCheck | null;
+  filterSink: ByteSink;
+  lzma2: Lzma2StreamDecoder;
+  paddingBytes: number;
+};
+
+type IndexState = {
+  startOffset: number;
+  crc: Crc32;
+  recordCount: number | null;
+  recordsRead: number;
+  paddingRemaining: number | null;
+  indicatorRead: boolean;
+  pendingUnpadded: { value: bigint; bytes: Uint8Array } | null;
+};
+
+type XzState =
+  | 'stream-header'
+  | 'block-header'
+  | 'block-data'
+  | 'block-padding'
+  | 'block-check'
+  | 'index'
+  | 'footer'
+  | 'stream-padding'
+  | 'done';
+
 class XzDecoder {
-  private readonly reader: ByteReader;
+  private readonly queue: ByteQueue;
   private readonly output: OutputSink;
+  private readonly debug: XzDebugHook | undefined;
   private readonly blocks: BlockRecord[] = [];
-  private readonly streamFlags: Uint8Array;
-  private readonly checkType: number;
-  private readonly checkSize: number;
-  private readonly skipCheck: boolean;
+  private streamFlags: Uint8Array = new Uint8Array(2);
+  private checkType = 0;
+  private checkSize = 0;
+  private skipCheck = false;
+  private state: XzState = 'stream-header';
+  private block: BlockState | null = null;
+  private index: IndexState | null = null;
+  private indexSize = 0;
+  private streamStartOffset = 0;
+  private streamPaddingRemaining: number | null = null;
+  private bytesIn = 0;
+  private done = false;
 
   constructor(
-    private readonly input: Uint8Array,
     private readonly options: ResolvedOptions,
-    emit: (chunk: Uint8Array) => void
+    emit: (chunk: Uint8Array) => void,
+    debug?: XzDebugHook
   ) {
-    this.reader = new ByteReader(input);
-    this.output = new OutputSink(emit, options);
-    const { flags, checkType, checkSize, skipCheck } = this.readStreamHeader();
-    this.streamFlags = flags;
-    this.checkType = checkType;
-    this.checkSize = checkSize;
-    this.skipCheck = skipCheck;
+    this.debug = debug;
+    this.queue = new ByteQueue(debug);
+    this.output = new OutputSink(emit, options, debug);
+    if (this.debug) {
+      if (this.debug.totalBytesIn === undefined) this.debug.totalBytesIn = 0;
+      if (this.debug.totalBytesOut === undefined) this.debug.totalBytesOut = 0;
+    }
   }
 
-  decode(): void {
-    this.decodeBlocks();
-    const indexSize = this.decodeIndex();
-    this.decodeFooter(indexSize);
-    this.verifyStreamPadding();
+  push(chunk: Uint8Array): void {
+    this.bytesIn += chunk.length;
+    if (this.debug) this.debug.totalBytesIn = this.bytesIn;
+    this.queue.push(chunk);
+    this.process();
+    this.enforceBufferLimit();
+  }
+
+  finish(): void {
+    this.queue.markDone();
+    this.process();
+    this.enforceBufferLimit();
+    if (!this.done) {
+      throw xzTruncated('Unexpected end of XZ stream');
+    }
     this.output.flush();
+    this.output.verifyRatio(this.bytesIn, this.options.maxCompressionRatio);
   }
 
-  private readStreamHeader(): {
-    flags: Uint8Array;
-    checkType: number;
-    checkSize: number;
-    skipCheck: boolean;
-  } {
-    const magic = this.reader.readBytes(HEADER_MAGIC.length);
+  private enforceBufferLimit(): void {
+    if (this.queue.length > this.options.maxBufferedInputBytes) {
+      throw new CompressionError('COMPRESSION_XZ_BUFFER_LIMIT', 'XZ buffered input exceeds limit', {
+        algorithm: 'xz'
+      });
+    }
+  }
+
+  private process(): void {
+    while (true) {
+      const progressed = (() => {
+        switch (this.state) {
+          case 'stream-header':
+            return this.readStreamHeader();
+          case 'block-header':
+            return this.readBlockHeader();
+          case 'block-data':
+            return this.decodeBlockData();
+          case 'block-padding':
+            return this.readBlockPadding();
+          case 'block-check':
+            return this.readBlockCheck();
+          case 'index':
+            return this.decodeIndex();
+          case 'footer':
+            return this.decodeFooter();
+          case 'stream-padding':
+            return this.decodeStreamPadding();
+          case 'done':
+            return false;
+        }
+      })();
+      if (!progressed) return;
+    }
+  }
+
+  private readStreamHeader(): boolean {
+    const header = this.queue.readBytes(12);
+    if (!header) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ stream header');
+      return false;
+    }
+    this.streamStartOffset = this.queue.totalRead - 12;
+    const magic = header.subarray(0, 6);
     if (!matches(magic, HEADER_MAGIC)) {
       throw xzBadData('Invalid XZ header magic');
     }
-    const flags = this.reader.readBytes(2);
+    const flags = header.subarray(6, 8);
     if (flags[0] !== 0x00 || (flags[1]! & 0xf0) !== 0) {
       throw xzBadData('Invalid XZ stream flags');
     }
-    const storedCrc = this.reader.readUint32LE();
+    const storedCrc = readUint32LE(header, 8);
     const crc = new Crc32();
     crc.update(flags);
     if (crc.digest() !== storedCrc) {
@@ -129,22 +308,37 @@ class XzDecoder {
         { algorithm: 'xz' }
       );
     }
-    return { flags, checkType, checkSize, skipCheck: !supported };
+    this.streamFlags = flags;
+    this.checkType = checkType;
+    this.checkSize = checkSize;
+    this.skipCheck = !supported;
+    this.blocks.length = 0;
+    this.indexSize = 0;
+    this.streamPaddingRemaining = null;
+    this.state = 'block-header';
+    return true;
   }
 
-  private decodeBlocks(): void {
-    while (true) {
-      if (this.reader.remaining() <= 0) {
-        throw xzBadData('Missing XZ index');
-      }
-      if (this.reader.peekByte() === 0x00) break;
-      this.decodeBlock();
+  private readBlockHeader(): boolean {
+    const peek = this.queue.peekByte();
+    if (peek === null) {
+      if (this.queue.done) throw xzTruncated('Missing XZ index');
+      return false;
     }
-  }
-
-  private decodeBlock(): void {
-    const headerStart = this.reader.position;
-    const headerSizeByte = this.reader.readByte();
+    if (peek === 0x00) {
+      this.state = 'index';
+      this.index = {
+        startOffset: this.queue.totalRead,
+        crc: new Crc32(),
+        recordCount: null,
+        recordsRead: 0,
+        paddingRemaining: null,
+        indicatorRead: false,
+        pendingUnpadded: null
+      };
+      return true;
+    }
+    const headerSizeByte = peek;
     if (headerSizeByte === 0x00) {
       throw xzBadData('Unexpected index indicator in block header');
     }
@@ -152,13 +346,11 @@ class XzDecoder {
     if (headerSize < 8 || headerSize > 1024) {
       throw xzBadData('Invalid XZ block header size');
     }
-    const headerEnd = headerStart + headerSize;
-    if (headerEnd > this.input.length) {
-      throw xzBadData('Truncated XZ block header');
+    if (this.queue.length < headerSize) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ block header');
+      return false;
     }
-    const header = this.input.subarray(headerStart, headerEnd);
-    this.reader.position = headerEnd;
-
+    const header = this.queue.readBytes(headerSize)!;
     const storedCrc = readUint32LE(header, header.length - 4);
     const crc = new Crc32();
     crc.update(header.subarray(0, header.length - 4));
@@ -169,9 +361,14 @@ class XzDecoder {
     let offset = 1;
     const flags = header[offset++]!;
     if ((flags & 0x3c) !== 0) {
-      throw xzBadData('XZ block header uses reserved flags');
+      throw new CompressionError('COMPRESSION_XZ_UNSUPPORTED_FILTER', 'XZ block header uses unsupported filter flags', {
+        algorithm: 'xz'
+      });
     }
     const filterCount = (flags & 0x03) + 1;
+    if (filterCount > 4) {
+      throw xzBadData('Invalid XZ filter count');
+    }
     const hasCompressedSize = (flags & 0x40) !== 0;
     const hasUncompressedSize = (flags & 0x80) !== 0;
 
@@ -188,8 +385,7 @@ class XzDecoder {
       offset = read.offset;
     }
 
-    let dictProp: number | null = null;
-    const filterIds: bigint[] = [];
+    const filters: FilterSpec[] = [];
     for (let i = 0; i < filterCount; i += 1) {
       const id = readVliFromBuffer(header, offset);
       offset = id.offset;
@@ -201,13 +397,7 @@ class XzDecoder {
       }
       const props = header.subarray(offset, offset + propsBytes);
       offset += propsBytes;
-      filterIds.push(id.value);
-      if (id.value === LZMA2_FILTER_ID) {
-        if (propsBytes !== 1) {
-          throw xzBadData('Invalid LZMA2 filter properties');
-        }
-        dictProp = props[0]!;
-      }
+      filters.push({ id: id.value, props });
     }
 
     for (let i = offset; i < header.length - 4; i += 1) {
@@ -216,20 +406,23 @@ class XzDecoder {
       }
     }
 
-    if (filterIds.length !== 1 || filterIds[0] !== LZMA2_FILTER_ID || dictProp === null) {
-      throw new CompressionError(
-        'COMPRESSION_XZ_UNSUPPORTED_FILTER',
-        `XZ filter chain unsupported: ${filterIds.map((id) => `0x${id.toString(16)}`).join(', ')}`,
-        { algorithm: 'xz' }
-      );
+    const { lzma2Props } = validateFilterChain(filters);
+    const dictionarySize = decodeDictionarySize(lzma2Props);
+    if (this.debug) {
+      const current = this.debug.maxDictionaryBytesUsed ?? 0;
+      if (dictionarySize > current) this.debug.maxDictionaryBytesUsed = dictionarySize;
     }
-
-    const dictionarySize = decodeDictionarySize(dictProp);
     if (BigInt(dictionarySize) > this.options.maxDictionaryBytes) {
       throw new CompressionError(
-        'COMPRESSION_XZ_LIMIT_EXCEEDED',
+        'COMPRESSION_RESOURCE_LIMIT',
         `XZ dictionary size ${dictionarySize} exceeds limit`,
-        { algorithm: 'xz' }
+        {
+          algorithm: 'xz',
+          context: {
+            requiredDictionaryBytes: String(dictionarySize),
+            limitDictionaryBytes: this.options.maxDictionaryBytes.toString()
+          }
+        }
       );
     }
 
@@ -237,101 +430,211 @@ class XzDecoder {
       compressedSizeValue !== undefined ? toNumberOrThrow(compressedSizeValue, 'Compressed size') : undefined;
     const expectedUncompressed = uncompressedSizeValue;
 
-    const check = createCheck(this.checkType, this.skipCheck);
-    this.output.setCheck(check);
-    const blockOutputStart = this.output.totalOut;
-    const lzma2 = new Lzma2Decoder(dictionarySize, this.output, this.options.signal);
-    const blockStart = this.reader.position;
     if (expectedCompressed !== undefined && expectedCompressed <= 0) {
       throw xzBadData('Invalid XZ block compressed size');
     }
-    if (expectedCompressed !== undefined && blockStart + expectedCompressed > this.input.length) {
-      throw xzBadData('Truncated XZ block data');
-    }
-    const limit = expectedCompressed !== undefined ? blockStart + expectedCompressed : this.input.length;
-    const consumed = lzma2.decode(this.input, blockStart, limit);
-    this.reader.position = blockStart + consumed;
 
-    if (expectedCompressed !== undefined && consumed !== expectedCompressed) {
+    const check = createCheck(this.checkType, this.skipCheck);
+    this.output.setCheck(check);
+    const outputStart = this.output.totalOut;
+    const filterSink = createFilterChain(filters.slice(0, -1), this.output);
+    const lzma2 = new Lzma2StreamDecoder(dictionarySize, filterSink, this.options.signal);
+    if (expectedCompressed !== undefined) {
+      lzma2.setCompressedLimit(expectedCompressed);
+    }
+
+    const block: BlockState = {
+      headerSize,
+      compressedConsumed: 0,
+      outputStart,
+      check,
+      filterSink,
+      lzma2,
+      paddingBytes: 0,
+      ...(expectedCompressed !== undefined ? { expectedCompressed } : {}),
+      ...(expectedUncompressed !== undefined ? { expectedUncompressed } : {})
+    };
+    this.block = block;
+    this.state = 'block-data';
+    return true;
+  }
+
+  private decodeBlockData(): boolean {
+    if (!this.block) return false;
+    const done = this.block.lzma2.process(this.queue);
+    if (!done) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ block data');
+      return false;
+    }
+    this.block.filterSink.flush();
+    const compressedConsumed = this.block.lzma2.bytesConsumed;
+    this.block.compressedConsumed = compressedConsumed;
+
+    if (this.block.expectedCompressed !== undefined && compressedConsumed !== this.block.expectedCompressed) {
       throw xzBadData('XZ block compressed size mismatch');
     }
-
-    const actualUncompressed = this.output.totalOut - blockOutputStart;
-    if (expectedUncompressed !== undefined && actualUncompressed !== expectedUncompressed) {
+    const actualUncompressed = this.output.totalOut - this.block.outputStart;
+    if (this.block.expectedUncompressed !== undefined && actualUncompressed !== this.block.expectedUncompressed) {
       throw xzBadData('XZ block uncompressed size mismatch');
     }
+    this.block.paddingBytes = (4 - (compressedConsumed % 4)) & 3;
+    this.state = 'block-padding';
+    return true;
+  }
 
-    const padding = (4 - (consumed % 4)) & 3;
-    if (padding > 0) {
-      const pad = this.reader.readBytes(padding);
-      for (const byte of pad) {
-        if (byte !== 0x00) throw xzBadData('Non-zero bytes in XZ block padding');
-      }
+  private readBlockPadding(): boolean {
+    if (!this.block) return false;
+    if (this.block.paddingBytes === 0) {
+      this.state = 'block-check';
+      return true;
     }
+    if (this.queue.length < this.block.paddingBytes) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ block padding');
+      return false;
+    }
+    const pad = this.queue.readBytes(this.block.paddingBytes)!;
+    for (const byte of pad) {
+      if (byte !== 0x00) throw xzBadData('Non-zero bytes in XZ block padding');
+    }
+    this.state = 'block-check';
+    return true;
+  }
 
-    this.output.flush();
+  private readBlockCheck(): boolean {
+    if (!this.block) return false;
     if (this.checkSize > 0) {
-      const stored = this.reader.readBytes(this.checkSize);
+      if (this.queue.length < this.checkSize) {
+        if (this.queue.done) throw xzTruncated('Truncated XZ block check');
+        return false;
+      }
+      const stored = this.queue.readBytes(this.checkSize)!;
       if (!this.skipCheck) {
-        const computed = check?.digestBytes() ?? new Uint8Array();
+        const computed = this.block.check?.digestBytes() ?? new Uint8Array();
         if (!matches(stored, computed)) {
-          throw new CompressionError('COMPRESSION_XZ_CHECK_MISMATCH', 'XZ check mismatch', { algorithm: 'xz' });
+          throw new CompressionError('COMPRESSION_XZ_BAD_CHECK', 'XZ check mismatch', {
+            algorithm: 'xz',
+            context: { check: describeCheck(this.checkType) }
+          });
         }
       }
     }
     this.output.clearCheck();
 
-    const unpaddedSize = BigInt(headerSize + consumed + this.checkSize);
-    this.blocks.push({ unpaddedSize, uncompressedSize: actualUncompressed });
+    const unpaddedSize = BigInt(this.block.headerSize + this.block.compressedConsumed + this.checkSize);
+    const uncompressedSize = this.output.totalOut - this.block.outputStart;
+    this.blocks.push({ unpaddedSize, uncompressedSize });
+
+    this.block = null;
+    this.state = 'block-header';
+    return true;
   }
 
-  private decodeIndex(): number {
-    const indexStart = this.reader.position;
-    const indicator = this.reader.readByte();
-    if (indicator !== 0x00) {
-      throw xzBadData('Missing XZ index indicator');
+  private decodeIndex(): boolean {
+    if (!this.index) {
+      this.index = {
+        startOffset: this.queue.totalRead,
+        crc: new Crc32(),
+        recordCount: null,
+        recordsRead: 0,
+        paddingRemaining: null,
+        indicatorRead: false,
+        pendingUnpadded: null
+      };
     }
-    const records = this.reader.readVli();
-    const recordCount = toNumberOrThrow(records, 'Index record count');
-    if (recordCount !== this.blocks.length) {
-      throw xzBadData('XZ index record count mismatch');
+    const index = this.index;
+
+    if (index.recordCount === null) {
+      if (!index.indicatorRead) {
+        const indicator = this.queue.readByte();
+        if (indicator === null) {
+          if (this.queue.done) throw xzTruncated('Missing XZ index indicator');
+          return false;
+        }
+        if (indicator !== 0x00) {
+          throw xzBadData('Missing XZ index indicator');
+        }
+        index.crc.update(new Uint8Array([indicator]));
+        index.indicatorRead = true;
+      }
+      const vli = tryReadVliWithBytes(this.queue);
+      if (!vli) {
+        if (this.queue.done) throw xzTruncated('Truncated XZ index');
+        return false;
+      }
+      index.crc.update(vli.bytes);
+      index.recordCount = toNumberOrThrow(vli.value, 'Index record count');
+      if (index.recordCount !== this.blocks.length) {
+        throw xzBadData('XZ index record count mismatch');
+      }
     }
-    for (let i = 0; i < recordCount; i += 1) {
-      const unpadded = this.reader.readVli();
-      const uncompressed = this.reader.readVli();
-      const expected = this.blocks[i]!;
-      if (unpadded !== expected.unpaddedSize || uncompressed !== expected.uncompressedSize) {
+
+    while (index.recordsRead < index.recordCount) {
+      let unpadded = index.pendingUnpadded;
+      if (!unpadded) {
+        const read = tryReadVliWithBytes(this.queue);
+        if (!read) {
+          if (this.queue.done) throw xzTruncated('Truncated XZ index record');
+          return false;
+        }
+        index.crc.update(read.bytes);
+        unpadded = read;
+        index.pendingUnpadded = read;
+      }
+      const uncompressed = tryReadVliWithBytes(this.queue);
+      if (!uncompressed) {
+        if (this.queue.done) throw xzTruncated('Truncated XZ index record');
+        return false;
+      }
+      index.crc.update(uncompressed.bytes);
+      const expected = this.blocks[index.recordsRead]!;
+      if (unpadded.value !== expected.unpaddedSize || uncompressed.value !== expected.uncompressedSize) {
         throw xzBadData('XZ index entries do not match decoded blocks');
       }
+      index.recordsRead += 1;
+      index.pendingUnpadded = null;
     }
 
-    const indexContentEnd = this.reader.position;
-    const padding = (4 - ((indexContentEnd - indexStart) % 4)) & 3;
-    if (padding > 0) {
-      const pad = this.reader.readBytes(padding);
-      for (const byte of pad) {
-        if (byte !== 0x00) throw xzBadData('Non-zero bytes in XZ index padding');
-      }
+    if (index.paddingRemaining === null) {
+      const bytesSoFar = this.queue.totalRead - index.startOffset;
+      index.paddingRemaining = (4 - (bytesSoFar % 4)) & 3;
     }
-    const storedCrc = this.reader.readUint32LE();
-    const indexEnd = this.reader.position;
-    const crc = new Crc32();
-    crc.update(this.input.subarray(indexStart, indexEnd - 4));
-    if (crc.digest() !== storedCrc) {
+
+    while (index.paddingRemaining > 0) {
+      const byte = this.queue.readByte();
+      if (byte === null) {
+        if (this.queue.done) throw xzTruncated('Truncated XZ index padding');
+        return false;
+      }
+      index.crc.update(new Uint8Array([byte]));
+      if (byte !== 0x00) throw xzBadData('Non-zero bytes in XZ index padding');
+      index.paddingRemaining -= 1;
+    }
+
+    if (this.queue.length < 4) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ index');
+      return false;
+    }
+    const storedBytes = this.queue.readBytes(4)!;
+    const storedCrc = readUint32LE(storedBytes, 0);
+    if (index.crc.digest() !== storedCrc) {
       throw xzBadData('XZ index CRC mismatch');
     }
-    return indexEnd - indexStart;
+    this.indexSize = this.queue.totalRead - index.startOffset;
+    this.index = null;
+    this.state = 'footer';
+    return true;
   }
 
-  private decodeFooter(indexSize: number): void {
-    if (this.reader.remaining() < 12) {
-      throw xzBadData('Truncated XZ stream footer');
+  private decodeFooter(): boolean {
+    if (this.queue.length < 12) {
+      if (this.queue.done) throw xzTruncated('Truncated XZ stream footer');
+      return false;
     }
-    const footerStart = this.reader.position;
-    const storedCrc = this.reader.readUint32LE();
-    const backwardSize = this.reader.readUint32LE();
-    const flags = this.reader.readBytes(2);
-    const magic = this.reader.readBytes(2);
+    const footer = this.queue.readBytes(12)!;
+    const storedCrc = readUint32LE(footer, 0);
+    const backwardSize = readUint32LE(footer, 4);
+    const flags = footer.subarray(8, 10);
+    const magic = footer.subarray(10, 12);
     if (!matches(magic, FOOTER_MAGIC)) {
       throw xzBadData('Invalid XZ footer magic');
     }
@@ -339,62 +642,219 @@ class XzDecoder {
       throw xzBadData('XZ stream footer flags mismatch');
     }
     const crc = new Crc32();
-    crc.update(this.input.subarray(footerStart + 4, footerStart + 10));
+    crc.update(footer.subarray(4, 10));
     if (crc.digest() !== storedCrc) {
       throw xzBadData('XZ stream footer CRC mismatch');
     }
     const realBackwardSize = (backwardSize + 1) * 4;
-    if (realBackwardSize !== indexSize) {
+    if (realBackwardSize !== this.indexSize) {
       throw xzBadData('XZ backward size mismatch');
     }
+    this.streamPaddingRemaining = null;
+    this.state = 'stream-padding';
+    return true;
   }
 
-  private verifyStreamPadding(): void {
-    if (this.reader.remaining() === 0) return;
-    const padding = this.reader.readBytes(this.reader.remaining());
-    for (const byte of padding) {
+  private decodeStreamPadding(): boolean {
+    if (this.streamPaddingRemaining === null) {
+      const streamBytes = this.queue.totalRead - this.streamStartOffset;
+      this.streamPaddingRemaining = (4 - (streamBytes % 4)) & 3;
+    }
+
+    while (this.streamPaddingRemaining > 0) {
+      const byte = this.queue.readByte();
+      if (byte === null) {
+        if (this.queue.done) throw xzTruncated('Truncated XZ stream padding');
+        return false;
+      }
       if (byte !== 0x00) {
         throw xzBadData('Non-zero bytes found after XZ stream');
       }
+      this.streamPaddingRemaining -= 1;
+    }
+
+    while (true) {
+      if (this.queue.length < 4) {
+        if (this.queue.done) {
+          if (this.queue.length === 0) {
+            this.state = 'done';
+            this.done = true;
+            return true;
+          }
+          const tail = this.queue.readBytes(this.queue.length)!;
+          for (const byte of tail) {
+            if (byte !== 0x00) {
+              throw xzBadData('Non-zero bytes found after XZ stream');
+            }
+          }
+          throw xzBadData('Invalid XZ stream padding length');
+        }
+        return false;
+      }
+      const padding = this.queue.peekBytes(4)!;
+      if (padding[0] === 0x00 && padding[1] === 0x00 && padding[2] === 0x00 && padding[3] === 0x00) {
+        this.queue.readBytes(4);
+        continue;
+      }
+      this.streamPaddingRemaining = null;
+      this.state = 'stream-header';
+      return true;
     }
   }
 }
 
-class Lzma2Decoder {
+class ByteQueue {
+  private readonly chunks: Uint8Array[] = [];
+  private offset = 0;
+  length = 0;
+  totalRead = 0;
+  done = false;
+  private maxBuffered = 0;
+
+  constructor(private readonly debug?: XzDebugHook) {}
+
+  push(chunk: Uint8Array): void {
+    if (!chunk || chunk.length === 0) return;
+    this.chunks.push(chunk);
+    this.length += chunk.length;
+    if (this.length > this.maxBuffered) {
+      this.maxBuffered = this.length;
+      if (this.debug) this.debug.maxBufferedInputBytes = this.maxBuffered;
+    }
+  }
+
+  markDone(): void {
+    this.done = true;
+  }
+
+  peekByte(): number | null {
+    if (this.length === 0) return null;
+    const chunk = this.chunks[0]!;
+    return chunk[this.offset]!;
+  }
+
+  readByte(): number | null {
+    if (this.length === 0) return null;
+    const chunk = this.chunks[0]!;
+    const value = chunk[this.offset]!;
+    this.offset += 1;
+    this.length -= 1;
+    this.totalRead += 1;
+    if (this.offset >= chunk.length) {
+      this.chunks.shift();
+      this.offset = 0;
+    }
+    return value;
+  }
+
+  readBytes(length: number): Uint8Array | null {
+    if (length === 0) return new Uint8Array(0);
+    if (this.length < length) return null;
+    const first = this.chunks[0]!;
+    const available = first.length - this.offset;
+    if (available >= length) {
+      const out = first.subarray(this.offset, this.offset + length);
+      this.offset += length;
+      this.length -= length;
+      this.totalRead += length;
+      if (this.offset >= first.length) {
+        this.chunks.shift();
+        this.offset = 0;
+      }
+      return out;
+    }
+    const out = new Uint8Array(length);
+    let offset = 0;
+    let remaining = length;
+    while (remaining > 0) {
+      const chunk = this.chunks[0]!;
+      const take = Math.min(chunk.length - this.offset, remaining);
+      out.set(chunk.subarray(this.offset, this.offset + take), offset);
+      this.offset += take;
+      this.length -= take;
+      this.totalRead += take;
+      offset += take;
+      remaining -= take;
+      if (this.offset >= chunk.length) {
+        this.chunks.shift();
+        this.offset = 0;
+      }
+    }
+    return out;
+  }
+
+  peekBytes(length: number): Uint8Array | null {
+    if (length === 0) return new Uint8Array(0);
+    if (this.length < length) return null;
+    const out = new Uint8Array(length);
+    let offset = 0;
+    let remaining = length;
+    let chunkIndex = 0;
+    let chunkOffset = this.offset;
+    while (remaining > 0) {
+      const chunk = this.chunks[chunkIndex]!;
+      const take = Math.min(chunk.length - chunkOffset, remaining);
+      out.set(chunk.subarray(chunkOffset, chunkOffset + take), offset);
+      offset += take;
+      remaining -= take;
+      chunkIndex += 1;
+      chunkOffset = 0;
+    }
+    return out;
+  }
+}
+
+class Lzma2StreamDecoder {
   private needDictionaryReset = true;
   private needProperties = true;
   private readonly dict: Dictionary;
   private readonly lzma: LzmaDecoder;
+  private state: 'control' | 'lzma-header' | 'lzma-data' | 'uncompressed-header' | 'uncompressed-data' = 'control';
+  private control = 0;
+  private uncompressedSize = 0;
+  private compressedSize = 0;
+  private expectedCompressed: number | undefined;
+  private compressedConsumed = 0;
 
-  constructor(dictionarySize: number, output: OutputSink, signal?: AbortSignal) {
+  constructor(dictionarySize: number, output: ByteSink, signal?: AbortSignal) {
     this.dict = new Dictionary(dictionarySize, output, signal);
     this.lzma = new LzmaDecoder(this.dict, signal);
   }
 
-  decode(input: Uint8Array, start: number, limit: number): number {
-    let offset = start;
+  setCompressedLimit(limit: number): void {
+    this.expectedCompressed = limit;
+  }
+
+  get bytesConsumed(): number {
+    return this.compressedConsumed;
+  }
+
+  process(queue: ByteQueue): boolean {
     while (true) {
-      if (offset >= limit) {
-        throw lzmaBadData('Truncated LZMA2 data');
+      if (this.state === 'control') {
+        const control = this.readByte(queue);
+        if (control === null) return false;
+        this.control = control;
+        if (control === 0x00) return true;
+        if (control >= 0xe0 || control === 0x01) {
+          this.needProperties = true;
+          this.needDictionaryReset = true;
+        } else if (this.needDictionaryReset) {
+          throw lzmaBadData('LZMA2 dictionary reset missing');
+        }
+        this.state = control >= 0x80 ? 'lzma-header' : 'uncompressed-header';
       }
-      const control = input[offset++]!;
-      if (control === 0x00) break;
 
-      if (control >= 0xe0 || control === 0x01) {
-        this.needProperties = true;
-        this.needDictionaryReset = true;
-      } else if (this.needDictionaryReset) {
-        throw lzmaBadData('LZMA2 dictionary reset missing');
-      }
-
-      if (control >= 0x80) {
-        if (offset + 4 > limit) throw lzmaBadData('Truncated LZMA2 chunk header');
-        const uncompressedSize = (((control & 0x1f) << 16) | (input[offset++]! << 8) | input[offset++]!) + 1;
-        const compressedSize = ((input[offset++]! << 8) | input[offset++]!) + 1;
+      if (this.state === 'lzma-header') {
+        const needsProps = this.control >= 0xc0;
+        const header = this.readBytes(queue, needsProps ? 5 : 4);
+        if (!header) return false;
+        const control = this.control;
+        const uncompressedSize = (((control & 0x1f) << 16) | (header[0]! << 8) | header[1]!) + 1;
+        const compressedSize = ((header[2]! << 8) | header[3]!) + 1;
         if (compressedSize <= 0) throw lzmaBadData('Invalid LZMA2 compressed size');
-        if (control >= 0xc0) {
-          if (offset >= limit) throw lzmaBadData('Missing LZMA2 properties byte');
-          const props = input[offset++]!;
+        if (needsProps) {
+          const props = header[4]!;
           this.lzma.resetProperties(props);
           this.needProperties = false;
         } else if (this.needProperties) {
@@ -408,31 +868,63 @@ class Lzma2Decoder {
           this.needDictionaryReset = false;
         }
 
-        if (offset + compressedSize > limit) {
-          throw lzmaBadData('Truncated LZMA2 compressed data');
-        }
-        const range = new RangeDecoder(input, offset, compressedSize);
-        this.lzma.decode(range, uncompressedSize);
+        this.uncompressedSize = uncompressedSize;
+        this.compressedSize = compressedSize;
+        this.state = 'lzma-data';
+      }
+
+      if (this.state === 'lzma-data') {
+        const data = this.readBytes(queue, this.compressedSize);
+        if (!data) return false;
+        const range = new RangeDecoder(data, 0, this.compressedSize);
+        this.lzma.decode(range, this.uncompressedSize);
         if (range.position !== range.limit) {
           throw lzmaBadData('LZMA2 chunk has unused compressed bytes');
         }
-        offset = range.position;
-      } else {
+        this.state = 'control';
+      }
+
+      if (this.state === 'uncompressed-header') {
+        const header = this.readBytes(queue, 2);
+        if (!header) return false;
+        const control = this.control;
         if (control > 0x02) throw lzmaBadData('Invalid LZMA2 control byte');
-        if (offset + 2 > limit) throw lzmaBadData('Truncated LZMA2 uncompressed size');
-        const size = ((input[offset++]! << 8) | input[offset++]!) + 1;
+        const size = ((header[0]! << 8) | header[1]!) + 1;
         if (this.needDictionaryReset) {
           this.dict.reset();
           this.needDictionaryReset = false;
         }
-        if (offset + size > limit) {
-          throw lzmaBadData('Truncated LZMA2 uncompressed data');
-        }
-        this.dict.copyUncompressed(input.subarray(offset, offset + size));
-        offset += size;
+        this.uncompressedSize = size;
+        this.state = 'uncompressed-data';
+      }
+
+      if (this.state === 'uncompressed-data') {
+        const data = this.readBytes(queue, this.uncompressedSize);
+        if (!data) return false;
+        this.dict.copyUncompressed(data);
+        this.state = 'control';
       }
     }
-    return offset - start;
+  }
+
+  private readByte(queue: ByteQueue): number | null {
+    if (this.expectedCompressed !== undefined && this.compressedConsumed >= this.expectedCompressed) {
+      throw xzBadData('XZ block compressed size mismatch');
+    }
+    const byte = queue.readByte();
+    if (byte === null) return null;
+    this.compressedConsumed += 1;
+    return byte;
+  }
+
+  private readBytes(queue: ByteQueue, length: number): Uint8Array | null {
+    if (this.expectedCompressed !== undefined && this.compressedConsumed + length > this.expectedCompressed) {
+      throw xzBadData('XZ block compressed size mismatch');
+    }
+    const bytes = queue.readBytes(length);
+    if (!bytes) return null;
+    this.compressedConsumed += length;
+    return bytes;
   }
 }
 
@@ -604,7 +1096,7 @@ class Dictionary {
 
   constructor(
     size: number,
-    private readonly output: OutputSink,
+    private readonly output: ByteSink,
     private readonly signal?: AbortSignal
   ) {
     this.buffer = new Uint8Array(size);
@@ -704,7 +1196,8 @@ class OutputSink {
 
   constructor(
     private readonly emit: (chunk: Uint8Array) => void,
-    private readonly options: ResolvedOptions
+    private readonly options: ResolvedOptions,
+    private readonly debug?: XzDebugHook
   ) {}
 
   get totalOut(): bigint {
@@ -722,6 +1215,7 @@ class OutputSink {
   writeByte(value: number): void {
     this.buffer[this.length++] = value;
     this.bytesOut += 1n;
+    if (this.debug) this.debug.totalBytesOut = Number(this.bytesOut);
     this.ensureLimits();
     if (this.length >= this.buffer.length) this.flush();
   }
@@ -732,6 +1226,7 @@ class OutputSink {
     this.check?.update(chunk);
     this.emit(chunk);
     this.length = 0;
+    if (this.debug) this.debug.totalBytesOut = Number(this.bytesOut);
   }
 
   private ensureLimits(): void {
@@ -740,13 +1235,18 @@ class OutputSink {
         algorithm: 'xz'
       });
     }
-    if (this.options.maxRatioBytes !== undefined && this.bytesOut > this.options.maxRatioBytes) {
+    if (this.options.signal && (this.bytesOut & 0x3fffn) === 0n) {
+      throwIfAborted(this.options.signal);
+    }
+  }
+
+  verifyRatio(totalIn: number, maxCompressionRatio?: number): void {
+    if (!maxCompressionRatio || maxCompressionRatio <= 0) return;
+    const limit = BigInt(Math.ceil(totalIn * maxCompressionRatio));
+    if (this.bytesOut > limit) {
       throw new CompressionError('COMPRESSION_XZ_LIMIT_EXCEEDED', 'XZ output exceeds maxCompressionRatio', {
         algorithm: 'xz'
       });
-    }
-    if (this.options.signal && (this.bytesOut & 0x3fffn) === 0n) {
-      throwIfAborted(this.options.signal);
     }
   }
 }
@@ -784,6 +1284,13 @@ function createCheck(checkType: number, skip: boolean): DataCheck | null {
         view.setBigUint64(0, value, true);
         return out;
       }
+    };
+  }
+  if (checkType === 0x0a) {
+    const sha = new Sha256();
+    return {
+      update: (chunk) => sha.update(chunk),
+      digestBytes: () => sha.digestBytes()
     };
   }
   return null;
@@ -855,61 +1362,6 @@ class RangeDecoder {
       throw lzmaBadData('Truncated LZMA stream');
     }
     return this.buffer[this.pos++]!;
-  }
-}
-
-class ByteReader {
-  constructor(private readonly buffer: Uint8Array, private offset = 0) {}
-
-  get position(): number {
-    return this.offset;
-  }
-
-  set position(value: number) {
-    this.offset = value;
-  }
-
-  remaining(): number {
-    return this.buffer.length - this.offset;
-  }
-
-  peekByte(): number {
-    if (this.offset >= this.buffer.length) throw xzBadData('Unexpected end of XZ stream');
-    return this.buffer[this.offset]!;
-  }
-
-  readByte(): number {
-    if (this.offset >= this.buffer.length) throw xzBadData('Unexpected end of XZ stream');
-    return this.buffer[this.offset++]!;
-  }
-
-  readBytes(length: number): Uint8Array {
-    if (this.offset + length > this.buffer.length) throw xzBadData('Unexpected end of XZ stream');
-    const out = this.buffer.subarray(this.offset, this.offset + length);
-    this.offset += length;
-    return out;
-  }
-
-  readUint32LE(): number {
-    if (this.offset + 4 > this.buffer.length) throw xzBadData('Unexpected end of XZ stream');
-    const value = readUint32LE(this.buffer, this.offset);
-    this.offset += 4;
-    return value;
-  }
-
-  readVli(): bigint {
-    let value = 0n;
-    let shift = 0n;
-    for (let i = 0; i < 9; i += 1) {
-      const byte = this.readByte();
-      value |= BigInt(byte & 0x7f) << shift;
-      if ((byte & 0x80) === 0) {
-        if (value > MAX_VLI) throw xzBadData('XZ VLI exceeds 63 bits');
-        return value;
-      }
-      shift += 7n;
-    }
-    throw xzBadData('XZ VLI is too long');
   }
 }
 
@@ -1032,6 +1484,27 @@ function readVliFromBuffer(
   throw xzBadData('XZ VLI is too long');
 }
 
+function tryReadVliWithBytes(queue: ByteQueue): { value: bigint; bytes: Uint8Array } | null {
+  const available = Math.min(queue.length, 9);
+  if (available === 0) return null;
+  const peek = queue.peekBytes(available);
+  if (!peek) return null;
+  let value = 0n;
+  let shift = 0n;
+  for (let i = 0; i < peek.length; i += 1) {
+    const byte = peek[i]!;
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) {
+      if (value > MAX_VLI) throw xzBadData('XZ VLI exceeds 63 bits');
+      const bytes = queue.readBytes(i + 1)!;
+      return { value, bytes };
+    }
+    shift += 7n;
+  }
+  if (available < 9) return null;
+  throw xzBadData('XZ VLI is too long');
+}
+
 function decodeDictionarySize(props: number): number {
   const bits = props & 0x3f;
   if (bits > 40) throw xzBadData('Invalid LZMA2 dictionary size');
@@ -1043,8 +1516,8 @@ function decodeDictionarySize(props: number): number {
 
 function resolveMaxDictionaryBytes(value: bigint | number | undefined, profile: CompressionProfile): bigint {
   if (value !== undefined) return toBigInt(value);
-  if (profile === 'agent') return BigInt(AGENT_MAX_DICTIONARY);
-  return BigInt(DEFAULT_MAX_DICTIONARY);
+  if (profile === 'agent') return toBigInt(AGENT_RESOURCE_LIMITS.maxXzDictionaryBytes);
+  return toBigInt(DEFAULT_RESOURCE_LIMITS.maxXzDictionaryBytes);
 }
 
 function toBigInt(value: bigint | number): bigint {
@@ -1068,7 +1541,7 @@ function checkSizeForId(id: number): number {
 }
 
 function isSupportedCheckType(id: number): boolean {
-  return id === 0x00 || id === 0x01 || id === 0x04;
+  return id === 0x00 || id === 0x01 || id === 0x04 || id === 0x0a;
 }
 
 function describeCheck(id: number): string {
@@ -1089,6 +1562,10 @@ function matches(a: Uint8Array, b: Uint8Array): boolean {
 
 function xzBadData(message: string): CompressionError {
   return new CompressionError('COMPRESSION_XZ_BAD_DATA', message, { algorithm: 'xz' });
+}
+
+function xzTruncated(message: string): CompressionError {
+  return new CompressionError('COMPRESSION_XZ_TRUNCATED', message, { algorithm: 'xz' });
 }
 
 function lzmaBadData(message: string): CompressionError {

@@ -5,6 +5,7 @@ import type {
   ArchiveEntry,
   ArchiveFormat,
   ArchiveInputKind,
+  ArchiveIssueSeverity,
   ArchiveLimits,
   ArchiveNormalizeReport,
   ArchiveOpenOptions,
@@ -12,7 +13,12 @@ import type {
 } from './types.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromAsyncIterable, readableFromBytes } from '../streams/web.js';
-import { createCompressTransform, createDecompressTransform } from '../compression/streams.js';
+import { createCompressTransform } from '../compression/streams.js';
+import { readBzip2BlockSize } from '../compression/bzip2.js';
+import { scanXzResourceRequirements } from '../compression/xzScan.js';
+import { createDecompressor, getCompressionCapabilities } from '../compress/index.js';
+import { CompressionError } from '../compress/errors.js';
+import { crc32 } from '../crc32.js';
 import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
@@ -27,6 +33,8 @@ import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
 import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterOptions } from '../tar/types.js';
 import type { CompressionAlgorithm } from '../compress/types.js';
+import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
+import { resolveXzDictionaryLimit, resolveXzIndexLimits } from './xzPreflight.js';
 
 /** Unified archive reader API returned by openArchive(). */
 export type ArchiveReader = {
@@ -59,6 +67,27 @@ export type ArchiveWriterOptions = {
   compression?: { level?: number; quality?: number };
 };
 
+type PreflightResourceInfo = {
+  algorithm: 'bzip2' | 'xz';
+  requiredBlockSize?: number;
+  requiredDictionaryBytes?: number;
+  requiredIndexRecords?: number;
+  requiredIndexBytes?: number;
+  preflightComplete?: boolean;
+  preflightBlockHeaders?: number;
+  preflightBlockLimit?: number;
+};
+
+type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
+  __preflight?: PreflightResourceInfo;
+  __zipReader?: ZipReader;
+  __zipDetection?: {
+    inputKind: ArchiveInputKind;
+    confidence: ArchiveDetectionReport['confidence'];
+    notes: string[];
+  };
+};
+
 /** Options for auditing archives opened via openArchive(). */
 export type ArchiveAuditOptions = {
   profile?: ArchiveProfile;
@@ -70,6 +99,7 @@ export type ArchiveAuditOptions = {
 /** Options for normalization via openArchive(). */
 export type ArchiveNormalizeOptions = {
   deterministic?: boolean;
+  limits?: ArchiveLimits;
   signal?: AbortSignal;
 };
 
@@ -78,6 +108,24 @@ export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>
 
 /** Open an archive with auto-detection (or a forced format). */
 export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
+  const internal = options as ArchiveOpenOptionsInternal | undefined;
+  if (internal?.__zipReader) {
+    const detection = internal.__zipDetection;
+    const inputKind = detection?.inputKind ?? resolveInputKind(input, options?.inputKind);
+    const notes = detection?.notes ?? ['Format inferred from magic bytes'];
+    const confidence = detection?.confidence ?? 'high';
+    const openOptions: ZipReaderOpenOptions = {
+      ...(options?.strict !== undefined ? { strict: options.strict } : {}),
+      ...(options?.password !== undefined ? { password: options.password } : {}),
+      ...(options?.signal ? { signal: options.signal } : {})
+    };
+    const reader = new ZipArchiveReader(
+      internal.__zipReader,
+      Object.keys(openOptions).length > 0 ? openOptions : undefined
+    );
+    reader.detection = buildDetectionReport(inputKind, 'zip', confidence, notes);
+    return reader;
+  }
   const inputKind = resolveInputKind(input, options?.inputKind);
   const data = await resolveInput(input, options);
   const formatOption = options?.format ?? 'auto';
@@ -143,12 +191,15 @@ export function createArchiveWriter(
     };
   }
   if (format === 'tgz' || format === 'tar.gz') {
+    ensureCompressionWriteSupported('gzip');
     return createCompressedTarWriter(format, 'gzip', writable, options);
   }
   if (format === 'tar.zst') {
+    ensureCompressionWriteSupported('zstd');
     return createCompressedTarWriter('tar.zst', 'zstd', writable, options);
   }
   if (format === 'tar.br') {
+    ensureCompressionWriteSupported('brotli');
     return createCompressedTarWriter('tar.br', 'brotli', writable, options);
   }
   if (format === 'tar.bz2' || format === 'bz2') {
@@ -158,15 +209,30 @@ export function createArchiveWriter(
     throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', 'XZ compression is not supported for writing');
   }
   if (format === 'gz') {
+    ensureCompressionWriteSupported('gzip');
     return createCompressedStreamWriter('gz', 'gzip', writable, options);
   }
   if (format === 'zst') {
+    ensureCompressionWriteSupported('zstd');
     return createCompressedStreamWriter('zst', 'zstd', writable, options);
   }
   if (format === 'br') {
+    ensureCompressionWriteSupported('brotli');
     return createCompressedStreamWriter('br', 'brotli', writable, options);
   }
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported writer format: ${format}`);
+}
+
+function ensureCompressionWriteSupported(algorithm: CompressionAlgorithm): void {
+  const caps = getCompressionCapabilities();
+  const support = caps.algorithms[algorithm];
+  if (!support || !support.compress) {
+    throw new CompressionError(
+      'COMPRESSION_UNSUPPORTED_ALGORITHM',
+      `Compression algorithm ${algorithm} is not supported in this runtime`,
+      { algorithm }
+    );
+  }
 }
 
 function createCompressedTarWriter(
@@ -271,6 +337,7 @@ async function openWithFormat(
   data: Uint8Array,
   options?: ArchiveOpenOptions
 ): Promise<{ reader: ArchiveReader; format: ArchiveFormat; notes: string[] }> {
+  const internalOptions = options as ArchiveOpenOptionsInternal | undefined;
   const notes: string[] = [];
   if (format === 'zip') {
     const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
@@ -332,7 +399,8 @@ async function openWithFormat(
         notes
       };
     }
-    return { reader: new GzipArchiveReader(decompressed, header), format: 'gz', notes };
+    const name = inferGzipEntryName(header, options?.filename);
+    return { reader: new GzipArchiveReader(decompressed, header, name), format: 'gz', notes };
   }
   if (format === 'zst' || format === 'tar.zst') {
     const decompressed = await decompressToBytes(data, 'zstd', options);
@@ -357,7 +425,8 @@ async function openWithFormat(
         notes
       };
     }
-    return { reader: new CompressedArchiveReader(decompressed, 'zstd'), format: 'zst', notes };
+    const name = inferZstdEntryName(options?.filename);
+    return { reader: new CompressedArchiveReader(decompressed, 'zstd', name), format: 'zst', notes };
   }
   if (format === 'br' || format === 'tar.br') {
     const decompressed = await decompressToBytes(data, 'brotli', options);
@@ -382,9 +451,21 @@ async function openWithFormat(
         notes
       };
     }
-    return { reader: new CompressedArchiveReader(decompressed, 'brotli'), format: 'br', notes };
+    const name = inferBrotliEntryName(options?.filename);
+    return { reader: new CompressedArchiveReader(decompressed, 'brotli', name), format: 'br', notes };
   }
   if (format === 'bz2' || format === 'tar.bz2') {
+    const preflight: PreflightResourceInfo | undefined = (() => {
+      const size = readBzip2BlockSize(data);
+      return size !== undefined
+        ? {
+            algorithm: 'bzip2',
+            requiredBlockSize: size,
+            preflightComplete: false
+          }
+        : undefined;
+    })();
+    enforceResourceLimits(preflight, options?.limits, options?.profile);
     const decompressed = await decompressToBytes(data, 'bzip2', options);
     if (format === 'tar.bz2' || detectFormat(decompressed) === 'tar') {
       if (format !== 'tar.bz2') {
@@ -401,14 +482,15 @@ async function openWithFormat(
         reader: new TarArchiveReader(
           tarReader,
           Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
-          'tar.bz2'
+          'tar.bz2',
+          preflight
         ),
         format: 'tar.bz2',
         notes
       };
     }
     const name = inferBzip2EntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'bzip2', name), format: 'bz2', notes };
+    return { reader: new CompressedArchiveReader(decompressed, 'bzip2', name, preflight), format: 'bz2', notes };
   }
   if (format === 'xz' || format === 'tar.xz') {
     const profile = options?.profile ?? 'strict';
@@ -416,6 +498,35 @@ async function openWithFormat(
     if (checkType !== undefined && !isSupportedXzCheck(checkType) && profile === 'compat') {
       notes.push(`XZ check type ${formatXzCheck(checkType)} is not verified in compat profile`);
     }
+    const seekablePreflight = internalOptions?.__preflight;
+    const preflight: PreflightResourceInfo | undefined = (() => {
+      const indexLimits = resolveXzIndexLimits(options?.limits, profile);
+      const scan = scanXzResourceRequirements(data, {
+        ...(options?.signal ? { signal: options.signal } : {}),
+        maxIndexBytes: indexLimits.maxIndexBytes,
+        maxIndexRecords: indexLimits.maxIndexRecords
+      });
+      if (scan) {
+        const merged: PreflightResourceInfo = {
+          algorithm: 'xz',
+          requiredDictionaryBytes: scan.maxDictionaryBytes,
+          requiredIndexRecords: scan.requiredIndexRecords,
+          requiredIndexBytes: scan.requiredIndexBytes
+        };
+        if (seekablePreflight?.preflightComplete === false) {
+          merged.preflightComplete = false;
+          if (seekablePreflight.preflightBlockHeaders !== undefined) {
+            merged.preflightBlockHeaders = seekablePreflight.preflightBlockHeaders;
+          }
+          if (seekablePreflight.preflightBlockLimit !== undefined) {
+            merged.preflightBlockLimit = seekablePreflight.preflightBlockLimit;
+          }
+        }
+        return merged;
+      }
+      return seekablePreflight;
+    })();
+    enforceResourceLimits(preflight, options?.limits, profile);
     const decompressed = await decompressToBytes(data, 'xz', options);
     if (format === 'tar.xz' || detectFormat(decompressed) === 'tar') {
       if (format !== 'tar.xz') {
@@ -432,14 +543,15 @@ async function openWithFormat(
         reader: new TarArchiveReader(
           tarReader,
           Object.keys(auditDefaults).length > 0 ? auditDefaults : undefined,
-          'tar.xz'
+          'tar.xz',
+          preflight
         ),
         format: 'tar.xz',
         notes
       };
     }
     const name = inferXzEntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'xz', name), format: 'xz', notes };
+    return { reader: new CompressedArchiveReader(decompressed, 'xz', name, preflight), format: 'xz', notes };
   }
 
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported format: ${format}`);
@@ -450,10 +562,172 @@ async function resolveInput(input: ArchiveInput, options?: ArchiveOpenOptions): 
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
   if (options?.signal) readOptions.signal = options.signal;
-  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+  if (options?.limits?.maxInputBytes !== undefined) {
+    readOptions.maxBytes = options.limits.maxInputBytes;
+  } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
+    readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
+  } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
     readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
   }
   return readAllBytes(input, readOptions);
+}
+
+type ResourceLimitIssue = {
+  issue: ArchiveAuditReport['issues'][number];
+  context: Record<string, string>;
+};
+
+function resolveBzip2BlockLimit(limits?: ArchiveLimits): number {
+  const raw = limits?.maxBzip2BlockSize;
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    return Math.max(1, Math.min(9, Math.floor(raw)));
+  }
+  return DEFAULT_RESOURCE_LIMITS.maxBzip2BlockSize;
+}
+
+// resolveXzIndexLimits and resolveXzDictionaryLimit live in src/archive/xzPreflight.ts
+
+function resolveResourceLimitIssue(
+  preflight: PreflightResourceInfo | undefined,
+  limits?: ArchiveLimits,
+  profile?: ArchiveProfile
+): ResourceLimitIssue | null {
+  if (!preflight) return null;
+  if (preflight.algorithm === 'bzip2' && preflight.requiredBlockSize !== undefined) {
+    const limit = resolveBzip2BlockLimit(limits);
+    if (preflight.requiredBlockSize > limit) {
+      const context = {
+        algorithm: 'bzip2',
+        requiredBlockSize: String(preflight.requiredBlockSize),
+        limitBlockSize: String(limit)
+      };
+      return {
+        issue: {
+          code: 'COMPRESSION_RESOURCE_LIMIT',
+          severity: 'error',
+          message: `BZip2 block size ${preflight.requiredBlockSize} exceeds limit`,
+          details: context
+        },
+        context
+      };
+    }
+    return null;
+  }
+  if (preflight.algorithm === 'xz') {
+    const indexLimits = resolveXzIndexLimits(limits, profile);
+    if (
+      preflight.requiredIndexRecords !== undefined &&
+      preflight.requiredIndexRecords > indexLimits.maxIndexRecords
+    ) {
+      const context = {
+        algorithm: 'xz',
+        requiredIndexRecords: String(preflight.requiredIndexRecords),
+        limitIndexRecords: String(indexLimits.maxIndexRecords)
+      };
+      return {
+        issue: {
+          code: 'COMPRESSION_RESOURCE_LIMIT',
+          severity: 'error',
+          message: `XZ index record count ${preflight.requiredIndexRecords} exceeds limit`,
+          details: context
+        },
+        context
+      };
+    }
+    if (preflight.requiredIndexBytes !== undefined && preflight.requiredIndexBytes > indexLimits.maxIndexBytes) {
+      const context = {
+        algorithm: 'xz',
+        requiredIndexBytes: String(preflight.requiredIndexBytes),
+        limitIndexBytes: String(indexLimits.maxIndexBytes)
+      };
+      return {
+        issue: {
+          code: 'COMPRESSION_RESOURCE_LIMIT',
+          severity: 'error',
+          message: `XZ index size ${preflight.requiredIndexBytes} exceeds limit`,
+          details: context
+        },
+        context
+      };
+    }
+    if (preflight.requiredDictionaryBytes !== undefined) {
+      const limit = resolveXzDictionaryLimit(limits, profile);
+      if (BigInt(preflight.requiredDictionaryBytes) > limit) {
+        const context = {
+          algorithm: 'xz',
+          requiredDictionaryBytes: String(preflight.requiredDictionaryBytes),
+          limitDictionaryBytes: limit.toString()
+        };
+        return {
+          issue: {
+            code: 'COMPRESSION_RESOURCE_LIMIT',
+            severity: 'error',
+            message: `XZ dictionary size ${preflight.requiredDictionaryBytes} exceeds limit`,
+            details: context
+          },
+          context
+        };
+      }
+    }
+  }
+  return null;
+}
+
+function enforceResourceLimits(
+  preflight: PreflightResourceInfo | undefined,
+  limits?: ArchiveLimits,
+  profile?: ArchiveProfile
+): void {
+  const violation = resolveResourceLimitIssue(preflight, limits, profile);
+  if (!violation || !preflight) return;
+  throw new CompressionError('COMPRESSION_RESOURCE_LIMIT', violation.issue.message, {
+    algorithm: preflight.algorithm,
+    context: violation.context
+  });
+}
+
+function appendResourceLimitIssue(
+  report: ArchiveAuditReport,
+  preflight: PreflightResourceInfo | undefined,
+  limits?: ArchiveLimits,
+  profile?: ArchiveProfile
+): ArchiveAuditReport {
+  const violation = resolveResourceLimitIssue(preflight, limits, profile);
+  if (!violation) return report;
+  report.issues.push(violation.issue);
+  report.summary.errors += 1;
+  report.ok = false;
+  return report;
+}
+
+function appendResourcePreflightIssue(
+  report: ArchiveAuditReport,
+  preflight: PreflightResourceInfo | undefined
+): ArchiveAuditReport {
+  if (!preflight || preflight.preflightComplete !== false) return report;
+  const context: Record<string, string> = { algorithm: preflight.algorithm };
+  let severity: ArchiveIssueSeverity = 'warning';
+  let message = 'Resource preflight is incomplete';
+  if (preflight.algorithm === 'bzip2') {
+    message = 'Resource preflight does not scan concatenated bzip2 members';
+  } else if (preflight.algorithm === 'xz') {
+    severity = 'info';
+    message = 'Resource preflight did not scan all XZ block headers';
+    if (preflight.preflightBlockHeaders !== undefined) {
+      context.requiredBlockHeaders = String(preflight.preflightBlockHeaders);
+    }
+    if (preflight.preflightBlockLimit !== undefined) {
+      context.limitBlockHeaders = String(preflight.preflightBlockLimit);
+    }
+  }
+  report.issues.push({
+    code: 'COMPRESSION_RESOURCE_PREFLIGHT_INCOMPLETE',
+    severity,
+    message,
+    details: context
+  });
+  if (severity === 'warning') report.summary.warnings += 1;
+  return report;
 }
 
 function detectFormat(data: Uint8Array): ArchiveFormat | undefined {
@@ -501,9 +775,77 @@ function formatFromFilename(filename?: string): ArchiveFormat | undefined {
   return undefined;
 }
 
+function sanitizeSingleFileName(name?: string): string | undefined {
+  if (!name) return undefined;
+  if (name.includes('\u0000')) return undefined;
+  const base = name.split(/[\\/]/).pop() ?? name;
+  const trimmed = base.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..') return undefined;
+  return trimmed;
+}
+
+function inferGzipEntryName(header: GzipHeader, filename?: string): string {
+  const headerName = sanitizeSingleFileName(header.name);
+  if (headerName) return headerName;
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.tar.gz')) {
+    const stem = base.slice(0, -7);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.tgz')) {
+    const stem = base.slice(0, -4);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.gz')) {
+    const stem = base.slice(0, -3);
+    return stem || 'data';
+  }
+  return 'data';
+}
+
+function inferBrotliEntryName(filename?: string): string {
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.tar.br')) {
+    const stem = base.slice(0, -7);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.tbr')) {
+    const stem = base.slice(0, -4);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.br')) {
+    const stem = base.slice(0, -3);
+    return stem || 'data';
+  }
+  return 'data';
+}
+
+function inferZstdEntryName(filename?: string): string {
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
+  const lower = base.toLowerCase();
+  if (lower.endsWith('.tar.zst')) {
+    const stem = base.slice(0, -8);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.tzst')) {
+    const stem = base.slice(0, -5);
+    return stem ? `${stem}.tar` : 'data';
+  }
+  if (lower.endsWith('.zst')) {
+    const stem = base.slice(0, -4);
+    return stem || 'data';
+  }
+  return 'data';
+}
+
 function inferBzip2EntryName(filename?: string): string {
-  if (!filename) return 'data';
-  const base = filename.split(/[\\/]/).pop() ?? filename;
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
   const lower = base.toLowerCase();
   if (lower.endsWith('.tar.bz2')) {
     const stem = base.slice(0, -8);
@@ -529,8 +871,8 @@ function inferBzip2EntryName(filename?: string): string {
 }
 
 function inferXzEntryName(filename?: string): string {
-  if (!filename) return 'data';
-  const base = filename.split(/[\\/]/).pop() ?? filename;
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
   const lower = base.toLowerCase();
   if (lower.endsWith('.tar.xz')) {
     const stem = base.slice(0, -7);
@@ -709,27 +1051,45 @@ async function decompressToBytes(
   algorithm: CompressionAlgorithm,
   options?: ArchiveOpenOptions
 ): Promise<Uint8Array> {
-  const transform = await createDecompressTransform({
+  const limits = options?.limits;
+  const transform = createDecompressor({
     algorithm,
     ...(options?.signal ? { signal: options.signal } : {}),
-    ...(options?.limits?.maxTotalUncompressedBytes !== undefined
-      ? { maxOutputBytes: options.limits.maxTotalUncompressedBytes }
-      : {}),
-    ...(options?.limits?.maxCompressionRatio !== undefined
-      ? { maxCompressionRatio: options.limits.maxCompressionRatio }
-      : {}),
-    ...(options?.limits?.maxDictionaryBytes !== undefined
-      ? { maxDictionaryBytes: options.limits.maxDictionaryBytes }
-      : {}),
+    ...(limits?.maxTotalDecompressedBytes !== undefined
+      ? { maxOutputBytes: limits.maxTotalDecompressedBytes }
+      : limits?.maxTotalUncompressedBytes !== undefined
+        ? { maxOutputBytes: limits.maxTotalUncompressedBytes }
+        : {}),
+    ...(limits?.maxCompressionRatio !== undefined ? { maxCompressionRatio: limits.maxCompressionRatio } : {}),
+    ...(limits?.maxXzDictionaryBytes !== undefined
+      ? { maxDictionaryBytes: limits.maxXzDictionaryBytes }
+      : limits?.maxDictionaryBytes !== undefined
+        ? { maxDictionaryBytes: limits.maxDictionaryBytes }
+        : {}),
+    ...(limits?.maxXzBufferedBytes !== undefined ? { maxBufferedInputBytes: limits.maxXzBufferedBytes } : {}),
+    ...(limits?.maxBzip2BlockSize !== undefined ? { maxBzip2BlockSize: limits.maxBzip2BlockSize } : {}),
+    ...(limits ? { limits } : {}),
     ...(options?.profile ? { profile: options.profile } : {})
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
   if (options?.signal) readOptions.signal = options.signal;
-  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+  if (limits?.maxTotalDecompressedBytes !== undefined) {
+    readOptions.maxBytes = limits.maxTotalDecompressedBytes;
+  } else if (limits?.maxTotalUncompressedBytes !== undefined) {
+    readOptions.maxBytes = limits.maxTotalUncompressedBytes;
   }
-  return readAllBytes(stream, readOptions);
+  try {
+    return await readAllBytes(stream, readOptions);
+  } catch (err) {
+    if (err instanceof CompressionError) throw err;
+    if (err instanceof RangeError) throw err;
+    if (err && typeof err === 'object' && (err as { name?: string }).name === 'AbortError') throw err;
+    throw new CompressionError('COMPRESSION_BACKEND_UNAVAILABLE', 'Compression backend failed', {
+      algorithm,
+      cause: err
+    });
+  }
 }
 
 type GzipHeader = { name?: string; mtime?: Date };
@@ -740,20 +1100,55 @@ function parseGzipHeader(data: Uint8Array): GzipHeader {
   const mtime = readUint32LE(data, 4);
   let offset = 10;
   if (flags & 0x04) {
-    if (offset + 2 > data.length) return {};
+    if (offset + 2 > data.length) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header truncated', {
+        algorithm: 'gzip'
+      });
+    }
     const xlen = data[offset]! | (data[offset + 1]! << 8);
+    if (offset + 2 + xlen > data.length) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header truncated', {
+        algorithm: 'gzip'
+      });
+    }
     offset += 2 + xlen;
   }
   let name: string | undefined;
   if (flags & 0x08) {
     const start = offset;
     while (offset < data.length && data[offset] !== 0) offset += 1;
+    if (offset >= data.length) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header truncated', {
+        algorithm: 'gzip'
+      });
+    }
     name = decodeLatin1(data.subarray(start, offset));
     offset += 1;
   }
   if (flags & 0x10) {
     while (offset < data.length && data[offset] !== 0) offset += 1;
+    if (offset >= data.length) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header truncated', {
+        algorithm: 'gzip'
+      });
+    }
     offset += 1;
+  }
+  if (flags & 0x02) {
+    if (offset + 2 > data.length) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header truncated', {
+        algorithm: 'gzip'
+      });
+    }
+    const stored = data[offset]! | (data[offset + 1]! << 8);
+    const computed = (crc32(data.subarray(0, offset)) ^ 0xffffffff) & 0xffff;
+    if (stored !== computed) {
+      throw new CompressionError('COMPRESSION_GZIP_BAD_HEADER', 'Gzip header CRC mismatch', {
+        algorithm: 'gzip',
+        context: { stored: String(stored), expected: String(computed) }
+      });
+    }
+    offset += 2;
   }
   const header: GzipHeader = {};
   if (name !== undefined) header.name = name;
@@ -775,6 +1170,7 @@ function readUint32LE(data: Uint8Array, offset: number): number {
 
 class ZipArchiveReader implements ArchiveReader {
   format: ArchiveFormat = 'zip';
+  detection?: ArchiveDetectionReport;
   constructor(private readonly reader: ZipReader, private readonly openOptions?: ZipReaderOpenOptions) {}
 
   async *entries(): AsyncGenerator<ArchiveEntry> {
@@ -828,6 +1224,10 @@ class ZipArchiveReader implements ArchiveReader {
     return archiveReport;
   }
 
+  async close(): Promise<void> {
+    await this.reader.close();
+  }
+
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
     const profile = options?.profile;
     const auditOptions: ZipAuditOptions = {
@@ -879,10 +1279,12 @@ class ZipArchiveReader implements ArchiveReader {
 }
 
 class TarArchiveReader implements ArchiveReader {
+  detection?: ArchiveDetectionReport;
   constructor(
     private readonly reader: TarReader,
     private readonly auditDefaults?: TarAuditOptions,
-    public format: ArchiveFormat = 'tar'
+    public format: ArchiveFormat = 'tar',
+    private readonly preflight?: PreflightResourceInfo
   ) {}
 
   async *entries(): AsyncGenerator<ArchiveEntry> {
@@ -916,29 +1318,27 @@ class TarArchiveReader implements ArchiveReader {
       ...(options?.signal ? { signal: options.signal } : {})
     };
     const report = await this.reader.audit(tarOptions);
-    return report;
+    appendResourcePreflightIssue(report, this.preflight);
+    return appendResourceLimitIssue(report, this.preflight, limits, profile);
   }
 
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
-    const profile = options?.profile ?? this.auditDefaults?.profile;
-    const strict = options?.strict ?? this.auditDefaults?.strict;
-    const limits = options?.limits ?? this.auditDefaults?.limits;
-    const tarOptions: TarAuditOptions = {
-      ...(profile !== undefined ? { profile } : {}),
-      ...(strict !== undefined ? { strict } : {}),
-      ...(limits !== undefined ? { limits } : {}),
-      ...(options?.signal ? { signal: options.signal } : {})
-    };
-    await this.reader.assertSafe(tarOptions);
+    const report = await this.audit(options);
+    if (!report.ok) {
+      throw new ArchiveError('ARCHIVE_AUDIT_FAILED', 'TAR audit failed');
+    }
   }
 
   async normalizeToWritable(
     writable: WritableStream<Uint8Array>,
     options?: ArchiveNormalizeOptions
   ): Promise<ArchiveNormalizeReport> {
+    const limits = options?.limits ?? this.auditDefaults?.limits;
+    enforceResourceLimits(this.preflight, limits, this.auditDefaults?.profile);
     const tarOptions: TarNormalizeOptions = {
       ...(options?.deterministic !== undefined ? { deterministic: options.deterministic } : {}),
-      ...(options?.signal ? { signal: options.signal } : {})
+      ...(options?.signal ? { signal: options.signal } : {}),
+      ...(options?.limits !== undefined ? { limits: options.limits } : {})
     };
     return this.reader.normalizeToWritable(writable, tarOptions);
   }
@@ -946,12 +1346,13 @@ class TarArchiveReader implements ArchiveReader {
 
 class GzipArchiveReader implements ArchiveReader {
   format: ArchiveFormat = 'gz';
+  detection?: ArchiveDetectionReport;
   private readonly entry: ArchiveEntry;
 
-  constructor(private readonly data: Uint8Array, header: GzipHeader) {
+  constructor(private readonly data: Uint8Array, header: GzipHeader, name: string) {
     const entry: ArchiveEntry = {
       format: 'gz',
-      name: header.name ?? 'data',
+      name,
       size: BigInt(data.length),
       isDirectory: false,
       isSymlink: false,
@@ -974,7 +1375,9 @@ class GzipArchiveReader implements ArchiveReader {
     };
     const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
     if (totalBytes !== undefined) summary.totalBytes = totalBytes;
-    if (options?.limits?.maxTotalUncompressedBytes && this.entry.size > BigInt(options.limits.maxTotalUncompressedBytes)) {
+    const maxTotal =
+      options?.limits?.maxTotalDecompressedBytes ?? options?.limits?.maxTotalUncompressedBytes;
+    if (maxTotal !== undefined && this.entry.size > BigInt(maxTotal)) {
       issues.push({
         code: 'GZIP_LIMIT_EXCEEDED',
         severity: 'error',
@@ -1004,16 +1407,31 @@ class GzipArchiveReader implements ArchiveReader {
       throw new ArchiveError('ARCHIVE_AUDIT_FAILED', 'GZIP audit failed');
     }
   }
+
+  async normalizeToWritable(): Promise<ArchiveNormalizeReport> {
+    throw new ArchiveError(
+      'ARCHIVE_UNSUPPORTED_FEATURE',
+      'Normalization is not supported for single-file compressed formats'
+    );
+  }
 }
 
 class CompressedArchiveReader implements ArchiveReader {
   format: ArchiveFormat;
+  detection?: ArchiveDetectionReport;
   private readonly entry: ArchiveEntry;
   private readonly algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz';
+  private readonly preflight: PreflightResourceInfo | undefined;
 
-  constructor(private readonly data: Uint8Array, algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz', name = 'data') {
+  constructor(
+    private readonly data: Uint8Array,
+    algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz',
+    name = 'data',
+    preflight?: PreflightResourceInfo
+  ) {
     this.algorithm = algorithm;
     this.format = algorithm === 'zstd' ? 'zst' : algorithm === 'brotli' ? 'br' : algorithm === 'xz' ? 'xz' : 'bz2';
+    this.preflight = preflight;
     this.entry = {
       format: this.format,
       name,
@@ -1038,7 +1456,9 @@ class CompressedArchiveReader implements ArchiveReader {
     const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
     if (totalBytes !== undefined) summary.totalBytes = totalBytes;
 
-    if (options?.limits?.maxTotalUncompressedBytes && this.entry.size > BigInt(options.limits.maxTotalUncompressedBytes)) {
+    const maxTotal =
+      options?.limits?.maxTotalDecompressedBytes ?? options?.limits?.maxTotalUncompressedBytes;
+    if (maxTotal !== undefined && this.entry.size > BigInt(maxTotal)) {
       const code =
         this.algorithm === 'zstd'
           ? 'ZSTD_LIMIT_EXCEEDED'
@@ -1063,13 +1483,15 @@ class CompressedArchiveReader implements ArchiveReader {
       if (issue.severity === 'error') summary.errors += 1;
     }
 
-    return {
+    const report: ArchiveAuditReport = {
       schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       ok: summary.errors === 0,
       summary,
       issues,
       toJSON: () => ({ schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, ok: summary.errors === 0, summary, issues })
     };
+    appendResourcePreflightIssue(report, this.preflight);
+    return appendResourceLimitIssue(report, this.preflight, options?.limits, options?.profile);
   }
 
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
@@ -1077,6 +1499,13 @@ class CompressedArchiveReader implements ArchiveReader {
     if (!report.ok) {
       throw new ArchiveError('ARCHIVE_AUDIT_FAILED', 'Compressed audit failed');
     }
+  }
+
+  async normalizeToWritable(): Promise<ArchiveNormalizeReport> {
+    throw new ArchiveError(
+      'ARCHIVE_UNSUPPORTED_FEATURE',
+      'Normalization is not supported for single-file compressed formats'
+    );
   }
 }
 

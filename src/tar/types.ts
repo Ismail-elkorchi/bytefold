@@ -63,6 +63,7 @@ export type TarNormalizeOptions = {
   onCaseCollision?: 'error' | 'last-wins' | 'rename';
   onSymlink?: 'error' | 'drop';
   onUnsupported?: 'error' | 'drop';
+  limits?: ArchiveLimits;
   signal?: AbortSignal;
 };
 

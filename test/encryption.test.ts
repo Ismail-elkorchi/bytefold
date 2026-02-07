@@ -49,6 +49,19 @@ function concat(chunks: Uint8Array[]): Uint8Array {
   return out;
 }
 
+function corruptEncryptedPayload(zip: Uint8Array): Uint8Array {
+  const out = new Uint8Array(zip);
+  const nameLen = readUint16LE(out, 26);
+  const extraLen = readUint16LE(out, 28);
+  const dataOffset = 30 + nameLen + extraLen;
+  const target = dataOffset + 12 + 1;
+  if (target >= out.length) {
+    throw new Error('corrupt payload offset out of range');
+  }
+  out[target] = out[target]! ^ 0xff;
+  return out;
+}
+
 test('zipcrypto roundtrip deflate', async () => {
   const data1 = new TextEncoder().encode('zipcrypto-one');
   const data2 = new TextEncoder().encode('zipcrypto-two');
@@ -100,6 +113,37 @@ test('wrong password yields auth error', async () => {
     const stream = await reader.open(entry, { password: 'wrong' });
     await new Response(stream).arrayBuffer();
   }, (err: unknown) => err instanceof ZipError && err.code === 'ZIP_BAD_PASSWORD');
+});
+
+test('missing password yields required error (zipcrypto)', async () => {
+  const data = new TextEncoder().encode('secret');
+  const zip = await writeZip([{ name: 'secret.txt', data, method: 8 }], {
+    type: 'zipcrypto',
+    password: PASSWORD
+  });
+  const reader = await ZipReader.fromUint8Array(zip);
+  const entry = reader.entries()[0]!;
+  await assert.rejects(async () => {
+    await reader.open(entry);
+  }, (err: unknown) => err instanceof ZipError && err.code === 'ZIP_PASSWORD_REQUIRED');
+});
+
+test('zipcrypto corruption does not surface as bad password', async () => {
+  const data = new TextEncoder().encode('payload');
+  const zip = await writeZip([{ name: 'payload.txt', data, method: 0 }], {
+    type: 'zipcrypto',
+    password: PASSWORD
+  });
+  const corrupted = corruptEncryptedPayload(zip);
+  const reader = await ZipReader.fromUint8Array(corrupted);
+  const entry = reader.entries()[0]!;
+  await assert.rejects(async () => {
+    const stream = await reader.open(entry, { password: PASSWORD });
+    await new Response(stream).arrayBuffer();
+  }, (err: unknown) => {
+    if (!(err instanceof ZipError)) return false;
+    return err.code !== 'ZIP_BAD_PASSWORD';
+  });
 });
 
 test('aes wrong password yields auth error', async () => {
