@@ -69,7 +69,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 28. Seekable XZ preflight success path is bounded in HTTP range requests/bytes and reports incomplete scans when block header limits are exceeded without blocking decode. (tests: `test/xz-seekable-preflight.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
 29. Report + error JSON schemas are versioned and validated. (tests: `test/schema-contracts.test.ts`, `test/json-safety.test.ts`)
 30. Public export surface matches the manifest snapshot. (tests: `test/export-surface.test.ts`)
-31. TypeScript declaration surface for every npm/jsr public entrypoint matches the committed snapshot manifest; intentional surface breaks require snapshot update and a `MIGRATIONS.md` entry (0.x included). (tests: `test/type-surface.test.ts`)
+31. TypeScript declaration surface for every npm/jsr public entrypoint matches the committed snapshot manifest; intentional surface breaks in ALPHA require snapshot updates and explicit CHANGELOG entries, and V1+ will introduce stricter migration discipline. (tests: `test/type-surface.test.ts`)
 32. npm pack payload obeys allowlist/denylist policy: runtime artifacts plus contract metadata (`SPEC.md`) and JSON schemas (`schemas/*.json`) only; repo-internal indexes (`docs/REPO_INDEX.*`) and internal sources are excluded. (tests: `test/packaging-contract.test.ts`, `scripts/verify-pack.mjs`)
 33. Normalize safe mode is deterministic and lossless mode preserves bytes where documented. (zip/tar idempotent.) (tests: `test/normalize.test.ts`, `test/audit-normalize-proof.test.ts`)
 34. `extractAll` blocks path traversal. (tests: `test/zip.test.ts`)

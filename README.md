@@ -43,4 +43,4 @@ Support matrix: see `SPEC.md` (Support matrix section).
 - `SPEC.md` (invariants, API entrypoints, error/report model)
 - `ARCHITECTURE.md` (module map and data flow)
 - `SECURITY.md` (threat model and reporting)
-- `CONTRIBUTING.md`, `MIGRATIONS.md`, `CHANGELOG.md`
+- `CONTRIBUTING.md`, `CHANGELOG.md`

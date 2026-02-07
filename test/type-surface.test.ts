@@ -36,7 +36,7 @@ test('public TypeScript declaration surface matches snapshot', async () => {
       'Type-surface snapshot mismatch.',
       'If this is intentional, update the snapshot with:',
       '  node ./scripts/type-surface-manifest.mjs --write',
-      'and add a migration entry in MIGRATIONS.md (required even for 0.x).'
+      'and record the surface change in CHANGELOG.md while in ALPHA.'
     ].join('\n')
   );
 });

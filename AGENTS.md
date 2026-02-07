@@ -45,4 +45,5 @@ update_triggers:
 2. Dev deps require a written justification in CONTRIBUTING.md and a CHANGELOG entry.
 
 ## Migration policy
-1. For V1+, breaking changes require a codemod or migration script and an entry in MIGRATIONS.md.
+1. ALPHA (0.x): breaking changes are allowed when tests and contract docs are updated in the same change; codemods are not required.
+2. V1+: formal migration discipline (codemods + explicit migration notes) will be introduced.
