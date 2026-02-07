@@ -1151,6 +1151,76 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
     await assertSingleFileAuditNormalize(singleXzArchive, auditSchema, errorSchema, validateSchema);
 
     {
+      let limitedError: unknown;
+      try {
+        await collect(
+          chunkReadable(singleXzBytes, [4]).pipeThrough(
+            createDecompressor({
+              algorithm: 'xz',
+              profile: 'agent',
+              limits: { maxXzBufferedBytes: 1 }
+            })
+          )
+        );
+      } catch (err) {
+        limitedError = err;
+      }
+      if (!(limitedError instanceof CompressionError) || limitedError.code !== 'COMPRESSION_XZ_BUFFER_LIMIT') {
+        throw new Error('expected xz buffered-limit failure under strict limit precedence');
+      }
+      const overrideDecoded = await collect(
+        chunkReadable(singleXzBytes, [4]).pipeThrough(
+          createDecompressor({
+            algorithm: 'xz',
+            profile: 'agent',
+            limits: { maxXzBufferedBytes: 1 },
+            maxBufferedInputBytes: 64 * 1024
+          })
+        )
+      );
+      if (new TextDecoder().decode(overrideDecoded) !== 'hello from bytefold\n') {
+        throw new Error('explicit xz buffered override did not win over limits');
+      }
+    }
+
+    {
+      const ratioChunks: Uint8Array[] = [];
+      const ratioWritable = new WritableStream<Uint8Array>({
+        write(chunk) {
+          ratioChunks.push(chunk);
+        }
+      });
+      const ratioWriter = createArchiveWriter('zip', ratioWritable);
+      await ratioWriter.add('ratio.bin', new Uint8Array(512 * 1024));
+      await ratioWriter.close();
+      const ratioZipBytes = concatChunks(ratioChunks);
+
+      const relaxed = await openArchive(ratioZipBytes, {
+        format: 'zip',
+        profile: 'agent',
+        limits: { maxCompressionRatio: 1_000_000 }
+      });
+      const relaxedAudit = await relaxed.audit();
+      if (relaxedAudit.issues.some((issue) => issue.code === 'ZIP_LIMIT_EXCEEDED')) {
+        throw new Error('zip ratio override did not win over agent profile default');
+      }
+
+      let defaultedError: unknown;
+      try {
+        await openArchive(ratioZipBytes, {
+          format: 'zip',
+          profile: 'agent',
+          limits: { maxEntries: 10_000 }
+        });
+      } catch (err) {
+        defaultedError = err;
+      }
+      if (!(defaultedError instanceof ZipError) || defaultedError.code !== 'ZIP_LIMIT_EXCEEDED') {
+        throw new Error('zip unoverridden profile defaults did not apply under limits override');
+      }
+    }
+
+    {
       const bytes = new Uint8Array(
         await Bun.file(fileURLToPath(new URL('../test/fixtures/hello.txt.bz2', import.meta.url))).arrayBuffer()
       );
@@ -2191,7 +2261,7 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
         if (!result.ok) {
           throw new Error(`ambiguous error schema failed for ${fixtureName}: ${result.errors.join('\\n')}`);
         }
-        if (json.context.entryName !== expectation.entryName) {
+        if (json.entryName !== expectation.entryName) {
           throw new Error(`ambiguous error context mismatch for ${fixtureName}`);
         }
       }
@@ -2331,7 +2401,7 @@ async function assertSingleFileAuditNormalize(
   if (!result.ok) {
     throw new Error(`single-file normalize error schema validation failed: ${result.errors.join('\\n')}`);
   }
-  if (!json.hint || !json.context || Object.keys(json.context).length === 0) {
+  if (!json.hint || !json.context || typeof json.context !== 'object') {
     throw new Error('expected hint/context for single-file normalize');
   }
 }

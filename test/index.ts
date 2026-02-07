@@ -48,6 +48,8 @@ import './support-matrix.test.js';
 import './support-matrix-behavior.test.js';
 import './manifest-invariants.test.js';
 import './error-contracts.test.js';
+import './error-json-ambiguity.test.js';
+import './option-precedence.test.js';
 import './bzip2-aliasing.test.js';
 import './gzip-aliasing.test.js';
 import './gzip-header-options.test.js';

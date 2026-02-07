@@ -26,7 +26,8 @@ test('exported error classes serialize with hint + context and match schema', as
     const json = err.toJSON();
     assert.ok(json.schemaVersion === '1');
     assert.ok(json.hint.length > 0);
-    assert.ok(Object.keys(json.context).length > 0);
+    assert.equal(typeof json.context, 'object');
+    assert.ok(json.context !== null);
     const result = validateSchema(schema, json);
     assert.ok(result.ok, result.errors.join('\n'));
   }
@@ -44,7 +45,7 @@ test('boundary failures throw typed errors with JSON contracts', async () => {
       const json = err.toJSON();
       const result = validateSchema(schema, json);
       if (!result.ok) return false;
-      return json.hint.length > 0 && Object.keys(json.context).length > 0;
+      return json.hint.length > 0 && json.context !== null && typeof json.context === 'object';
     }
   );
 
@@ -57,7 +58,7 @@ test('boundary failures throw typed errors with JSON contracts', async () => {
       const json = err.toJSON();
       const result = validateSchema(schema, json);
       if (!result.ok) return false;
-      return json.hint.length > 0 && Object.keys(json.context).length > 0;
+      return json.hint.length > 0 && json.context !== null && typeof json.context === 'object';
     }
   );
 
@@ -72,7 +73,7 @@ test('boundary failures throw typed errors with JSON contracts', async () => {
       const json = err.toJSON();
       const result = validateSchema(schema, json);
       if (!result.ok) return false;
-      return json.hint.length > 0 && Object.keys(json.context).length > 0;
+      return json.hint.length > 0 && json.context !== null && typeof json.context === 'object';
     }
   );
 
@@ -93,7 +94,7 @@ test('boundary failures throw typed errors with JSON contracts', async () => {
       const json = err.toJSON();
       const result = validateSchema(schema, json);
       if (!result.ok) return false;
-      return json.hint.length > 0 && Object.keys(json.context).length > 0;
+      return json.hint.length > 0 && json.context !== null && typeof json.context === 'object';
     }
   );
 });

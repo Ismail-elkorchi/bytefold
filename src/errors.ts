@@ -1,3 +1,6 @@
+import { sanitizeErrorContext } from './errorContext.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from './reportSchema.js';
+
 /** Stable ZIP error codes. */
 export type ZipErrorCode =
   | 'ZIP_HTTP_RANGE_UNSUPPORTED'
@@ -82,10 +85,11 @@ export class ZipError extends Error {
     method?: number;
     offset?: string;
   } {
-    const context: Record<string, string> = { code: this.code, ...(this.context ?? {}) };
-    if (this.entryName !== undefined) context.entryName = this.entryName;
-    if (this.method !== undefined) context.method = String(this.method);
-    if (this.offset !== undefined) context.offset = this.offset.toString();
+    const topLevelShadowKeys: string[] = [];
+    if (this.entryName !== undefined) topLevelShadowKeys.push('entryName');
+    if (this.method !== undefined) topLevelShadowKeys.push('method');
+    if (this.offset !== undefined) topLevelShadowKeys.push('offset');
+    const context = sanitizeErrorContext(this.context, topLevelShadowKeys);
     return {
       schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       name: this.name,
@@ -116,4 +120,3 @@ export type ZipWarning = {
   message: string;
   entryName?: string;
 };
-import { BYTEFOLD_REPORT_SCHEMA_VERSION } from './reportSchema.js';

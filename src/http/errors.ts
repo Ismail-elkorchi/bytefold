@@ -1,4 +1,5 @@
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
+import { sanitizeErrorContext } from '../errorContext.js';
 
 /** Stable HTTP range/session error codes. */
 export type HttpErrorCode =
@@ -49,7 +50,7 @@ export class HttpError extends Error {
       code: this.code,
       message: this.message,
       hint: this.message,
-      context: { code: this.code, ...(this.context ?? {}) }
+      context: sanitizeErrorContext(this.context)
     };
   }
 }

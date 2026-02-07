@@ -75,6 +75,8 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 34. `extractAll` blocks path traversal. (tests: `test/zip.test.ts`)
 35. `openArchive` auto-detects documented formats; tar.br requires an explicit hint. (tests: `test/archive.test.ts`, `test/bzip2.test.ts`, `test/xz.test.ts`, `test/tar-xz.test.ts`)
 36. Context index artifacts are deterministic and bounded: `npm run context:index` produces `docs/REPO_INDEX.md` (<= 250 KiB) plus `docs/REPO_INDEX.md.sha256` with stable sorting and no timestamps. (tests: `test/context-tools.test.ts`)
+37. Error JSON `context` never shadows top-level keys (`schemaVersion`, `name`, `code`, `message`, `hint`, `context`, plus top-level optionals such as `entryName`, `method`, `offset`, `algorithm`). (tests: `test/error-contracts.test.ts`, `test/error-json-ambiguity.test.ts`, `test/schema-contracts.test.ts`)
+38. Profile/limits precedence is deterministic across readers and decompressor setup: profile selects defaults, explicit `limits` override only provided fields, and explicit decompressor scalar limits override `limits` for matching knobs. (tests: `test/option-precedence.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
@@ -201,6 +203,11 @@ Naming is deterministic and sanitized to a single path segment. (tests: `test/si
 - Rationale: XZ Index fields are encoded as VLIs up to 63 bits (`specs/xz-file-format.txt`), so record counts and index sizes can be arbitrarily large; the defaults cap scan time/space while allowing typical archives. (tests: `test/xz-index-limits.test.ts`)
 - XZ Index VLI decoding is streaming-safe even when VLI bytes split across chunks. (tests: `test/xz-vli-boundaries.test.ts`)
 - Overrides: ceilings are configurable via `limits` in `openArchive(...)`, `ArchiveReader.audit(...)`, and `ArchiveReader.normalizeToWritable(...)`, and via `limits` in `createDecompressor(...)`. (tests: `test/resource-ceilings.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
+- Precedence rules (profile vs limits):
+  - `openArchive(...)`: `profile` chooses reader defaults (`strict` mode + default limits), then `limits` overrides only the specified fields; unspecified fields stay on profile defaults. (tests: `test/option-precedence.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
+  - `ZipReader` / `TarReader` construction: same rule as `openArchive` because the constructors resolve `profile` defaults first, then merge explicit `limits` field-by-field, and `isStrict` (if set) overrides profile strictness. (tests: `test/option-precedence.test.ts`)
+  - `createDecompressor(...)`: explicit scalar knobs (`maxOutputBytes`, `maxCompressionRatio`, `maxDictionaryBytes`, `maxBufferedInputBytes`) take precedence over their `limits` counterparts; remaining values come from `limits`; `profile` still controls behavior independently (for example, unsupported XZ checks in strict vs compat). (tests: `test/option-precedence.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`, `test/xz-utils-conformance.test.ts`)
+  - `createArchiveWriter(...)`: no `profile`/`limits` API exists for writer creation; precedence is not applicable. (tests: `test/archive.test.ts`, `test/archive-writer-proof.test.ts`)
 - Audit preflight: bzip2 block size and xz dictionary size are checked from headers and reported as `COMPRESSION_RESOURCE_LIMIT` without full decompression. (tests: `test/resource-ceilings.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`, `test/xz-seekable-preflight.test.ts`)
 - `maxTotalDecompressedBytes` enforces output ceilings for gzip/deflate/brotli/zstd with `COMPRESSION_RESOURCE_LIMIT` and no output beyond the limit. (tests: `test/compression-resource-limits.test.ts`)
 
@@ -216,6 +223,7 @@ Naming is deterministic and sanitized to a single path segment. (tests: `test/si
 - Stable error classes: `ZipError`, `CompressionError`, `ArchiveError`.
 - Stable error codes are defined in `src/errors.ts`, `src/compress/errors.ts`, and `src/archive/errors.ts`.
 - Error JSON includes `schemaVersion: "1"` plus `hint` and `context`, and serializes as plain objects with string/number fields only.
+- Error JSON context policy: `context` MUST NOT duplicate any top-level key name. Keys that are top-level in an error payload (`schemaVersion`, `name`, `code`, `message`, `hint`, `context`, plus optional top-level fields like `entryName`, `method`, `offset`, `algorithm`) are stripped from `context` during serialization so machine consumers have one canonical location per fact. (tests: `test/error-json-ambiguity.test.ts`, `test/error-contracts.test.ts`)
 - JSON schema: `schemas/error.schema.json`. (tests: `test/schema-contracts.test.ts`, `test/error-contracts.test.ts`)
 
 ## Report model

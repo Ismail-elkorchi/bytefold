@@ -1,3 +1,6 @@
+import { sanitizeErrorContext } from '../errorContext.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
+
 /** Stable archive error codes. */
 export type ArchiveErrorCode =
   | 'ARCHIVE_UNSUPPORTED_FORMAT'
@@ -60,9 +63,10 @@ export class ArchiveError extends Error {
     entryName?: string;
     offset?: string;
   } {
-    const context: Record<string, string> = { code: this.code, ...(this.context ?? {}) };
-    if (this.entryName !== undefined) context.entryName = this.entryName;
-    if (this.offset !== undefined) context.offset = this.offset.toString();
+    const topLevelShadowKeys: string[] = [];
+    if (this.entryName !== undefined) topLevelShadowKeys.push('entryName');
+    if (this.offset !== undefined) topLevelShadowKeys.push('offset');
+    const context = sanitizeErrorContext(this.context, topLevelShadowKeys);
     return {
       schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       name: this.name,
@@ -75,4 +79,3 @@ export class ArchiveError extends Error {
     };
   }
 }
-import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';

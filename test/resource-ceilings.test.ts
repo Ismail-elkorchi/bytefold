@@ -24,10 +24,10 @@ async function expectLimitError(
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
-      const json = err.toJSON() as { context?: Record<string, string> };
+      const json = err.toJSON() as { algorithm?: string; context?: Record<string, string> };
       const result = validateSchema(errorSchema, json);
       assert.ok(result.ok, result.errors.join('\n'));
-      assert.equal(json.context?.algorithm, algorithm);
+      assert.equal(json.algorithm, algorithm);
       assert.ok(json.context?.[requiredKey]);
       assert.ok(json.context?.[limitKey]);
       return true;

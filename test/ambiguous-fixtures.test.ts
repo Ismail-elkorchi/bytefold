@@ -109,7 +109,7 @@ test('ambiguous fixtures: audit + normalize determinism', async () => {
       const json = err.toJSON();
       const result = validateSchema(errorSchema, json);
       assert.ok(result.ok, result.errors.join('\n'));
-      assert.equal(json.context.entryName, expectation.entryName);
+      assert.equal(json.entryName, expectation.entryName);
     }
   }
 });

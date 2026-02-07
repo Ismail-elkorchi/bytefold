@@ -1,3 +1,6 @@
+import { sanitizeErrorContext } from '../errorContext.js';
+import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
+
 /** Stable error codes for compression operations. */
 export type CompressionErrorCode =
   | 'COMPRESSION_UNSUPPORTED_ALGORITHM'
@@ -50,8 +53,8 @@ export class CompressionError extends Error {
     context: Record<string, string>;
     algorithm?: string;
   } {
-    const context: Record<string, string> = { code: this.code, ...(this.context ?? {}) };
-    if (this.algorithm !== undefined) context.algorithm = this.algorithm;
+    const topLevelShadowKeys = this.algorithm !== undefined ? ['algorithm'] : [];
+    const context = sanitizeErrorContext(this.context, topLevelShadowKeys);
     return {
       schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION,
       name: this.name,
@@ -63,4 +66,3 @@ export class CompressionError extends Error {
     };
   }
 }
-import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
