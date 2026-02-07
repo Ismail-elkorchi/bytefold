@@ -28,7 +28,7 @@ jobs:
       - name: Setup Deno
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb
         with:
-          deno-version: 1.23.0
+          deno-version: 2.6.7
       - name: Setup Bun
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3
         with:
