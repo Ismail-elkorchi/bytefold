@@ -82,6 +82,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 39. openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits. (tests: `test/archive.test.ts`, `test/web-adapter.test.ts`, `test/schema-contracts.test.ts`)
 40. Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url". (tests: `test/web-adapter.test.ts`)
 41. Browser-facing entrypoint stays web-bundle safe: `npm run web:check` bundles `web/mod.ts` for `platform=browser`, rejects `node:*` imports, and is deterministic across runs. (tests: `test/web-check.test.ts`, `test/repo-invariants.test.ts`)
+42. Web entrypoint writer roundtrips are contract-backed: ZIP (store-only) and TAR archives written to Web `WritableStream` sinks can be reopened from Blob via `openArchive(...)`, preserve entry names/bytes, and remain safe under `audit` + deterministic `normalizeToWritable`. (tests: `test/web-writer-roundtrip.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
@@ -164,8 +165,8 @@ Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit
 | tar.br | ⚠️ (format: `tar.br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ✅ | 🟦 |
 | br | ⚠️ (format: `br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
 
-Matrix proofs: `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/xz.test.ts`, `test/bzip2.test.ts`, `test/tar-xz.test.ts`, `test/single-file-formats.test.ts`, `test/archive-writer-proof.test.ts`, `test/audit-normalize-proof.test.ts`, `test/support-matrix-behavior.test.ts`, `test/support-matrix.test.ts`, `test/web-adapter.test.ts`.
-Write proofs: `test/archive-writer-proof.test.ts`, `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`.
+Matrix proofs: `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/xz.test.ts`, `test/bzip2.test.ts`, `test/tar-xz.test.ts`, `test/single-file-formats.test.ts`, `test/archive-writer-proof.test.ts`, `test/audit-normalize-proof.test.ts`, `test/support-matrix-behavior.test.ts`, `test/support-matrix.test.ts`, `test/web-adapter.test.ts`, `test/web-writer-roundtrip.test.ts`.
+Write proofs: `test/archive-writer-proof.test.ts`, `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/web-writer-roundtrip.test.ts`.
 Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`.
 
 ```json support-matrix
@@ -195,6 +196,7 @@ Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`
 - Supported input kinds in the web adapter: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, `Blob`/`File`, and `http(s)` URL.
 - URL behavior in web adapter: always full-fetch response bytes before archive detection/opening; no seekable HTTP range session is attempted in web adapter by design. (tests: `test/web-adapter.test.ts`)
 - ZIP on Blob uses seekable random access (`blob.slice(start, end).arrayBuffer()`), so listing/extracting ZIP from Blob stays bounded by seek budget and avoids full Blob buffering. (tests: `test/web-adapter.test.ts`)
+- Web write roundtrip contract: ZIP (store-only mode) and TAR can be created through the web entrypoint into pure Web `WritableStream` sinks, wrapped in Blob, and reopened with matching entry names/bytes plus safe audit/normalize behavior. (tests: `test/web-writer-roundtrip.test.ts`)
 - XZ seekable preflight over Blob is not implemented in this iteration; Blob XZ paths use bounded full-buffer input handling and existing decode-time resource ceilings. (tests: `test/web-adapter.test.ts`, `test/resource-ceilings.test.ts`)
 - Compression capability baseline for web runtime:
   - guaranteed by Compression Streams baseline in this contract: `gzip`, `deflate`, `deflate-raw`;
