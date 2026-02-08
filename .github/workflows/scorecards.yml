@@ -11,8 +11,6 @@ on:
 permissions:
   actions: read
   contents: read
-  id-token: write
-  security-events: write
 
 concurrency:
   group: scorecards-${{ github.ref }}
@@ -23,6 +21,12 @@ jobs:
     name: OpenSSF Scorecards
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    # Scorecard publish_results workflow restrictions require write scopes at job level.
+    permissions:
+      actions: read
+      contents: read
+      id-token: write
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
