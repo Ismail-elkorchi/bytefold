@@ -1,0 +1,16 @@
+# Byte-stable fixture policy across platforms.
+# Default all fixtures to binary to prevent implicit line-ending conversion.
+test/fixtures/** binary
+
+# Text fixtures used as expected byte snapshots must always be LF.
+test/fixtures/expected/** text eol=lf
+
+# Explicit binary fixture/archive extensions.
+*.bin binary
+*.xz binary
+*.gz binary
+*.bz2 binary
+*.br binary
+*.zst binary
+*.zip binary
+*.tar binary
