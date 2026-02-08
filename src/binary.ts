@@ -10,6 +10,12 @@ export function decodeUtf8(bytes: Uint8Array, fatal = false): string {
   return fatal ? utf8DecoderFatal.decode(bytes) : utf8Decoder.decode(bytes);
 }
 
+export function decodeNullTerminatedUtf8(bytes: Uint8Array, fatal = false): string {
+  const nulIndex = bytes.indexOf(0);
+  const view = nulIndex === -1 ? bytes : bytes.subarray(0, nulIndex);
+  return decodeUtf8(view, fatal);
+}
+
 export function readUint16LE(buf: Uint8Array, offset: number): number {
   return buf[offset]! | (buf[offset + 1]! << 8);
 }

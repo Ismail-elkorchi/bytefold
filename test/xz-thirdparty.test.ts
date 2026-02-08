@@ -1,19 +1,23 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { openArchive } from '@ismail-elkorchi/bytefold';
 
 const THIRD_PARTY_ROOT = new URL('../test/fixtures/thirdparty/xz/', import.meta.url);
 
 const THIRD_PARTY_FIXTURES = [
-  { fixture: 'good-1-x86-lzma2.xz', expected: 'good-1-x86-lzma2.bin' },
+  {
+    fixture: 'good-1-x86-lzma2.xz',
+    expectedBytes: 1388,
+    expectedSha256: 'dee7bc599bfc07147a302f44d1e994140bc812029baa4394d703e73e29117113'
+  },
   { fixture: 'good-1-check-sha256.xz', expected: 'good-1-check-sha256.bin' }
 ];
 
 test('xz third-party fixtures decode with resource ceilings', async () => {
-  for (const { fixture, expected } of THIRD_PARTY_FIXTURES) {
+  for (const { fixture, expected, expectedBytes, expectedSha256 } of THIRD_PARTY_FIXTURES) {
     const bytes = new Uint8Array(await readFile(new URL(fixture, THIRD_PARTY_ROOT)));
-    const expectedBytes = new Uint8Array(await readFile(new URL(expected, THIRD_PARTY_ROOT)));
     const reader = await openArchive(bytes, {
       format: 'xz',
       limits: { maxXzDictionaryBytes: 1024 * 1024, maxXzBufferedBytes: 256 * 1024 }
@@ -23,8 +27,14 @@ test('xz third-party fixtures decode with resource ceilings', async () => {
       payload = await collect(await entry.open());
     }
     assert.ok(payload, `${fixture} missing payload`);
-    assert.equal(payload.length, expectedBytes.length, `${fixture} length mismatch`);
-    assert.deepEqual(payload, expectedBytes, `${fixture} bytes mismatch`);
+    if (expected) {
+      const expectedBytesData = new Uint8Array(await readFile(new URL(expected, THIRD_PARTY_ROOT)));
+      assert.equal(payload.length, expectedBytesData.length, `${fixture} length mismatch`);
+      assert.deepEqual(payload, expectedBytesData, `${fixture} bytes mismatch`);
+      continue;
+    }
+    assert.equal(payload.length, expectedBytes, `${fixture} length mismatch`);
+    assert.equal(sha256Hex(payload), expectedSha256, `${fixture} digest mismatch`);
   }
 });
 
@@ -52,4 +62,8 @@ function concatBytes(chunks: Uint8Array[]): Uint8Array {
     offset += chunk.length;
   }
   return out;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }

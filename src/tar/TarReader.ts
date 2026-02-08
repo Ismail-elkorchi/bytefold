@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import { TarWriter } from './TarWriter.js';
 import { throwIfAborted } from '../abort.js';
+import { decodeNullTerminatedUtf8 } from '../binary.js';
 
 const BLOCK_SIZE = 512;
 
@@ -612,7 +613,7 @@ function parseNumeric(buffer: Uint8Array): bigint | undefined {
 }
 
 function parseOctal(buffer: Uint8Array): bigint | undefined {
-  const text = TEXT_DECODER.decode(buffer).replace(/\0.*$/, '').trim();
+  const text = decodeNullTerminatedUtf8(buffer).trim();
   if (!text) return undefined;
   const value = parseInt(text, 8);
   if (!Number.isFinite(value)) return undefined;

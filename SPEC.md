@@ -83,6 +83,8 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 40. Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url". (tests: `test/web-adapter.test.ts`)
 41. Browser-facing entrypoint stays web-bundle safe: `npm run web:check` bundles `web/mod.ts` for `platform=browser`, rejects `node:*` imports, and is deterministic across runs. (tests: `test/web-check.test.ts`, `test/repo-invariants.test.ts`)
 42. Web entrypoint writer roundtrips are contract-backed: ZIP (store-only) and TAR archives written to Web `WritableStream` sinks can be reopened from Blob via `openArchive(...)`, preserve entry names/bytes, and remain safe under `audit` + deterministic `normalizeToWritable`. (tests: `test/web-writer-roundtrip.test.ts`)
+43. TAR octal parsing uses null-terminated UTF-8 decoding without regex backtracking and preserves legacy truncation semantics on representative + adversarial long inputs. (tests: `test/null-terminated-utf8.test.ts`, `test/archive.test.ts`, `test/tar-xz.test.ts`)
+44. XZ fixture expectations avoid committed ELF binary outputs by pinning deterministic digest/size assertions for BCJ payload verification. (tests: `test/xz-utils-conformance.test.ts`, `test/xz-thirdparty.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
