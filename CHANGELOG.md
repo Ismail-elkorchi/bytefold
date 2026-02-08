@@ -22,6 +22,7 @@ update_triggers:
 
 - Compression capabilities schema/runtime model now includes `runtime: "web"` when browser-like globals are detected.
 - Support matrix contracts now include Web runtime invariants and snapshot enforcement.
+- Web compression capability reporting now probes constructor acceptance per algorithm/mode (`CompressionStream` vs `DecompressionStream`) instead of roundtrip probing, so reports track the actual runtime-exposed algorithm strings.
 
 ### Tooling
 

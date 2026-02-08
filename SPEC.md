@@ -198,11 +198,12 @@ Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`
 - ZIP on Blob uses seekable random access (`blob.slice(start, end).arrayBuffer()`), so listing/extracting ZIP from Blob stays bounded by seek budget and avoids full Blob buffering. (tests: `test/web-adapter.test.ts`)
 - Web write roundtrip contract: ZIP (store-only mode) and TAR can be created through the web entrypoint into pure Web `WritableStream` sinks, wrapped in Blob, and reopened with matching entry names/bytes plus safe audit/normalize behavior. (tests: `test/web-writer-roundtrip.test.ts`)
 - XZ seekable preflight over Blob is not implemented in this iteration; Blob XZ paths use bounded full-buffer input handling and existing decode-time resource ceilings. (tests: `test/web-adapter.test.ts`, `test/resource-ceilings.test.ts`)
-- Compression capability baseline for web runtime:
-  - guaranteed by Compression Streams baseline in this contract: `gzip`, `deflate`, `deflate-raw`;
+- Compression capability reporting for web runtime:
+  - `getCompressionCapabilities()` probes `CompressionStream` and `DecompressionStream` constructor acceptance independently for algorithm strings `gzip`, `deflate`, `deflate-raw`, `brotli`, and `zstd`;
+  - each algorithm reports `compress` and `decompress` truthfully per constructor acceptance; unsupported modes surface `COMPRESSION_UNSUPPORTED_ALGORITHM` when requested;
   - pure-JS decode support remains for `bzip2` and `xz`;
-  - `brotli`/`zstd` are capability-gated (`COMPRESSION_UNSUPPORTED_ALGORITHM` when unavailable). (tests: `test/web-adapter.test.ts`, `test/support-matrix-behavior.test.ts`, `test/schema-contracts.test.ts`)
-- Runtime detection for capabilities uses `runtime: "web"` when Bun/Deno/Node markers are absent and web compression globals exist (`CompressionStream` or `DecompressionStream`). (tests: `test/compress-runtime-web.test.ts`, `test/schema-contracts.test.ts`)
+  - when either web compression constructor is missing, `notes` includes an explicit missing-constructor message. (tests: `test/compress-runtime-web.test.ts`, `test/support-matrix-behavior.test.ts`, `test/schema-contracts.test.ts`)
+- Runtime detection for capabilities uses `runtime: "web"` when Bun/Deno/Node markers are absent and either web compression global exists (`CompressionStream` or `DecompressionStream`). (tests: `test/compress-runtime-web.test.ts`, `test/schema-contracts.test.ts`)
 
 ## Single-file compressed formats: entry naming
 Naming is deterministic and sanitized to a single path segment. (tests: `test/single-file-formats.test.ts`)

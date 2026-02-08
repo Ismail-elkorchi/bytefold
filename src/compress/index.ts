@@ -10,10 +10,9 @@ export type { CompressionBackend, CompressionProgressEvent } from './types.js';
 export { CompressionError } from './errors.js';
 export type { CompressionErrorCode } from './errors.js';
 
-const PROBE_PAYLOAD = new TextEncoder().encode('bytefold-probe');
 const RUNTIME = detectRuntime();
 const WEB_PROBES: WebProbeResults | null =
-  RUNTIME === 'bun' || RUNTIME === 'deno' || RUNTIME === 'web' ? await probeWebCompression() : null;
+  RUNTIME === 'bun' || RUNTIME === 'deno' || RUNTIME === 'web' ? probeWebCompression() : null;
 
 /** Inspect compression support in the current runtime. */
 export function getCompressionCapabilities(): CompressionCapabilities {
@@ -314,19 +313,9 @@ function detectRuntime(): CompressionCapabilities['runtime'] {
 type ProbeResult = { compress: boolean; decompress: boolean; backend: 'web' | 'none' };
 type WebProbeResults = Record<CompressionAlgorithm, ProbeResult> & { note?: string };
 
-async function probeWebCompression(): Promise<WebProbeResults> {
-  if (typeof CompressionStream === 'undefined' || typeof DecompressionStream === 'undefined') {
-    return {
-      gzip: { compress: false, decompress: false, backend: 'none' },
-      deflate: { compress: false, decompress: false, backend: 'none' },
-      'deflate-raw': { compress: false, decompress: false, backend: 'none' },
-      brotli: { compress: false, decompress: false, backend: 'none' },
-      zstd: { compress: false, decompress: false, backend: 'none' },
-      bzip2: { compress: false, decompress: false, backend: 'none' },
-      xz: { compress: false, decompress: false, backend: 'none' },
-      note: 'CompressionStream not available in this runtime'
-    };
-  }
+function probeWebCompression(): WebProbeResults {
+  const hasCompressionStream = typeof CompressionStream !== 'undefined';
+  const hasDecompressionStream = typeof DecompressionStream !== 'undefined';
   const results: WebProbeResults = {
     gzip: { compress: false, decompress: false, backend: 'none' },
     deflate: { compress: false, decompress: false, backend: 'none' },
@@ -336,27 +325,37 @@ async function probeWebCompression(): Promise<WebProbeResults> {
     bzip2: { compress: false, decompress: false, backend: 'none' },
     xz: { compress: false, decompress: false, backend: 'none' }
   };
+  const notes: string[] = [];
+  if (!hasCompressionStream) {
+    notes.push('CompressionStream constructor not available in this runtime');
+  }
+  if (!hasDecompressionStream) {
+    notes.push('DecompressionStream constructor not available in this runtime');
+  }
   const algorithms: CompressionAlgorithm[] = ['gzip', 'deflate', 'deflate-raw', 'brotli', 'zstd'];
   for (const algorithm of algorithms) {
-    const ok = await probeWebRoundtrip(algorithm);
-    results[algorithm] = { compress: ok, decompress: ok, backend: ok ? 'web' : 'none' };
+    const compress = hasCompressionStream ? probeWebConstructorAcceptance('compress', algorithm) : false;
+    const decompress = hasDecompressionStream ? probeWebConstructorAcceptance('decompress', algorithm) : false;
+    results[algorithm] = {
+      compress,
+      decompress,
+      backend: compress || decompress ? 'web' : 'none'
+    };
+  }
+  if (notes.length > 0) {
+    results.note = notes.join('; ');
   }
   return results;
 }
 
-async function probeWebRoundtrip(algorithm: CompressionAlgorithm): Promise<boolean> {
-  const payload = PROBE_PAYLOAD;
+function probeWebConstructorAcceptance(mode: 'compress' | 'decompress', algorithm: CompressionAlgorithm): boolean {
   try {
-    const compressPair = new CompressionStream(algorithm as unknown as CompressionFormat) as unknown as ReadableWritablePair<
-      Uint8Array,
-      Uint8Array
-    >;
-    const decompressPair = new DecompressionStream(
-      algorithm as unknown as CompressionFormat
-    ) as unknown as ReadableWritablePair<Uint8Array, Uint8Array>;
-    const compressed = await collectStream(readableFromBytes(payload).pipeThrough(compressPair));
-    const decompressed = await collectStream(readableFromBytes(compressed).pipeThrough(decompressPair));
-    return bytesEqual(payload, decompressed);
+    if (mode === 'compress') {
+      void new CompressionStream(algorithm as unknown as CompressionFormat);
+    } else {
+      void new DecompressionStream(algorithm as unknown as CompressionFormat);
+    }
+    return true;
   } catch {
     return false;
   }
@@ -391,47 +390,4 @@ function getNodeZlibBinding(): Record<string, unknown> | null {
     return null;
   }
   return null;
-}
-
-function readableFromBytes(data: Uint8Array): ReadableStream<Uint8Array> {
-  return new ReadableStream({
-    start(controller) {
-      controller.enqueue(data);
-      controller.close();
-    }
-  });
-}
-
-async function collectStream(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> {
-  const reader = stream.getReader();
-  const chunks: Uint8Array[] = [];
-  try {
-    while (true) {
-      const { value, done } = await reader.read();
-      if (done) break;
-      if (value) chunks.push(value);
-    }
-  } finally {
-    reader.releaseLock();
-  }
-  return concatChunks(chunks);
-}
-
-function concatChunks(chunks: Uint8Array[]): Uint8Array {
-  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-  const out = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    out.set(chunk, offset);
-    offset += chunk.length;
-  }
-  return out;
-}
-
-function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i += 1) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
 }
