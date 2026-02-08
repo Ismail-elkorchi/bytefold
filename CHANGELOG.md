@@ -23,6 +23,7 @@ update_triggers:
 - Compression capabilities schema/runtime model now includes `runtime: "web"` when browser-like globals are detected.
 - Support matrix contracts now include Web runtime invariants and snapshot enforcement.
 - Web compression capability reporting now probes constructor acceptance per algorithm/mode (`CompressionStream` vs `DecompressionStream`) instead of roundtrip probing, so reports track the actual runtime-exposed algorithm strings.
+- Scorecards workflow permissions were moved from workflow-level write scopes to job-level write scopes so `publish_results: true` satisfies `ossf/scorecard-action` workflow restrictions.
 
 ### Tooling
 
