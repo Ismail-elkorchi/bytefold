@@ -18,6 +18,24 @@ update_triggers:
 ## Verification
 - `npm run check` (canonical one-command truth)
 
+## Branch protection policy (GitHub)
+- `main` is PR-only: direct pushes should be disabled after bootstrap.
+- Required checks:
+  - `CI / Linux check`
+  - `CI / macOS smoke`
+  - `CI / Windows smoke`
+- Dismiss stale approvals when new commits are pushed.
+- Block force-push and branch deletion on `main`.
+- Prefer linear history (enable "Require linear history" when it does not conflict with release automation).
+
+### Manual setup (if ruleset API is unavailable)
+1. Open `Settings` -> `Rules` -> `Rulesets` -> `New ruleset`.
+2. Target `Default branch` (`main`) and enforce on `pull request`.
+3. Require a pull request before merging.
+4. Require status checks and add the three CI checks listed above.
+5. Enable "Block force pushes" and "Do not allow bypassing the above settings".
+6. Optionally enable "Require linear history".
+
 ## Change expectations
 - Add tests for every bug fix and new guarantee.
 - Update SPEC.md invariants and link tests for each guarantee.

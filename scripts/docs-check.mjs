@@ -3,7 +3,7 @@ import path from 'node:path';
 
 const ROOT = process.cwd();
 const REQUIRED_KEYS = ['role', 'audience', 'source_of_truth', 'update_triggers'];
-const EXCLUDE_DIRS = new Set(['.git', 'node_modules', 'dist', 'dist-test', 'test/fixtures']);
+const EXCLUDE_DIRS = new Set(['.git', '.github', 'node_modules', 'dist', 'dist-test', 'test/fixtures']);
 
 const missing = [];
 
