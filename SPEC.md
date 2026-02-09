@@ -197,7 +197,7 @@ Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`
 ## Web runtime notes
 - Entry point: `@ismail-elkorchi/bytefold/web` / `./web`.
 - Supported input kinds in the web adapter: `Uint8Array`, `ArrayBuffer`, `ReadableStream<Uint8Array>`, `Blob`/`File`, and `http(s)` URL.
-- URL behavior in web adapter: always full-fetch response bytes before archive detection/opening; no seekable HTTP range session is attempted in web adapter by design. `maxInputBytes` is enforced both from `Content-Length` and during streaming reads, with over-limit slow-body responses canceled before full transfer. (tests: `test/web-adapter.test.ts`)
+- URL behavior in web adapter: always full-fetch response bytes before archive detection/opening; no seekable HTTP range session is attempted in web adapter by design. `maxInputBytes` is enforced both from `Content-Length` and during streaming reads, with over-limit chunked/slow responses canceled before full transfer. (tests: `test/web-adapter.test.ts`)
 - ZIP on Blob uses seekable random access (`blob.slice(start, end).arrayBuffer()`), so listing/extracting ZIP from Blob stays bounded by seek budget and avoids full Blob buffering. (tests: `test/web-adapter.test.ts`)
 - Web write roundtrip contract: ZIP (store-only mode) and TAR can be created through the web entrypoint into pure Web `WritableStream` sinks, wrapped in Blob, and reopened with matching entry names/bytes plus safe audit/normalize behavior. (tests: `test/web-writer-roundtrip.test.ts`)
 - XZ seekable preflight over Blob is not implemented in this iteration; Blob XZ paths use bounded full-buffer input handling and existing decode-time resource ceilings. (tests: `test/web-adapter.test.ts`, `test/resource-ceilings.test.ts`)

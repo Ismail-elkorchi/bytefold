@@ -226,6 +226,85 @@ test('web adapter: URL full fetch aborts slow responses once maxInputBytes is ex
   assert.ok(stats.bytesServed < body.length, 'server should not stream the full body after limit rejection');
 });
 
+test('web adapter: URL maxInputBytes cancels adversarial chunked streams with bounded transfer', async (t) => {
+  const maxInputBytes = 4 * 1024;
+  const chunkSize = 1024;
+  const server = await startAdversarialChunkedServer({ chunkSize, intervalMs: 8 });
+  const originalFetch = globalThis.fetch;
+  const fetchStats = { clientBytesRead: 0, clientChunksRead: 0 };
+
+  (globalThis as { fetch: typeof fetch }).fetch = async (...args: Parameters<typeof fetch>) => {
+    const response = await originalFetch(...args);
+    const body = response.body;
+    if (!body) return response;
+
+    const reader = body.getReader();
+    const counted = new ReadableStream<Uint8Array>({
+      async pull(controller) {
+        const { value, done } = await reader.read();
+        if (done) {
+          controller.close();
+          return;
+        }
+        if (value) {
+          fetchStats.clientBytesRead += value.length;
+          fetchStats.clientChunksRead += 1;
+          controller.enqueue(value);
+        }
+      },
+      async cancel(reason) {
+        await reader.cancel(reason);
+      }
+    });
+
+    return new Response(counted, {
+      status: response.status,
+      statusText: response.statusText,
+      headers: response.headers
+    });
+  };
+
+  try {
+    await assert.rejects(
+      () =>
+        openArchive(server.url, {
+          format: 'zip',
+          limits: { maxInputBytes }
+        }),
+      (err: unknown) => err instanceof RangeError
+    );
+    await sleep(60);
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    await server.close();
+  }
+
+  const closeLatencyMs =
+    server.stats.firstWriteAtMs !== null && server.stats.clientClosedAtMs !== null
+      ? server.stats.clientClosedAtMs - server.stats.firstWriteAtMs
+      : null;
+  const readBudget = maxInputBytes + chunkSize * 2;
+  const servedBudget = maxInputBytes + chunkSize * 8;
+
+  assert.equal(server.stats.requests, 1, 'expected a single URL fetch');
+  assert.deepEqual(server.stats.rangeHeaders, [], 'web adapter should not send Range headers');
+  assert.notEqual(server.stats.clientClosedAtMs, null, 'expected client connection to close');
+  assert.ok(server.stats.writesAfterClientClosed > 0, 'expected adversarial writes after close attempts');
+  assert.ok(fetchStats.clientBytesRead <= readBudget, `client bytes ${fetchStats.clientBytesRead} exceeded ${readBudget}`);
+  assert.ok(
+    server.stats.bodyBytesFlushed <= servedBudget,
+    `server bytes ${server.stats.bodyBytesFlushed} exceeded ${servedBudget}`
+  );
+  assert.ok(server.stats.bodyBytesFlushed < chunkSize * 32, 'server should not flush large unbounded payloads');
+  assert.ok(closeLatencyMs !== null && closeLatencyMs <= 1_000, `connection close latency too high: ${closeLatencyMs ?? -1}ms`);
+
+  t.diagnostic(
+    `adversarial stats requests=${server.stats.requests} bodyBytesFlushed=${server.stats.bodyBytesFlushed} ` +
+      `bodyBytesAttempted=${server.stats.bodyBytesAttempted} clientBytesRead=${fetchStats.clientBytesRead} ` +
+      `writesAfterClientClosed=${server.stats.writesAfterClientClosed} closeLatencyMs=${closeLatencyMs}`
+  );
+});
+
 async function buildZipFixture(): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -296,4 +375,113 @@ function blobPartFromBytes(bytes: Uint8Array): ArrayBuffer {
   const owned = new Uint8Array(bytes.length);
   owned.set(bytes);
   return owned.buffer;
+}
+
+type AdversarialChunkedServer = {
+  close: () => Promise<void>;
+  stats: {
+    requests: number;
+    rangeHeaders: string[];
+    bodyBytesAttempted: number;
+    bodyBytesFlushed: number;
+    writesAfterClientClosed: number;
+    firstWriteAtMs: number | null;
+    clientClosedAtMs: number | null;
+  };
+  url: string;
+};
+
+async function startAdversarialChunkedServer(options: { chunkSize: number; intervalMs: number }): Promise<AdversarialChunkedServer> {
+  const stats = {
+    requests: 0,
+    rangeHeaders: [] as string[],
+    bodyBytesAttempted: 0,
+    bodyBytesFlushed: 0,
+    writesAfterClientClosed: 0,
+    firstWriteAtMs: null as number | null,
+    clientClosedAtMs: null as number | null
+  };
+  const timers = new Set<NodeJS.Timeout>();
+
+  const server = http.createServer((req, res) => {
+    stats.requests += 1;
+    if (req.headers.range) stats.rangeHeaders.push(String(req.headers.range));
+
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/octet-stream');
+    res.setHeader('transfer-encoding', 'chunked');
+
+    const chunk = buildPatternBytes(options.chunkSize);
+    let requestClosed = false;
+    let responseClosed = false;
+
+    const timer = setInterval(() => {
+      if (stats.firstWriteAtMs === null) {
+        stats.firstWriteAtMs = Date.now();
+      }
+      if (requestClosed || responseClosed) {
+        stats.writesAfterClientClosed += 1;
+      }
+      stats.bodyBytesAttempted += chunk.length;
+      try {
+        res.write(chunk, () => {
+          stats.bodyBytesFlushed += chunk.length;
+        });
+      } catch {
+        // ignore write-on-closed-socket errors in adversarial mode
+      }
+      if (stats.writesAfterClientClosed >= 8) {
+        clearInterval(timer);
+        timers.delete(timer);
+      }
+    }, options.intervalMs);
+    timers.add(timer);
+
+    req.on('close', () => {
+      requestClosed = true;
+      if (stats.clientClosedAtMs === null) {
+        stats.clientClosedAtMs = Date.now();
+      }
+    });
+    res.on('close', () => {
+      responseClosed = true;
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  const address = server.address();
+  if (!address || typeof address === 'string') {
+    await new Promise<void>((resolve, reject) => {
+      server.close((err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+    throw new Error('Unable to resolve adversarial server address');
+  }
+
+  return {
+    url: `http://127.0.0.1:${address.port}/slow-infinite.bin`,
+    stats,
+    close: () =>
+      new Promise<void>((resolve, reject) => {
+        for (const timer of timers) {
+          clearInterval(timer);
+        }
+        timers.clear();
+        server.close((err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      })
+  };
+}
+
+async function sleep(ms: number): Promise<void> {
+  await new Promise<void>((resolve) => {
+    setTimeout(resolve, ms);
+  });
 }
