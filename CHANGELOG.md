@@ -11,26 +11,31 @@ update_triggers:
 
 ## Unreleased
 
+- No unreleased changes.
+
+## 0.5.0
+
 ### Added
 
 - Web runtime entrypoint `@ismail-elkorchi/bytefold/web` / `./web` with explicit URL full-fetch semantics (no HTTP range sessions in web adapter).
 - Blob/File archive input support (`inputKind: "blob"`) across core and runtime adapters, including seekable ZIP reads via `BlobRandomAccess`.
 - Regression tests for Blob ZIP bounded-read behavior and web adapter URL behavior (`test/web-adapter.test.ts`).
 - Browser bundle contract check `npm run web:check` and deterministic proof test (`test/web-check.test.ts`).
+- Monthly low-noise Dependabot policy (`.github/dependabot.yml`) with grouped updates and one open PR per ecosystem.
 
 ### Changed
 
 - Compression capabilities schema/runtime model now includes `runtime: "web"` when browser-like globals are detected.
 - Support matrix contracts now include Web runtime invariants and snapshot enforcement.
 - Web compression capability reporting now probes constructor acceptance per algorithm/mode (`CompressionStream` vs `DecompressionStream`) instead of roundtrip probing, so reports track the actual runtime-exposed algorithm strings.
-- Scorecards workflow permissions were moved from workflow-level write scopes to job-level write scopes so `publish_results: true` satisfies `ossf/scorecard-action` workflow restrictions.
-- TAR octal parsing paths now decode null-terminated fields with linear byte scanning instead of regex truncation, preserving behavior while removing ReDoS-prone matching.
-- XZ BCJ expected-output checks now use pinned digest/size assertions instead of committed ELF binary fixtures.
+- Windows fixture handling is byte-stable via repository-level line-ending policy (`.gitattributes`) to prevent CRLF/LF expectation drift.
+- TAR octal parsing now removes regex-based truncation in security-sensitive paths while preserving legacy parse semantics through deterministic parity tests (`test/null-terminated-utf8.test.ts`).
+- XZ BCJ expected-output checks now use pinned digest/size assertions instead of committed prepared ELF outputs.
 
-### Tooling
+### Tooling / CI
 
-- Added `esbuild` as a dev-only dependency for browser bundle verification; this is verification-only and does not affect runtime dependencies.
-- Added GitHub-recognized `.github/SECURITY.md` with explicit supported-version and disclosure-policy links for Scorecards/security-overview trust signals.
+- Scorecards workflow permissions were moved from workflow-level write scopes to job-level write scopes so `publish_results: true` satisfies `ossf/scorecard-action` restrictions.
+- Added GitHub-recognized `.github/SECURITY.md` with explicit supported-version and disclosure-policy links for Security Overview/Scorecards trust signals.
 
 ## 0.4.0
 
