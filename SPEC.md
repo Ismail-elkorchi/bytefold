@@ -74,7 +74,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 31. TypeScript declaration surface for every npm/jsr public entrypoint matches the committed snapshot manifest; intentional surface breaks in ALPHA require snapshot updates and explicit CHANGELOG entries, and V1+ will introduce stricter migration discipline. (tests: `test/type-surface.test.ts`)
 32. npm pack payload obeys allowlist/denylist policy: runtime artifacts plus contract metadata (`SPEC.md`) and JSON schemas (`schemas/*.json`) only; repo-internal indexes (`docs/REPO_INDEX.*`) and internal sources are excluded. (tests: `test/packaging-contract.test.ts`, `scripts/verify-pack.mjs`)
 33. Normalize safe mode is deterministic and lossless mode preserves bytes where documented. (zip/tar idempotent.) (tests: `test/normalize.test.ts`, `test/audit-normalize-proof.test.ts`)
-34. `extractAll` blocks path traversal. (tests: `test/zip.test.ts`)
+34. `extractAll` blocks path traversal. Deterministic ZIP/TAR adversarial corpora also surface traversal as audit failures (`ZIP_PATH_TRAVERSAL` / `TAR_PATH_TRAVERSAL`) and fail `assertSafe` under the agent profile. (tests: `test/zip.test.ts`, `test/security-audit-simulation.test.ts`)
 35. `openArchive` auto-detects documented formats; tar.br requires an explicit hint. (tests: `test/archive.test.ts`, `test/bzip2.test.ts`, `test/xz.test.ts`, `test/tar-xz.test.ts`)
 36. Context index artifacts are deterministic and bounded: `npm run context:index` produces `docs/REPO_INDEX.md` (<= 250 KiB) plus `docs/REPO_INDEX.md.sha256` with stable sorting and no timestamps. (tests: `test/context-tools.test.ts`)
 37. Error JSON `context` never shadows top-level keys (`schemaVersion`, `name`, `code`, `message`, `hint`, `context`, plus top-level optionals such as `entryName`, `method`, `offset`, `algorithm`). (tests: `test/error-contracts.test.ts`, `test/error-json-ambiguity.test.ts`, `test/schema-contracts.test.ts`)
@@ -89,6 +89,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 46. Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL `maxInputBytes` abort remains bounded without HTTP Range requests. (tests: `test/browser/web-entrypoint.pw.ts`)
 47. Security-sensitive + third-party fixture bytes are pinned in `test/fixtures/security-fixture-hashes.json`; `npm run check` fails on missing, unexpected, or changed hashes with explicit diff output. (tests: `test/fixture-hash-manifest.test.ts`, command: `npm run fixtures:hashes:check`)
 48. `npm run format:check` ignores Playwright artifact directories (`test-results/`, `playwright-report/`) so browser smoke artifacts cannot cause false formatting failures in `npm run check`. (tests: `test/format-script.test.ts`)
+49. Web adapter URL inputs reject non-`http(s)` schemes with typed `ARCHIVE_UNSUPPORTED_FEATURE` before any fetch attempt. (tests: `test/security-audit-simulation.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
