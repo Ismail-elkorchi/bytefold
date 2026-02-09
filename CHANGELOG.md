@@ -34,6 +34,7 @@ update_triggers:
 
 ### Tooling / CI
 
+- GitHub Actions pipelines were hardened for PR-first development: SHA-pinned actions were refreshed to current majors (including CodeQL v4), least-privilege permissions were tightened, and deterministic tracked-file churn checks were enforced in CI/release workflows.
 - Scorecards workflow permissions were moved from workflow-level write scopes to job-level write scopes so `publish_results: true` satisfies `ossf/scorecard-action` restrictions.
 - Added GitHub-recognized `.github/SECURITY.md` with explicit supported-version and disclosure-policy links for Security Overview/Scorecards trust signals.
 
