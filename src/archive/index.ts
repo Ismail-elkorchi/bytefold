@@ -38,6 +38,7 @@ import type { CompressionAlgorithm } from '../compress/types.js';
 import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import { resolveXzDictionaryLimit, resolveXzIndexLimits } from './xzPreflight.js';
 import { isZipSignature, preflightZip, resolveZipPreflightLimits, shouldPreflightZip } from './zipPreflight.js';
+import { decodeNullTerminatedUtf8 } from '../binary.js';
 
 /** Unified archive reader API returned by openArchive(). */
 export type ArchiveReader = {
@@ -1158,7 +1159,7 @@ function readString(buffer: Uint8Array, start: number, length: number): string {
 }
 
 function parseOctal(buffer: Uint8Array): number | undefined {
-  const text = new TextDecoder('utf-8').decode(buffer).replace(/\0.*$/, '').trim();
+  const text = decodeNullTerminatedUtf8(buffer).trim();
   if (!text) return undefined;
   const value = parseInt(text, 8);
   return Number.isFinite(value) ? value : undefined;
