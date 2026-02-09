@@ -21,6 +21,9 @@ export async function readAllBytes(
       }
       chunks.push(value);
     }
+  } catch (error: unknown) {
+    await reader.cancel(error).catch(() => {});
+    throw error;
   } finally {
     reader.releaseLock();
   }
