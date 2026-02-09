@@ -5,6 +5,7 @@ const ROOT = process.cwd();
 const CHECK = process.argv.includes('--check');
 
 const EXCLUDE_DIRS = new Set([
+  '.bytefold_meta',
   '.git',
   'node_modules',
   'dist',

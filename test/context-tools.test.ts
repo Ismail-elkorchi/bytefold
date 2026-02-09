@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -44,4 +45,22 @@ test('context index writes markdown + sha256 companion deterministically', async
   assert.equal(settledIndex, stableIndex);
   assert.equal(settledSha, stableSha);
   assert.match(stableSha, /^[a-f0-9]{64}  REPO_INDEX\.md\n$/);
+});
+
+test('context index excludes local-only meta directories', async () => {
+  const { generateRepoIndexMarkdown } = await loadContextModule();
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'bytefold-context-index-'));
+
+  try {
+    await writeFile(path.join(tempRoot, 'package.json'), '{"name":"tmp","scripts":{"check":"npm run check"}}\n');
+    await writeFile(path.join(tempRoot, 'README.md'), '# temp\n');
+    await mkdir(path.join(tempRoot, '.bytefold_meta'), { recursive: true });
+    await writeFile(path.join(tempRoot, '.bytefold_meta', 'STATE.md'), 'local only\n');
+
+    const markdown = await generateRepoIndexMarkdown(tempRoot);
+    assert.doesNotMatch(markdown, /\.bytefold_meta\//);
+    assert.match(markdown, /README\.md/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });

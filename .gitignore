@@ -4,3 +4,4 @@ node_modules/
 bench/results/
 playwright-report/
 test-results/
+.bytefold_meta/

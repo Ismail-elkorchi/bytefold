@@ -4,8 +4,9 @@ import test from 'node:test';
 
 const FORMAT_SCRIPT = new URL('../scripts/format.mjs', import.meta.url);
 
-test('format script excludes Playwright artifact directories', async () => {
+test('format script excludes local artifact directories', async () => {
   const script = await readFile(FORMAT_SCRIPT, 'utf8');
+  assert.match(script, /'.bytefold_meta'/);
   assert.match(script, /'playwright-report'/);
   assert.match(script, /'test-results'/);
 });
