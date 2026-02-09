@@ -88,6 +88,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 45. Web adapter URL full-fetch overflow paths are fail-fast and bounded: `maxInputBytes` over-limit responses reject with `RangeError`, cancel slow response streams before full transfer, and never use HTTP Range requests. (tests: `test/web-adapter.test.ts`)
 46. Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL `maxInputBytes` abort remains bounded without HTTP Range requests. (tests: `test/browser/web-entrypoint.pw.ts`)
 47. Security-sensitive + third-party fixture bytes are pinned in `test/fixtures/security-fixture-hashes.json`; `npm run check` fails on missing, unexpected, or changed hashes with explicit diff output. (tests: `test/fixture-hash-manifest.test.ts`, command: `npm run fixtures:hashes:check`)
+48. `npm run format:check` ignores Playwright artifact directories (`test-results/`, `playwright-report/`) so browser smoke artifacts cannot cause false formatting failures in `npm run check`. (tests: `test/format-script.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)

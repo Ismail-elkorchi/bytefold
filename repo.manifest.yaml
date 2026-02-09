@@ -37,6 +37,7 @@ invariants:
   - "Mutation harness applies deterministic byte-level mutations across bytes/stream/file/url boundaries for zip/tar/gz/bz2/xz inputs; failures surface typed errors with schema-valid toJSON(), successes return schema-valid audits."
   - "Third-party ZIP and TAR fixtures open, list, and audit cleanly with provenance + size bounds."
   - "Security-sensitive + third-party fixture bytes are pinned in test/fixtures/security-fixture-hashes.json; npm run check fails on missing, unexpected, or changed hashes with explicit diff output."
+  - "npm run format:check ignores Playwright artifact directories (test-results/, playwright-report/) so browser smoke artifacts cannot cause false formatting failures in npm run check."
   - "Gzip header options (FEXTRA/FNAME/FCOMMENT) are parsed; FNAME yields the entry name even when extra fields are present, consistently across runtimes."
   - "Gzip FHCRC headers are validated when present; mismatches throw typed errors."
   - "Decompression output ceilings enforce maxTotalDecompressedBytes for gzip/deflate/brotli/zstd and fail with COMPRESSION_RESOURCE_LIMIT without emitting beyond the limit."

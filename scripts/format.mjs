@@ -9,7 +9,9 @@ const EXCLUDE_DIRS = new Set([
   'node_modules',
   'dist',
   'dist-test',
+  'playwright-report',
   'test/fixtures',
+  'test-results',
   'specs'
 ]);
 
