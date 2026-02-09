@@ -40,6 +40,8 @@ import './ambiguous-fixtures.test.js';
 import './unicode-collision.test.js';
 import './casefold-collision.test.js';
 import './third-party-provenance.test.js';
+import './fixture-hash-manifest.test.js';
+import './format-script.test.js';
 import './repo-invariants.test.js';
 import './spec-doc.test.js';
 import './schema-contracts.test.js';
