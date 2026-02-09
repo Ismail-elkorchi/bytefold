@@ -46,3 +46,4 @@ update_triggers:
 - Dev-only dependencies are allowed only when they improve correctness, determinism, or safety and are wired into verification.
 - Current approved dev-only tooling:
   - `esbuild`: browser bundle verification for `npm run web:check` to prove the web entrypoint does not pull `node:*` builtins.
+  - `@playwright/test`: real Chromium smoke proofs for the web entrypoint (`npm run test:browser`) covering Blob roundtrips, writer roundtrips, and adversarial URL budget cancellation in a browser runtime.

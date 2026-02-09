@@ -25,6 +25,7 @@ public_api:
 commands:
   check: "npm run check"
   test: "npm run test"
+  test_browser: "npm run test:browser"
   build: "npm run build"
 invariants:
   - "Runtime dependencies count is zero; package is ESM-only and requires Node >= 24."
@@ -64,6 +65,7 @@ invariants:
   - "openArchive auto-detects documented formats; tar.br requires an explicit hint."
   - 'openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits.'
   - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'
+  - "Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL maxInputBytes abort remains bounded without HTTP Range requests."
 trust_boundaries:
   trusted:
     - "src/** runtime code"
