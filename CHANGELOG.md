@@ -11,7 +11,14 @@ update_triggers:
 
 ## Unreleased
 
-- No unreleased changes.
+### Added
+
+- Chromium browser smoke suite for `@ismail-elkorchi/bytefold/web` (`test/browser/web-entrypoint.pw.ts`) proving Blob ZIP roundtrip, web writer roundtrip (ZIP store-only + TAR), and adversarial URL `maxInputBytes` cancellation behavior.
+
+### Tooling / CI
+
+- Added dev-only `@playwright/test` to run real-browser web entrypoint falsification tests via `npm run test:browser`.
+- Added `.github/workflows/browser-smoke.yml` (scheduled + manual) to run Chromium browser smoke without making it a required merge check yet.
 
 ## 0.5.0
 

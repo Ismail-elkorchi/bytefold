@@ -86,6 +86,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 43. TAR octal parsing uses null-terminated UTF-8 decoding without regex backtracking and preserves legacy truncation semantics on representative + adversarial long inputs. (tests: `test/null-terminated-utf8.test.ts`, `test/archive.test.ts`, `test/tar-xz.test.ts`)
 44. XZ fixture expectations avoid committed ELF binary outputs by pinning deterministic digest/size assertions for BCJ payload verification. (tests: `test/xz-utils-conformance.test.ts`, `test/xz-thirdparty.test.ts`)
 45. Web adapter URL full-fetch overflow paths are fail-fast and bounded: `maxInputBytes` over-limit responses reject with `RangeError`, cancel slow response streams before full transfer, and never use HTTP Range requests. (tests: `test/web-adapter.test.ts`)
+46. Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL `maxInputBytes` abort remains bounded without HTTP Range requests. (tests: `test/browser/web-entrypoint.pw.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
@@ -200,6 +201,7 @@ Write-negative proofs: `test/archive-writer-proof.test.ts`, `test/deno.smoke.ts`
 - URL behavior in web adapter: always full-fetch response bytes before archive detection/opening; no seekable HTTP range session is attempted in web adapter by design. `maxInputBytes` is enforced both from `Content-Length` and during streaming reads, with over-limit chunked/slow responses canceled before full transfer. (tests: `test/web-adapter.test.ts`)
 - ZIP on Blob uses seekable random access (`blob.slice(start, end).arrayBuffer()`), so listing/extracting ZIP from Blob stays bounded by seek budget and avoids full Blob buffering. (tests: `test/web-adapter.test.ts`)
 - Web write roundtrip contract: ZIP (store-only mode) and TAR can be created through the web entrypoint into pure Web `WritableStream` sinks, wrapped in Blob, and reopened with matching entry names/bytes plus safe audit/normalize behavior. (tests: `test/web-writer-roundtrip.test.ts`)
+- Browser credibility contract: Chromium smoke executes the web entrypoint in a real browser and proves Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL `maxInputBytes` adversarial abort behavior (bounded transfer + no `Range` requests). (tests: `test/browser/web-entrypoint.pw.ts`)
 - XZ seekable preflight over Blob is not implemented in this iteration; Blob XZ paths use bounded full-buffer input handling and existing decode-time resource ceilings. (tests: `test/web-adapter.test.ts`, `test/resource-ceilings.test.ts`)
 - Compression capability reporting for web runtime:
   - `getCompressionCapabilities()` probes `CompressionStream` and `DecompressionStream` constructor acceptance independently for algorithm strings `gzip`, `deflate`, `deflate-raw`, `brotli`, and `zstd`;
