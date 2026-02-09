@@ -19,6 +19,7 @@ update_triggers:
 
 - Added dev-only `@playwright/test` to run real-browser web entrypoint falsification tests via `npm run test:browser`.
 - Added `.github/workflows/browser-smoke.yml` (scheduled + manual) to run Chromium browser smoke without making it a required merge check yet.
+- Added fixture integrity manifest enforcement (`test/fixtures/security-fixture-hashes.json`) plus `npm run fixtures:hashes:check` to fail on missing/unexpected/changed hashes for third-party and security-sensitive fixtures.
 
 ## 0.5.0
 
