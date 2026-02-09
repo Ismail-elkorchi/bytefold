@@ -27,10 +27,7 @@ const fixtures = [
   'tests/files/unsupported-check.xz',
   'tests/files/unsupported-filter_flags-1.xz',
   'tests/files/unsupported-filter_flags-2.xz',
-  'tests/files/unsupported-filter_flags-3.xz',
-  // Expected outputs
-  'tests/compress_prepared_bcj_x86',
-  'tests/compress_prepared_bcj_sparc'
+  'tests/files/unsupported-filter_flags-3.xz'
 ];
 
 const targetRoot = new URL('../test/fixtures/xz-utils/', import.meta.url).pathname;

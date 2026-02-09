@@ -24,10 +24,13 @@ update_triggers:
 - Support matrix contracts now include Web runtime invariants and snapshot enforcement.
 - Web compression capability reporting now probes constructor acceptance per algorithm/mode (`CompressionStream` vs `DecompressionStream`) instead of roundtrip probing, so reports track the actual runtime-exposed algorithm strings.
 - Scorecards workflow permissions were moved from workflow-level write scopes to job-level write scopes so `publish_results: true` satisfies `ossf/scorecard-action` workflow restrictions.
+- TAR octal parsing paths now decode null-terminated fields with linear byte scanning instead of regex truncation, preserving behavior while removing ReDoS-prone matching.
+- XZ BCJ expected-output checks now use pinned digest/size assertions instead of committed ELF binary fixtures.
 
 ### Tooling
 
 - Added `esbuild` as a dev-only dependency for browser bundle verification; this is verification-only and does not affect runtime dependencies.
+- Added GitHub-recognized `.github/SECURITY.md` with explicit supported-version and disclosure-policy links for Scorecards/security-overview trust signals.
 
 ## 0.4.0
 

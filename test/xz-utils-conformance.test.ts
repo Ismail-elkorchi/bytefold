@@ -1,12 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { createHash } from 'node:crypto';
 import { CompressionError, createDecompressor, type CompressionOptions } from '@ismail-elkorchi/bytefold/compress';
 import { extractAll } from '@ismail-elkorchi/bytefold/node';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const FIXTURE_ROOT = new URL('../test/fixtures/xz-utils/', import.meta.url);
+const GOOD_1_X86_PREPARED_SHA256 = 'dee7bc599bfc07147a302f44d1e994140bc812029baa4394d703e73e29117113';
+const GOOD_1_X86_PREPARED_BYTES = 1388;
 
 const GOOD_FIXTURES = [
   'good-0-empty.xz',
@@ -77,12 +80,11 @@ test('xz utils fixtures: unsupported streams throw typed unsupported errors', as
   }
 });
 
-test('xz utils fixture x86 output matches prepared bcj payload', async () => {
+test('xz utils fixture x86 output matches pinned prepared bcj digest', async () => {
   const data = await readFixture('good-1-x86-lzma2.xz');
-  const expected = await readFixture('compress_prepared_bcj_x86');
   const output = await decompressBytes(data, 64);
-  assert.equal(output.length, expected.length);
-  assert.deepEqual(output, expected);
+  assert.equal(output.length, GOOD_1_X86_PREPARED_BYTES);
+  assert.equal(sha256Hex(output), GOOD_1_X86_PREPARED_SHA256);
 });
 
 test('xz utils delta tiff output has valid header and pinned size', async () => {
@@ -250,4 +252,8 @@ function concatBytes(chunks: Uint8Array[], total?: number): Uint8Array {
     offset += chunk.length;
   }
   return out;
+}
+
+function sha256Hex(bytes: Uint8Array): string {
+  return createHash('sha256').update(bytes).digest('hex');
 }
