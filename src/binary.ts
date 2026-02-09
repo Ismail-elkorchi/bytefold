@@ -11,9 +11,15 @@ export function decodeUtf8(bytes: Uint8Array, fatal = false): string {
 }
 
 export function decodeNullTerminatedUtf8(bytes: Uint8Array, fatal = false): string {
-  const nulIndex = bytes.indexOf(0);
-  const view = nulIndex === -1 ? bytes : bytes.subarray(0, nulIndex);
-  return decodeUtf8(view, fatal);
+  const decoded = decodeUtf8(bytes, fatal);
+  const lastLineTerminator = Math.max(
+    decoded.lastIndexOf('\n'),
+    decoded.lastIndexOf('\r'),
+    decoded.lastIndexOf('\u2028'),
+    decoded.lastIndexOf('\u2029')
+  );
+  const nulIndex = decoded.indexOf('\0', lastLineTerminator + 1);
+  return nulIndex === -1 ? decoded : decoded.slice(0, nulIndex);
 }
 
 export function readUint16LE(buf: Uint8Array, offset: number): number {
