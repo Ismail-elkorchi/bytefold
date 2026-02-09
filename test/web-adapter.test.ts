@@ -149,6 +149,83 @@ test('web adapter: URL full fetch honors maxInputBytes limit', async () => {
   }
 });
 
+test('web adapter: URL full fetch aborts slow responses once maxInputBytes is exceeded', async () => {
+  const body = buildPatternBytes(3 * 1024 * 1024);
+  const maxInputBytes = 8 * 1024;
+  const chunkSize = 1024;
+  const stats = {
+    bytesServed: 0,
+    requests: 0,
+    rangeHeaders: [] as string[],
+    clientClosed: false
+  };
+
+  const server = http.createServer((req, res) => {
+    stats.requests += 1;
+    if (req.headers.range) {
+      stats.rangeHeaders.push(String(req.headers.range));
+    }
+    res.statusCode = 200;
+    res.setHeader('content-type', 'application/zip');
+
+    let offset = 0;
+    const timer = setInterval(() => {
+      if (req.destroyed || req.socket.destroyed || res.destroyed || res.writableEnded) {
+        clearInterval(timer);
+        return;
+      }
+      if (offset >= body.length) {
+        clearInterval(timer);
+        res.end();
+        return;
+      }
+      const end = Math.min(offset + chunkSize, body.length);
+      const chunk = body.subarray(offset, end);
+      stats.bytesServed += chunk.length;
+      res.write(chunk);
+      offset = end;
+    }, 2);
+
+    req.on('close', () => {
+      stats.clientClosed = true;
+      clearInterval(timer);
+    });
+    res.on('close', () => {
+      clearInterval(timer);
+    });
+  });
+
+  await new Promise<void>((resolve) => {
+    server.listen(0, '127.0.0.1', resolve);
+  });
+
+  try {
+    const address = server.address();
+    if (!address || typeof address === 'string') {
+      throw new Error('Unable to resolve server address');
+    }
+    const url = `http://127.0.0.1:${address.port}/slow-fixture.zip`;
+    await assert.rejects(
+      () =>
+        openArchive(url, {
+          format: 'zip',
+          limits: { maxInputBytes }
+        }),
+      (err: unknown) => err instanceof RangeError
+    );
+    await new Promise((resolve) => setTimeout(resolve, 30));
+  } finally {
+    server.close();
+  }
+
+  assert.equal(stats.requests, 1, 'expected a single URL fetch');
+  assert.deepEqual(stats.rangeHeaders, [], 'web adapter should not send Range headers');
+  assert.equal(stats.clientClosed, true, 'expected client connection to close after limit rejection');
+  const budget = maxInputBytes + chunkSize * 2;
+  assert.ok(stats.bytesServed <= budget, `served bytes ${stats.bytesServed} exceeded budget ${budget}`);
+  assert.ok(stats.bytesServed < body.length, 'server should not stream the full body after limit rejection');
+});
+
 async function buildZipFixture(): Promise<Uint8Array> {
   const chunks: Uint8Array[] = [];
   const writable = new WritableStream<Uint8Array>({
@@ -194,8 +271,12 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
 
 function buildPatternBytes(size: number): Uint8Array {
   const out = new Uint8Array(size);
+  let state = 0x9e37_79b9;
   for (let i = 0; i < size; i += 1) {
-    out[i] = i % 251;
+    state ^= state << 13;
+    state ^= state >>> 17;
+    state ^= state << 5;
+    out[i] = state & 0xff;
   }
   return out;
 }
