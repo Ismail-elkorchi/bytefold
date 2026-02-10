@@ -24,20 +24,46 @@ test('security simulation: tar traversal corpus yields traversal audit failures'
 });
 
 test('security simulation: web adapter URL input rejects non-http schemes', async () => {
-  const urls = [
-    'file:///tmp/archive.zip',
-    'ftp://example.com/archive.zip',
-    'data:application/octet-stream;base64,UEsDBA=='
-  ];
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  (globalThis as { fetch: typeof fetch }).fetch = async (...args: Parameters<typeof fetch>) => {
+    fetchCalls += 1;
+    return originalFetch(...args);
+  };
 
-  for (const input of urls) {
+  try {
     await assert.rejects(
       async () => {
-        await openArchiveWeb(input);
+        await openArchiveWeb('file:///tmp/archive.zip');
       },
       (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
     );
+
+    await assert.rejects(
+      async () => {
+        await openArchiveWeb('ftp://example.com/archive.zip');
+      },
+      (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+    );
+
+    await assert.rejects(
+      async () => {
+        await openArchiveWeb('data:application/octet-stream;base64,UEsDBA==');
+      },
+      (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+    );
+
+    await assert.rejects(
+      async () => {
+        await openArchiveWeb('::::not-a-url::::');
+      },
+      (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+    );
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   }
+
+  assert.equal(fetchCalls, 0, 'non-http schemes must reject before fetch');
 });
 
 async function assertTraversalIssue(format: ArchiveFormat, entryName: string): Promise<void> {
