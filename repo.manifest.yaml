@@ -67,7 +67,7 @@ invariants:
   - "extractAll blocks path traversal."
   - "openArchive auto-detects documented formats; tar.br requires an explicit hint."
   - 'openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits.'
-  - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'
+  - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) are HTTPS-only and always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'
   - "Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL maxInputBytes abort remains bounded without HTTP Range requests."
 trust_boundaries:
   trusted:

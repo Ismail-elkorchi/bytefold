@@ -36,7 +36,7 @@ for await (const entry of reader.entries()) {
 
 Support matrix: see `SPEC.md` (Support matrix section).
 
-Web runtime entrypoint: `@ismail-elkorchi/bytefold/web` (URL input is full-fetch by design; no seekable HTTP range sessions in web adapter).
+Web runtime entrypoint: `@ismail-elkorchi/bytefold/web` (HTTPS URL input only; full-fetch by design; no seekable HTTP range sessions in web adapter).
 
 ## Verification
 `npm run check`

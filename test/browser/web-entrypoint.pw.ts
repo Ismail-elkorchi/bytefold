@@ -225,7 +225,7 @@ test('browser web: url maxInputBytes aborts adversarial chunked fetch with bound
   try {
     await page.goto(harness.baseUrl);
     const browserStats = await page.evaluate(
-      async ({ moduleUrl, archiveUrl, inputByteLimit }) => {
+      async ({ moduleUrl, archiveUrl, archiveProxyUrl, inputByteLimit }) => {
         const bytefold = await import(moduleUrl);
         const originalFetch = globalThis.fetch.bind(globalThis);
         const clientStats = {
@@ -234,7 +234,13 @@ test('browser web: url maxInputBytes aborts adversarial chunked fetch with bound
         };
 
         globalThis.fetch = async (...args) => {
-          const response = await originalFetch(...args);
+          const rawInput = args[0];
+          let requestUrl: string | null = null;
+          if (typeof rawInput === 'string') requestUrl = rawInput;
+          else if (rawInput instanceof URL) requestUrl = rawInput.toString();
+          else if (rawInput instanceof Request) requestUrl = rawInput.url;
+          const rewrittenInput = requestUrl === archiveUrl ? archiveProxyUrl : rawInput;
+          const response = await originalFetch(rewrittenInput, args[1]);
           if (!response.body) return response;
           const reader = response.body.getReader();
           const countedBody = new ReadableStream<Uint8Array>({
@@ -287,7 +293,8 @@ test('browser web: url maxInputBytes aborts adversarial chunked fetch with bound
       },
       {
         moduleUrl: `${harness.baseUrl}${MODULE_PATH}`,
-        archiveUrl: `${harness.baseUrl}/adversarial/chunked.bin`,
+        archiveUrl: 'https://bytefold.test/adversarial/chunked.bin',
+        archiveProxyUrl: `${harness.baseUrl}/adversarial/chunked.bin`,
         inputByteLimit: maxInputBytes
       }
     );

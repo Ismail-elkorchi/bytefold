@@ -45,13 +45,20 @@ export async function openArchive(input: WebArchiveInput, options?: ArchiveOpenO
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
-    const url = resolveHttpUrl(input);
+    const parsedUrl = input instanceof URL ? input : safeParseUrl(input);
+    if (!parsedUrl) {
+      throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Web adapter supports only HTTPS URL inputs');
+    }
+    const url = parsedUrl.toString();
+    if (!url.toLowerCase().startsWith('https://')) {
+      throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Web adapter supports only HTTPS URL inputs');
+    }
     const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
     if (!response.ok) {
       throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
     }
     const bytes = await readResponseBytes(response, options);
-    const filename = options?.filename ?? inferFilenameFromUrl(url);
+    const filename = options?.filename ?? inferFilenameFromUrl(parsedUrl);
     return openArchiveCore(bytes, {
       ...options,
       ...(options?.inputKind ? {} : { inputKind: 'url' }),
@@ -62,14 +69,6 @@ export async function openArchive(input: WebArchiveInput, options?: ArchiveOpenO
     ...options,
     ...(options?.inputKind ? {} : { inputKind: 'stream' })
   });
-}
-
-function resolveHttpUrl(input: string | URL): URL {
-  const url = input instanceof URL ? input : safeParseUrl(input);
-  if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
-    throw new ArchiveError('ARCHIVE_UNSUPPORTED_FEATURE', 'Web adapter supports only http(s) URL inputs');
-  }
-  return url;
 }
 
 function safeParseUrl(input: string): URL | null {
