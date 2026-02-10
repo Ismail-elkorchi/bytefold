@@ -23,7 +23,7 @@ test('security simulation: tar traversal corpus yields traversal audit failures'
   }
 });
 
-test('security simulation: web adapter URL input rejects non-http schemes', async () => {
+test('security simulation: web adapter URL input rejects non-https schemes', async () => {
   const originalFetch = globalThis.fetch;
   let fetchCalls = 0;
   (globalThis as { fetch: typeof fetch }).fetch = async (...args: Parameters<typeof fetch>) => {
@@ -32,6 +32,13 @@ test('security simulation: web adapter URL input rejects non-http schemes', asyn
   };
 
   try {
+    await assert.rejects(
+      async () => {
+        await openArchiveWeb('http://127.0.0.1/archive.zip');
+      },
+      (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+    );
+
     await assert.rejects(
       async () => {
         await openArchiveWeb('file:///tmp/archive.zip');
@@ -63,7 +70,7 @@ test('security simulation: web adapter URL input rejects non-http schemes', asyn
     (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
   }
 
-  assert.equal(fetchCalls, 0, 'non-http schemes must reject before fetch');
+  assert.equal(fetchCalls, 0, 'non-https schemes must reject before fetch');
 });
 
 async function assertTraversalIssue(format: ArchiveFormat, entryName: string): Promise<void> {

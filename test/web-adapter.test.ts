@@ -102,14 +102,17 @@ test('web adapter: URL input uses full fetch without range requests', async () =
     if (!address || typeof address === 'string') {
       throw new Error('Unable to resolve server address');
     }
-    const url = `http://127.0.0.1:${address.port}/fixture.zip`;
-    const archive = await openArchive(url, { format: 'zip' });
-    assert.equal(archive.detection?.inputKind, 'url');
-    const names: string[] = [];
-    for await (const entry of archive.entries()) {
-      names.push(entry.name);
-    }
-    assert.deepEqual(names.sort(), ['big.bin', 'small.txt']);
+    const localUrl = `http://127.0.0.1:${address.port}/fixture.zip`;
+    const secureUrl = 'https://bytefold.test/fixture.zip';
+    await withReroutedFetch(secureUrl, localUrl, async () => {
+      const archive = await openArchive(secureUrl, { format: 'zip' });
+      assert.equal(archive.detection?.inputKind, 'url');
+      const names: string[] = [];
+      for await (const entry of archive.entries()) {
+        names.push(entry.name);
+      }
+      assert.deepEqual(names.sort(), ['big.bin', 'small.txt']);
+    });
   } finally {
     server.close();
   }
@@ -135,15 +138,18 @@ test('web adapter: URL full fetch honors maxInputBytes limit', async () => {
     if (!address || typeof address === 'string') {
       throw new Error('Unable to resolve server address');
     }
-    const url = `http://127.0.0.1:${address.port}/fixture.zip`;
-    await assert.rejects(
-      () =>
-        openArchive(url, {
-          format: 'zip',
-          limits: { maxInputBytes: 64 }
-        }),
-      (err: unknown) => err instanceof RangeError
-    );
+    const localUrl = `http://127.0.0.1:${address.port}/fixture.zip`;
+    const secureUrl = 'https://bytefold.test/fixture.zip';
+    await withReroutedFetch(secureUrl, localUrl, async () => {
+      await assert.rejects(
+        () =>
+          openArchive(secureUrl, {
+            format: 'zip',
+            limits: { maxInputBytes: 64 }
+          }),
+        (err: unknown) => err instanceof RangeError
+      );
+    });
   } finally {
     server.close();
   }
@@ -204,16 +210,19 @@ test('web adapter: URL full fetch aborts slow responses once maxInputBytes is ex
     if (!address || typeof address === 'string') {
       throw new Error('Unable to resolve server address');
     }
-    const url = `http://127.0.0.1:${address.port}/slow-fixture.zip`;
-    await assert.rejects(
-      () =>
-        openArchive(url, {
-          format: 'zip',
-          limits: { maxInputBytes }
-        }),
-      (err: unknown) => err instanceof RangeError
-    );
-    await new Promise((resolve) => setTimeout(resolve, 30));
+    const localUrl = `http://127.0.0.1:${address.port}/slow-fixture.zip`;
+    const secureUrl = 'https://bytefold.test/slow-fixture.zip';
+    await withReroutedFetch(secureUrl, localUrl, async () => {
+      await assert.rejects(
+        () =>
+          openArchive(secureUrl, {
+            format: 'zip',
+            limits: { maxInputBytes }
+          }),
+        (err: unknown) => err instanceof RangeError
+      );
+      await new Promise((resolve) => setTimeout(resolve, 30));
+    });
   } finally {
     server.close();
   }
@@ -229,6 +238,7 @@ test('web adapter: URL full fetch aborts slow responses once maxInputBytes is ex
 test('web adapter: URL maxInputBytes cancels adversarial chunked streams with bounded transfer', async (t) => {
   const maxInputBytes = 4 * 1024;
   const chunkSize = 1024;
+  const secureUrl = 'https://bytefold.test/slow-infinite.bin';
   const server = await startAdversarialChunkedServer({ chunkSize, intervalMs: 8 });
   const originalFetch = globalThis.fetch;
   const fetchStats = { clientBytesRead: 0, clientChunksRead: 0 };
@@ -265,15 +275,17 @@ test('web adapter: URL maxInputBytes cancels adversarial chunked streams with bo
   };
 
   try {
-    await assert.rejects(
-      () =>
-        openArchive(server.url, {
-          format: 'zip',
-          limits: { maxInputBytes }
-        }),
-      (err: unknown) => err instanceof RangeError
-    );
-    await sleep(60);
+    await withReroutedFetch(secureUrl, server.url, async () => {
+      await assert.rejects(
+        () =>
+          openArchive(secureUrl, {
+            format: 'zip',
+            limits: { maxInputBytes }
+          }),
+        (err: unknown) => err instanceof RangeError
+      );
+      await sleep(60);
+    });
   } finally {
     (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
     await server.close();
@@ -478,6 +490,33 @@ async function startAdversarialChunkedServer(options: { chunkSize: number; inter
         });
       })
   };
+}
+
+async function withReroutedFetch(secureUrl: string, localUrl: string, run: () => Promise<void>): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  (globalThis as { fetch: typeof fetch }).fetch = (async (
+    input: Parameters<typeof fetch>[0],
+    init?: Parameters<typeof fetch>[1]
+  ) => {
+    const requestedUrl = normalizeFetchInput(input);
+    if (requestedUrl === secureUrl) {
+      return originalFetch(localUrl, init);
+    }
+    return originalFetch(input, init);
+  }) as typeof fetch;
+
+  try {
+    await run();
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+  }
+}
+
+function normalizeFetchInput(input: Parameters<typeof fetch>[0]): string | null {
+  if (typeof input === 'string') return input;
+  if (input instanceof URL) return input.toString();
+  if (input instanceof Request) return input.url;
+  return null;
 }
 
 async function sleep(ms: number): Promise<void> {
