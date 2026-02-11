@@ -26,6 +26,7 @@ commands:
   check: "npm run check"
   test: "npm run test"
   test_browser: "npm run test:browser"
+  unicode_check: "npm run unicode:check"
   fixture_hashes_check: "npm run fixtures:hashes:check"
   build: "npm run build"
 invariants:
@@ -71,6 +72,7 @@ invariants:
   - "Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL maxInputBytes abort remains bounded without HTTP Range requests."
   - "Zip64 boundary parsing is deterministic around 32-bit/64-bit limits: EOCD sentinel combinations requiring Zip64 must provide valid locator/record structures, malformed Zip64 extra fields reject with typed ZIP_BAD_ZIP64, and >4GiB central-directory offsets are never truncated to 32-bit values."
   - "Deterministic property tests harden parser boundaries: TAR octal/NUL/space numeric fields, ZIP EOCD comment-length mutations, gzip optional header sections, and web URL maxInputBytes abort paths are fuzzed with fixed seeds and bounded runs."
+  - "Unicode Trojan Source directionality controls are blocked by repository scanning: tracked text files must not contain bidi override/isolation control code points, and violations fail npm run check with file/line/codepoint diagnostics."
 trust_boundaries:
   trusted:
     - "src/** runtime code"
