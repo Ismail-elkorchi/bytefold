@@ -90,6 +90,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 47. Security-sensitive + third-party fixture bytes are pinned in `test/fixtures/security-fixture-hashes.json`; `npm run check` fails on missing, unexpected, or changed hashes with explicit diff output. (tests: `test/fixture-hash-manifest.test.ts`, command: `npm run fixtures:hashes:check`)
 48. `npm run format:check` ignores Playwright artifact directories (`test-results/`, `playwright-report/`) so browser smoke artifacts cannot cause false formatting failures in `npm run check`. (tests: `test/format-script.test.ts`)
 49. Web adapter URL inputs reject non-HTTPS schemes (including `http:`) with typed `ARCHIVE_UNSUPPORTED_FEATURE` before any fetch attempt. (tests: `test/security-audit-simulation.test.ts`)
+50. Zip64 boundary parsing is deterministic around 32-bit/64-bit limits: EOCD sentinel combinations requiring Zip64 must provide valid locator/record structures, malformed Zip64 extra fields reject with typed `ZIP_BAD_ZIP64`, and >4GiB central-directory offsets are never truncated to 32-bit values. (tests: `test/zip64-boundary.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
