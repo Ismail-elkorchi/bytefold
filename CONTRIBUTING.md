@@ -47,3 +47,4 @@ update_triggers:
 - Current approved dev-only tooling:
   - `esbuild`: browser bundle verification for `npm run web:check` to prove the web entrypoint does not pull `node:*` builtins.
   - `@playwright/test`: real Chromium smoke proofs for the web entrypoint (`npm run test:browser`) covering Blob roundtrips, writer roundtrips, and adversarial URL budget cancellation in a browser runtime.
+  - `fast-check`: deterministic property-based parser boundary tests (fixed seeds + bounded runs) for TAR numeric parsing, ZIP EOCD mutations, gzip optional headers, and web URL budget abort behavior.
