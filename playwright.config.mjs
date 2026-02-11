@@ -8,7 +8,6 @@ export default defineConfig({
   workers: 1,
   reporter: 'line',
   use: {
-    browserName: 'chromium',
     headless: true,
     trace: 'off',
     screenshot: 'off',
@@ -16,7 +15,16 @@ export default defineConfig({
   },
   projects: [
     {
-      name: 'chromium'
+      name: 'chromium',
+      use: { browserName: 'chromium' }
+    },
+    {
+      name: 'firefox',
+      use: { browserName: 'firefox' }
+    },
+    {
+      name: 'webkit',
+      use: { browserName: 'webkit' }
     }
   ]
 });

@@ -39,3 +39,57 @@ jobs:
             git status --porcelain=v1
             exit 1
           fi
+
+  firefox-smoke:
+    name: Firefox browser smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Node
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install Firefox
+        run: npx playwright install --with-deps firefox
+      - name: Browser smoke tests
+        run: npm run test:browser:firefox
+      - name: Fail on tracked-file churn
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain=v1)" ]]; then
+            echo "Tracked files changed during browser smoke run:"
+            git status --porcelain=v1
+            exit 1
+          fi
+
+  webkit-smoke:
+    name: WebKit browser smoke
+    runs-on: macos-latest
+    timeout-minutes: 40
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Setup Node
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: 24
+          cache: npm
+      - name: Install dependencies
+        run: npm ci
+      - name: Install WebKit
+        run: npx playwright install webkit
+      - name: Browser smoke tests
+        run: npm run test:browser:webkit
+      - name: Fail on tracked-file churn
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain=v1)" ]]; then
+            echo "Tracked files changed during browser smoke run:"
+            git status --porcelain=v1
+            exit 1
+          fi
