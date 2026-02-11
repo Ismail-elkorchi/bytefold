@@ -7,6 +7,7 @@ import path from 'node:path';
 import test from 'node:test';
 
 const ROOT = new URL('../', import.meta.url);
+const ROOT_PATH = fileURLToPath(ROOT);
 const CHECK_SCRIPT_PATH = fileURLToPath(new URL('../scripts/unicode-safety-check.mjs', import.meta.url));
 
 test('unicode safety scanner fails on Trojan Source bidi controls and reports location', async () => {
@@ -23,7 +24,7 @@ test('unicode safety scanner fails on Trojan Source bidi controls and reports lo
     );
 
     const result = spawnSync(process.execPath, [CHECK_SCRIPT_PATH, '--root', tempRoot], {
-      cwd: ROOT.pathname,
+      cwd: ROOT_PATH,
       encoding: 'utf8'
     });
 
@@ -45,7 +46,7 @@ test('unicode safety scanner passes for safe text', async () => {
     await writeFile(sourceFile, 'export const ok = "hello";\n', 'utf8');
 
     const result = spawnSync(process.execPath, [CHECK_SCRIPT_PATH, '--root', tempRoot], {
-      cwd: ROOT.pathname,
+      cwd: ROOT_PATH,
       encoding: 'utf8'
     });
 
