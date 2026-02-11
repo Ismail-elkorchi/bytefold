@@ -15,6 +15,7 @@ update_triggers:
 
 - Chromium browser smoke suite for `@ismail-elkorchi/bytefold/web` (`test/browser/web-entrypoint.pw.ts`) proving Blob ZIP roundtrip, web writer roundtrip (ZIP store-only + TAR), and adversarial URL `maxInputBytes` cancellation behavior.
 - Synthetic Zip64 boundary falsifier suite (`test/zip64-boundary.test.ts`) covering EOCD sentinel/locator/record combinations and >4GiB central-directory offset mutations.
+- Zip64 writer structural proof suite (`test/zip64-writer-structural.test.ts`) validating forced-ZIP64 EOCD/locator/extra-field emission and typed error handling for malformed ZIP64 locator paths.
 - Deterministic property-based parser boundary suite (`test/fuzz-property-boundaries.test.ts`) for TAR octal/NUL/space numeric fields, ZIP EOCD comment mutations, gzip optional header sections, and web URL `maxInputBytes` abort behavior.
 - Unicode Trojan Source safety scanner (`scripts/unicode-safety-check.mjs`) plus deterministic test coverage (`test/unicode-safety-check.test.ts`) to fail on bidi override/isolation control code points in tracked text files.
 

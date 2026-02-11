@@ -33,6 +33,7 @@ import './xz-index-limits.test.js';
 import './xz-seekable-preflight.test.js';
 import './zip-seekable-preflight.test.js';
 import './zip64-boundary.test.js';
+import './zip64-writer-structural.test.js';
 import './zip-url-seekable-budget.test.js';
 import './tar-xz.test.js';
 import './single-file-formats.test.js';
