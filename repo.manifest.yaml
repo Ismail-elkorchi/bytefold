@@ -69,6 +69,8 @@ invariants:
   - 'openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits.'
   - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) are HTTPS-only and always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'
   - "Browser smoke verifies web entrypoint behavior in real Chromium: Blob ZIP roundtrip, ZIP/TAR writer roundtrip, and URL maxInputBytes abort remains bounded without HTTP Range requests."
+  - "Zip64 boundary parsing is deterministic around 32-bit/64-bit limits: EOCD sentinel combinations requiring Zip64 must provide valid locator/record structures, malformed Zip64 extra fields reject with typed ZIP_BAD_ZIP64, and >4GiB central-directory offsets are never truncated to 32-bit values."
+  - "Deterministic property tests harden parser boundaries: TAR octal/NUL/space numeric fields, ZIP EOCD comment-length mutations, gzip optional header sections, and web URL maxInputBytes abort paths are fuzzed with fixed seeds and bounded runs."
 trust_boundaries:
   trusted:
     - "src/** runtime code"

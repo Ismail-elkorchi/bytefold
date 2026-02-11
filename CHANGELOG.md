@@ -14,10 +14,13 @@ update_triggers:
 ### Added
 
 - Chromium browser smoke suite for `@ismail-elkorchi/bytefold/web` (`test/browser/web-entrypoint.pw.ts`) proving Blob ZIP roundtrip, web writer roundtrip (ZIP store-only + TAR), and adversarial URL `maxInputBytes` cancellation behavior.
+- Synthetic Zip64 boundary falsifier suite (`test/zip64-boundary.test.ts`) covering EOCD sentinel/locator/record combinations and >4GiB central-directory offset mutations.
+- Deterministic property-based parser boundary suite (`test/fuzz-property-boundaries.test.ts`) for TAR octal/NUL/space numeric fields, ZIP EOCD comment mutations, gzip optional header sections, and web URL `maxInputBytes` abort behavior.
 
 ### Tooling / CI
 
 - Added dev-only `@playwright/test` to run real-browser web entrypoint falsification tests via `npm run test:browser`.
+- Added dev-only `fast-check` for deterministic, seed-pinned property tests integrated into `npm run test`.
 - Added `.github/workflows/browser-smoke.yml` (scheduled + manual) to run Chromium browser smoke without making it a required merge check yet.
 - Added fixture integrity manifest enforcement (`test/fixtures/security-fixture-hashes.json`) plus `npm run fixtures:hashes:check` to fail on missing/unexpected/changed hashes for third-party and security-sensitive fixtures.
 - `npm run format:check` now excludes Playwright artifact directories (`test-results/`, `playwright-report/`) so browser smoke runs do not cause false formatting failures.
