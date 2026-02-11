@@ -1,12 +1,13 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 
 const ROOT = new URL('../', import.meta.url);
-const CHECK_SCRIPT_PATH = new URL('../scripts/unicode-safety-check.mjs', import.meta.url).pathname;
+const CHECK_SCRIPT_PATH = fileURLToPath(new URL('../scripts/unicode-safety-check.mjs', import.meta.url));
 
 test('unicode safety scanner fails on Trojan Source bidi controls and reports location', async () => {
   const tempRoot = await mkdtemp(path.join(tmpdir(), 'bytefold-unicode-safety-'));
@@ -26,6 +27,7 @@ test('unicode safety scanner fails on Trojan Source bidi controls and reports lo
       encoding: 'utf8'
     });
 
+    assert.equal(result.error, undefined, `spawn failed: ${result.error?.message ?? 'unknown error'}`);
     assert.equal(result.status, 1, `expected failure, got status=${result.status}\n${result.stdout}\n${result.stderr}`);
     assert.match(result.stderr, /unicode-safety/);
     assert.match(result.stderr, /U\+202E/);
@@ -47,6 +49,7 @@ test('unicode safety scanner passes for safe text', async () => {
       encoding: 'utf8'
     });
 
+    assert.equal(result.error, undefined, `spawn failed: ${result.error?.message ?? 'unknown error'}`);
     assert.equal(result.status, 0, `unexpected failure\n${result.stdout}\n${result.stderr}`);
     assert.equal(result.stderr.trim(), '');
   } finally {
