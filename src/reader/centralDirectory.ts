@@ -277,12 +277,20 @@ function parseCentralDirectoryEntry(
     if (!zip64Extra) {
       throw new ZipError('ZIP_BAD_ZIP64', 'ZIP64 extra field missing');
     }
-    const values = parseZip64Extra(zip64Extra, {
-      uncompressed: uncompressedSize32 === 0xffffffff,
-      compressed: compressedSize32 === 0xffffffff,
-      offset: offset32 === 0xffffffff,
-      diskStart: diskStart === 0xffff
-    });
+    let values: ReturnType<typeof parseZip64Extra>;
+    try {
+      values = parseZip64Extra(zip64Extra, {
+        uncompressed: uncompressedSize32 === 0xffffffff,
+        compressed: compressedSize32 === 0xffffffff,
+        offset: offset32 === 0xffffffff,
+        diskStart: diskStart === 0xffff
+      });
+    } catch (error) {
+      if (error instanceof RangeError) {
+        throw new ZipError('ZIP_BAD_ZIP64', 'Malformed ZIP64 extra field');
+      }
+      throw error;
+    }
     if (values.uncompressedSize !== undefined) uncompressedSize = values.uncompressedSize;
     if (values.compressedSize !== undefined) compressedSize = values.compressedSize;
     if (values.offset !== undefined) offset = values.offset;
