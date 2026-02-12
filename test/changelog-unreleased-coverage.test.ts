@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 
 const CHANGELOG = new URL('../CHANGELOG.md', import.meta.url);
+const PACKAGE_JSON = new URL('../package.json', import.meta.url);
 
 type ThemeRule = {
   name: string;
@@ -40,25 +41,27 @@ const REQUIRED_UNRELEASED_THEMES: ThemeRule[] = [
   }
 ];
 
-test('Unreleased changelog covers core post-0.5.0 themes', async () => {
+test('changelog release-truth guard covers core post-0.5.0 themes', async () => {
   const changelog = await readFile(CHANGELOG, 'utf8');
-  const unreleased = extractUnreleasedSection(changelog);
+  const packageJson = JSON.parse(await readFile(PACKAGE_JSON, 'utf8')) as { version: string };
+  const unreleased = extractSection(changelog, 'Unreleased');
+  const targetSection = isNoEntriesPlaceholder(unreleased) ? extractSection(changelog, packageJson.version) : unreleased;
 
   const missing: string[] = [];
   for (const theme of REQUIRED_UNRELEASED_THEMES) {
-    const ok = theme.patterns.every((pattern) => pattern.test(unreleased));
+    const ok = theme.patterns.every((pattern) => pattern.test(targetSection));
     if (!ok) {
       missing.push(theme.name);
     }
   }
 
-  assert.deepEqual(missing, [], `Unreleased section missing required themes: ${missing.join(', ')}`);
+  assert.deepEqual(missing, [], `changelog section missing required themes: ${missing.join(', ')}`);
 });
 
-function extractUnreleasedSection(changelog: string): string {
-  const marker = '## Unreleased';
+function extractSection(changelog: string, header: string): string {
+  const marker = `## ${header}`;
   const start = changelog.indexOf(marker);
-  assert.ok(start >= 0, 'CHANGELOG.md must contain an Unreleased section');
+  assert.ok(start >= 0, `CHANGELOG.md must contain section: ${marker}`);
 
   const afterMarker = changelog.slice(start + marker.length);
   const nextHeaderMatch = /\n##\s+/.exec(afterMarker);
@@ -66,4 +69,8 @@ function extractUnreleasedSection(changelog: string): string {
     return afterMarker;
   }
   return afterMarker.slice(0, nextHeaderMatch.index);
+}
+
+function isNoEntriesPlaceholder(section: string): boolean {
+  return /no entries yet/i.test(section);
 }
