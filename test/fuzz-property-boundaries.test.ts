@@ -161,7 +161,7 @@ test('property: web URL full-fetch maxInputBytes abort remains typed and bounded
               () => openArchiveWeb(secureUrl, { format: 'zip', limits: { maxInputBytes } }),
               (error: unknown) => error instanceof RangeError
             );
-            await sleep(20);
+            await waitForTrue(() => stats.clientClosed, 300);
           });
         } finally {
           server.close();
@@ -393,4 +393,12 @@ async function withReroutedFetch<T>(secureUrl: string, localUrl: string, run: ()
 
 async function sleep(ms: number): Promise<void> {
   await new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function waitForTrue(predicate: () => boolean, timeoutMs: number): Promise<void> {
+  const deadline = Date.now() + timeoutMs;
+  while (!predicate()) {
+    if (Date.now() >= deadline) break;
+    await sleep(5);
+  }
 }
