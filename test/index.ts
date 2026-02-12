@@ -44,6 +44,7 @@ import './unicode-collision.test.js';
 import './casefold-collision.test.js';
 import './third-party-provenance.test.js';
 import './fixture-hash-manifest.test.js';
+import './changelog-unreleased-coverage.test.js';
 import './unicode-safety-check.test.js';
 import './format-script.test.js';
 import './repo-invariants.test.js';

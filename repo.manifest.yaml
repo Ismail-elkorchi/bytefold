@@ -74,6 +74,7 @@ invariants:
   - "Deterministic property tests harden parser boundaries: TAR octal/NUL/space numeric fields, ZIP EOCD comment-length mutations, gzip optional header sections, and web URL maxInputBytes abort paths are fuzzed with fixed seeds and bounded runs."
   - "Unicode Trojan Source directionality controls are blocked by repository scanning: tracked text files must not contain bidi override/isolation control code points, and violations fail npm run check with file/line/codepoint diagnostics."
   - "ZIP writer forced-ZIP64 mode is structurally explicit and typed on corruption: emitted archives include ZIP64 EOCD + locator + ZIP64 central-directory extra fields even for small payloads, remain readable by the ZIP reader, and malformed ZIP64 locator paths reject with typed ZIP_BAD_ZIP64 (never untyped RangeError)."
+  - "Changelog release-truth guard is deterministic: ## Unreleased must cover core post-release themes (web URL hardening, security simulation corpus, browser smoke scope, zip64 proofs, fixture-hash enforcement, property tests, unicode guard), and missing themes fail npm run check."
 trust_boundaries:
   trusted:
     - "src/** runtime code"
