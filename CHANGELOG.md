@@ -11,6 +11,10 @@ update_triggers:
 
 ## Unreleased
 
+_No entries yet._
+
+## 0.6.0
+
 ### Added
 
 - Chromium browser smoke suite for `@ismail-elkorchi/bytefold/web` (`test/browser/web-entrypoint.pw.ts`) proving Blob ZIP roundtrip, web writer roundtrip (ZIP store-only + TAR), and adversarial URL `maxInputBytes` cancellation behavior.
