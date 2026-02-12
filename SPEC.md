@@ -94,6 +94,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 51. Deterministic property tests harden parser boundaries: TAR octal/NUL/space numeric fields, ZIP EOCD comment-length mutations, gzip optional header sections, and web URL `maxInputBytes` abort paths are fuzzed with fixed seeds and bounded runs. (tests: `test/fuzz-property-boundaries.test.ts`)
 52. Unicode Trojan Source directionality controls are blocked by repository scanning: tracked text files must not contain bidi override/isolation control code points, and violations fail `npm run check` with file/line/codepoint diagnostics. (tests: `test/unicode-safety-check.test.ts`)
 53. ZIP writer forced-ZIP64 mode is structurally explicit and typed on corruption: emitted archives include ZIP64 EOCD + locator + ZIP64 central-directory extra fields even for small payloads, remain readable by the ZIP reader, and malformed ZIP64 locator paths reject with typed `ZIP_BAD_ZIP64` (never untyped `RangeError`). (tests: `test/zip64-writer-structural.test.ts`)
+54. Changelog release-truth guard is deterministic: `## Unreleased` must cover core post-release themes (web URL hardening, security simulation corpus, browser smoke scope, zip64 proofs, fixture-hash enforcement, property tests, unicode guard), and missing themes fail `npm run check`. (tests: `test/changelog-unreleased-coverage.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
