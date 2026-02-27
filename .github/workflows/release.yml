@@ -25,6 +25,8 @@ jobs:
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
           node-version: 24
+          registry-url: https://registry.npmjs.org
+          always-auth: true
           cache: npm
       - name: Setup Deno
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
@@ -46,7 +48,9 @@ jobs:
             git status --porcelain=v1
             exit 1
           fi
-      - name: Publish to npm (OIDC)
+      - name: Publish to npm
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: npm publish --provenance --access public
 
   jsr:
@@ -68,5 +72,12 @@ jobs:
         run: npm ci
       - name: Build
         run: npm run build
-      - name: Publish to JSR (OIDC)
-        run: deno publish
+      - name: Publish to JSR
+        env:
+          JSR_TOKEN: ${{ secrets.JSR_TOKEN }}
+        run: |
+          if [ -n "${JSR_TOKEN}" ]; then
+            deno publish --token "${JSR_TOKEN}"
+          else
+            deno publish
+          fi
