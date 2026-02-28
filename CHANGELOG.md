@@ -13,6 +13,32 @@ update_triggers:
 
 _No entries yet._
 
+## 0.7.0
+
+### Added
+
+- Public support-matrix entrypoint `@ismail-elkorchi/bytefold/support` (`./support`) with typed `supportMatrix` and `runtimeSupport()` exports.
+- Runtime freshness policy artifacts:
+  - floor + pinned runtime policy in `tools/runtime-versions.json`
+  - non-blocking latest-channel workflow `.github/workflows/runtime-latest.yml`
+  - staleness oracle `scripts/runtime-staleness-check.mjs`.
+- Documentation policy gate (`tools/docs-policy.json` + `scripts/docs-policy-check.mjs`) integrated into `npm run check`.
+- `scripts/jsr-score-gate.mjs` for JSON API-based JSR score assertions.
+
+### Changed
+
+- CI now runs explicit Linux floor and Linux pinned-current required lanes sourced from runtime policy.
+- Release workflow now reads runtime policy versions and publishes npm via trusted-publisher flow (OIDC, no npm token requirement).
+- README now includes npm + JSR install paths and the support entrypoint reference.
+- Carry-forward release-truth coverage remains explicit for:
+  - web adapter URL hardening (non-HTTPS rejection and maxInputBytes abort constraints)
+  - security simulation corpus (`security-audit-simulation`)
+  - browser smoke matrix coverage (Chromium, Firefox, WebKit)
+  - Zip64 boundary and Zip64 writer structural proof suites
+  - fixture integrity manifest enforcement (`fixtures:hashes:check`, `security-fixture-hashes`)
+  - deterministic property-based parser boundary coverage (`fuzz-property-boundaries`)
+  - unicode trojan source guard (`unicode:check`, bidi override scanner)
+
 ## 0.6.0
 
 ### Added

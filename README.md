@@ -15,6 +15,8 @@ Multi-format archive reader/writer for Node 24+, Deno, Bun, and Web (Browser). E
 
 ```sh
 npm install @ismail-elkorchi/bytefold
+# or
+deno add jsr:@ismail-elkorchi/bytefold
 ```
 
 ## Quickstart (auto-detect)
@@ -35,6 +37,7 @@ for await (const entry of reader.entries()) {
 ```
 
 Support matrix: see `SPEC.md` (Support matrix section).
+Machine-readable support entrypoint: `@ismail-elkorchi/bytefold/support`.
 
 Web runtime entrypoint: `@ismail-elkorchi/bytefold/web` (HTTPS URL input only; full-fetch by design; no seekable HTTP range sessions in web adapter).
 

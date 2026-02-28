@@ -13,6 +13,7 @@ public_api:
       - "./deno"
       - "./bun"
       - "./web"
+      - "./support"
     jsr:
       - "."
       - "./archive"
@@ -22,6 +23,7 @@ public_api:
       - "./deno"
       - "./bun"
       - "./web"
+      - "./support"
 commands:
   check: "npm run check"
   test: "npm run test"

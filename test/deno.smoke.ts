@@ -669,10 +669,10 @@ function sumRangeBytes(ranges: string[]): number {
 Deno.test('deno smoke: zip, tar, tgz', async () => {
   const versions = JSON.parse(
     new TextDecoder().decode(await Deno.readFile(new URL('../tools/runtime-versions.json', import.meta.url)))
-  ) as { deno?: string };
+  ) as { deno?: { floor?: string } };
   const denoVersion = Deno.version?.deno;
   if (!denoVersion) throw new Error('Deno.version missing');
-  assertVersion('deno', denoVersion, versions.deno ?? '>=1.23.0');
+  assertVersion('deno', denoVersion, versions.deno?.floor ?? '1.23.0');
   const coreUrl = new URL('../dist/index.js', import.meta.url);
   const coreModule = await import(coreUrl.href);
   if (typeof coreModule.openArchive !== 'function') throw new Error('default entrypoint missing openArchive');
@@ -2518,9 +2518,9 @@ function assertVersion(runtime: string, actual: string, requirement: string): vo
 }
 
 function parseRequirement(value: string) {
-  const match = value.match(/>=\s*(\d+\.\d+\.\d+)/);
-  if (!match) throw new Error(`invalid runtime requirement: ${value}`);
-  const parsed = parseSemver(match[1]!);
+  const match = value.match(/^\s*>=\s*(\d+\.\d+\.\d+)\s*$/);
+  const semverText = match?.[1] ?? value;
+  const parsed = parseSemver(semverText);
   if (!parsed) throw new Error(`invalid runtime requirement: ${value}`);
   return parsed;
 }

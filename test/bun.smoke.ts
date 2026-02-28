@@ -36,7 +36,7 @@ type AuditOptions = {
 };
 const runtimeVersions = JSON.parse(
   await readFile(new URL('../tools/runtime-versions.json', import.meta.url), 'utf8')
-) as { bun?: string };
+) as { bun?: { floor?: string } };
 
 function concatChunks(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -564,9 +564,9 @@ function assertVersion(runtime: string, actual: string, requirement: string): vo
 }
 
 function parseRequirement(value: string) {
-  const match = value.match(/>=\s*(\d+\.\d+\.\d+)/);
-  if (!match) throw new Error(`invalid runtime requirement: ${value}`);
-  const parsed = parseSemver(match[1]!);
+  const match = value.match(/^\s*>=\s*(\d+\.\d+\.\d+)\s*$/);
+  const semverText = match?.[1] ?? value;
+  const parsed = parseSemver(semverText);
   if (!parsed) throw new Error(`invalid runtime requirement: ${value}`);
   return parsed;
 }
@@ -588,7 +588,7 @@ const bunTest = test as unknown as (name: string, fn: () => Promise<void>, timeo
 bunTest('bun smoke: zip, tar, tgz', async () => {
   const bunVersion = Bun.version;
   if (!bunVersion) throw new Error('Bun.version missing');
-  assertVersion('bun', bunVersion, runtimeVersions.bun ?? '>=1.3.3');
+  assertVersion('bun', bunVersion, runtimeVersions.bun?.floor ?? '1.3.3');
   const coreUrl = new URL('../dist/index.js', import.meta.url);
   const coreModule = await import(coreUrl.href);
   if (typeof coreModule.openArchive !== 'function') throw new Error('default entrypoint missing openArchive');

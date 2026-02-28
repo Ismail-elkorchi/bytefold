@@ -15,6 +15,43 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  linux-floor-check:
+    name: Linux floor check
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Load runtime policy
+        id: runtime-policy
+        run: |
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_floor=${p.node.floor}\n`);process.stdout.write(`deno_floor=${p.deno.floor}\n`);process.stdout.write(`bun_floor=${p.bun.floor}\n`);" >> \"$GITHUB_OUTPUT\"
+      - name: Setup Node
+        uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+        with:
+          node-version: ${{ steps.runtime-policy.outputs.node_floor }}
+          cache: npm
+      - name: Setup Deno
+        uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
+        with:
+          deno-version: ${{ steps.runtime-policy.outputs.deno_floor }}
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
+        with:
+          bun-version: ${{ steps.runtime-policy.outputs.bun_floor }}
+      - name: Install
+        run: npm ci
+      - name: One-command truth
+        run: npm run check
+      - name: Fail on tracked-file churn
+        shell: bash
+        run: |
+          if [[ -n "$(git status --porcelain=v1)" ]]; then
+            echo "Tracked files changed during CI run:"
+            git status --porcelain=v1
+            exit 1
+          fi
+
   linux-check:
     name: Linux check
     runs-on: ubuntu-latest
@@ -22,19 +59,23 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Load runtime policy
+        id: runtime-policy
+        run: |
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);process.stdout.write(`deno_pinned=${p.deno.pinned}\n`);process.stdout.write(`bun_pinned=${p.bun.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: 24
+          node-version: ${{ steps.runtime-policy.outputs.node_pinned }}
           cache: npm
       - name: Setup Deno
         uses: denoland/setup-deno@e95548e56dfa95d4e1a28d6f422fafe75c4c26fb # v2.0.3
         with:
-          deno-version: 2.6.7
+          deno-version: ${{ steps.runtime-policy.outputs.deno_pinned }}
       - name: Setup Bun
         uses: oven-sh/setup-bun@3d267786b128fe76c2f16a390aa2448b815359f3 # v2.1.2
         with:
-          bun-version: 1.3.3
+          bun-version: ${{ steps.runtime-policy.outputs.bun_pinned }}
       - name: Install
         run: npm ci
       - name: One-command truth
@@ -55,10 +96,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Load runtime policy
+        id: runtime-policy
+        run: |
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: 24
+          node-version: ${{ steps.runtime-policy.outputs.node_pinned }}
           cache: npm
       - name: Install
         run: npm ci
@@ -86,10 +131,14 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+      - name: Load runtime policy
+        id: runtime-policy
+        run: |
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
-          node-version: 24
+          node-version: ${{ steps.runtime-policy.outputs.node_pinned }}
           cache: npm
       - name: Install
         run: npm ci
