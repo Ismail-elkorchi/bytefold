@@ -1,3 +1,6 @@
+/**
+ * Primary bytefold entrypoint exports for archive and compression APIs.
+ */
 export * from './archive/index.js';
 export { ArchiveError } from './archive/errors.js';
 export type { ArchiveErrorCode } from './archive/errors.js';

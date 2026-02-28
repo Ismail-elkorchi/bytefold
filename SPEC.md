@@ -29,6 +29,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 - `@ismail-elkorchi/bytefold/deno`
 - `@ismail-elkorchi/bytefold/bun`
 - `@ismail-elkorchi/bytefold/web`
+- `@ismail-elkorchi/bytefold/support`
 
 ### jsr (jsr.json exports)
 - `@ismail-elkorchi/bytefold`
@@ -39,6 +40,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 - `@ismail-elkorchi/bytefold/deno`
 - `@ismail-elkorchi/bytefold/bun`
 - `@ismail-elkorchi/bytefold/web`
+- `@ismail-elkorchi/bytefold/support`
 
 ## Invariants (test-linked)
 1. Runtime dependencies count is zero; package is ESM-only and requires Node >= 24. (tests: `test/repo-invariants.test.ts`)

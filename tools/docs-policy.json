@@ -1,0 +1,13 @@
+{
+  "entrypoints": [
+    "src/index.ts",
+    "src/support.ts"
+  ],
+  "symbolFiles": [
+    "src/index.ts",
+    "src/support.ts"
+  ],
+  "minDocumentedSymbols": 0.5,
+  "baselineMinDocumentedSymbols": 0.5,
+  "targetTotal": 14
+}

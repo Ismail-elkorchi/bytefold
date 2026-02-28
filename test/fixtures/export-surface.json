@@ -104,5 +104,9 @@
     "listCompressionCodecs": "function",
     "openArchive": "function",
     "registerCompressionCodec": "function"
+  },
+  "@ismail-elkorchi/bytefold/support": {
+    "runtimeSupport": "function",
+    "supportMatrix": "object"
   }
 }

@@ -1,6 +1,6 @@
 {
   "name": "@ismail-elkorchi/bytefold",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
   "license": "MIT",
   "type": "module",
@@ -47,6 +47,10 @@
     "./web": {
       "types": "./dist/web/index.d.ts",
       "default": "./dist/web/index.js"
+    },
+    "./support": {
+      "types": "./dist/support.d.ts",
+      "default": "./dist/support.js"
     }
   },
   "main": "./dist/index.js",
@@ -90,13 +94,14 @@
     "check:node": "npm run lint && npm run typecheck && npm test",
     "check:all": "npm run check",
     "web:check": "node ./scripts/web-check.mjs",
-    "check": "node ./scripts/verify-runtime-versions.mjs && npm run generated:check && npm run unicode:check && npm run fixtures:hashes:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run test:deno && npm run test:bun && npm run web:check && npm run build && npm run jsr:check && npm run pack:check && npm run pack:smoke && npm run docs:check",
+    "check": "node ./scripts/verify-runtime-versions.mjs && node ./scripts/workflow-policy-check.mjs && node ./scripts/esm-only-guard.mjs && node ./scripts/docs-policy-check.mjs && npm run generated:check && npm run unicode:check && npm run fixtures:hashes:check && npm run format:check && npm run lint && npm run typecheck && npm run test && npm run test:deno && npm run test:bun && npm run web:check && npm run build && npm run jsr:check && npm run pack:check && npm run pack:smoke && npm run docs:check",
     "docs:check": "node ./scripts/docs-check.mjs",
     "context:index": "node ./scripts/dump-context.mjs --index",
     "doc:lint": "deno doc --lint --sloppy-imports mod.ts",
     "doc:test": "deno test --doc --sloppy-imports mod.ts",
     "jsr:dry": "deno publish --dry-run --allow-dirty",
     "jsr:check": "npm run build && npm run doc:lint && npm run doc:test && npm run jsr:dry",
+    "jsr:score": "node ./scripts/jsr-score-gate.mjs",
     "pack:check": "node ./scripts/verify-pack.mjs",
     "pack:smoke": "node ./scripts/smoke-pack.mjs",
     "version:check": "node ./scripts/sync-version.mjs"
