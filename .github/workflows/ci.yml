@@ -26,7 +26,7 @@ jobs:
         id: runtime-policy
         shell: bash
         run: |
-          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_floor=${p.node.floor}\n`);process.stdout.write(`deno_floor=${p.deno.floor}\n`);process.stdout.write(`bun_floor=${p.bun.floor}\n`);" >> \"$GITHUB_OUTPUT\"
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));fs.appendFileSync(process.env.GITHUB_OUTPUT,'node_floor='+p.node.floor+'\\n');fs.appendFileSync(process.env.GITHUB_OUTPUT,'deno_floor='+p.deno.floor+'\\n');fs.appendFileSync(process.env.GITHUB_OUTPUT,'bun_floor='+p.bun.floor+'\\n');"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
@@ -64,7 +64,7 @@ jobs:
         id: runtime-policy
         shell: bash
         run: |
-          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);process.stdout.write(`deno_pinned=${p.deno.pinned}\n`);process.stdout.write(`bun_pinned=${p.bun.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));fs.appendFileSync(process.env.GITHUB_OUTPUT,'node_pinned='+p.node.pinned+'\\n');fs.appendFileSync(process.env.GITHUB_OUTPUT,'deno_pinned='+p.deno.pinned+'\\n');fs.appendFileSync(process.env.GITHUB_OUTPUT,'bun_pinned='+p.bun.pinned+'\\n');"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
@@ -102,7 +102,7 @@ jobs:
         id: runtime-policy
         shell: bash
         run: |
-          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));fs.appendFileSync(process.env.GITHUB_OUTPUT,'node_pinned='+p.node.pinned+'\\n');"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
@@ -138,7 +138,7 @@ jobs:
         id: runtime-policy
         shell: bash
         run: |
-          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));process.stdout.write(`node_pinned=${p.node.pinned}\n`);" >> \"$GITHUB_OUTPUT\"
+          node -e "const fs=require('node:fs');const p=JSON.parse(fs.readFileSync('tools/runtime-versions.json','utf8'));fs.appendFileSync(process.env.GITHUB_OUTPUT,'node_pinned='+p.node.pinned+'\\n');"
       - name: Setup Node
         uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
         with:
