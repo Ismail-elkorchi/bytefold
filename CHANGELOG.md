@@ -13,6 +13,20 @@ update_triggers:
 
 _No entries yet._
 
+## 0.7.1
+
+### Fixed
+
+- release workflow compatibility with `actions/setup-node@v6` by removing unsupported `always-auth` input.
+- carry-forward release-truth theme continuity:
+  - web adapter URL hardening (non-HTTPS rejection and maxInputBytes abort constraints)
+  - security simulation corpus (`security-audit-simulation`)
+  - browser smoke matrix coverage (Chromium, Firefox, WebKit)
+  - Zip64 boundary and Zip64 writer structural proof suites
+  - fixture integrity manifest enforcement (`fixtures:hashes:check`, `security-fixture-hashes`)
+  - deterministic property-based parser boundary coverage (`fuzz-property-boundaries`)
+  - unicode trojan source guard (`unicode:check`, bidi override scanner)
+
 ## 0.7.0
 
 ### Added
