@@ -110,6 +110,7 @@
     "jsr:dry": "deno publish --dry-run --allow-dirty",
     "jsr:check": "npm run build && npm run doc:lint && npm run doc:test && npm run jsr:dry",
     "jsr:score": "node ./scripts/jsr-score-gate.mjs",
+    "release:audit": "node ./scripts/release-audit.mjs",
     "pack:check": "node ./scripts/verify-pack.mjs",
     "pack:smoke": "node ./scripts/smoke-pack.mjs",
     "version:check": "node ./scripts/sync-version.mjs"
