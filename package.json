@@ -1,9 +1,17 @@
 {
   "name": "@ismail-elkorchi/bytefold",
-  "version": "0.7.1",
+  "version": "0.7.2",
   "description": "Multi-format archive reader/writer with agent-grade safety for Node, Deno, and Bun",
   "license": "MIT",
   "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Ismail-elkorchi/bytefold"
+  },
+  "bugs": {
+    "url": "https://github.com/Ismail-elkorchi/bytefold/issues"
+  },
+  "homepage": "https://github.com/Ismail-elkorchi/bytefold#readme",
   "engines": {
     "node": ">=24"
   },
