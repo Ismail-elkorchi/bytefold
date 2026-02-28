@@ -13,6 +13,28 @@ update_triggers:
 
 _No entries yet._
 
+## 0.8.0
+
+### Changed
+
+- narrow JSR public export surface to `@ismail-elkorchi/bytefold` and `@ismail-elkorchi/bytefold/support` to keep documented-symbol scoring stable.
+- raise docs-policy score target to `18` and documented-symbol threshold to `0.9`.
+- update `SPEC.md` JSR entrypoint inventory to match `jsr.json`.
+
+### Fixed
+
+- harden `FileSink` open flags in `src/node/zip/Sink.ts` with no-follow and restrictive mode.
+- harden temporary file handling in encryption tests by using secure temporary directories.
+- remove dynamic URL taint flow in `scripts/jsr-score-gate.mjs` by using fixed scope/package endpoint construction.
+- carry-forward release-truth theme continuity:
+  - web adapter URL hardening (non-HTTPS rejection and maxInputBytes abort constraints)
+  - security simulation corpus (`security-audit-simulation`)
+  - browser smoke matrix coverage (Chromium, Firefox, WebKit)
+  - Zip64 boundary and Zip64 writer structural proof suites
+  - fixture integrity manifest enforcement (`fixtures:hashes:check`, `security-fixture-hashes`)
+  - deterministic property-based parser boundary coverage (`fuzz-property-boundaries`)
+  - unicode trojan source guard (`unicode:check`, bidi override scanner)
+
 ## 0.7.3
 
 ### Fixed
