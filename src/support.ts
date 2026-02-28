@@ -83,9 +83,16 @@ const runtimeSupportMap: RuntimeSupportMap = {
 
 /**
  * Return support details aligned with SPEC.md runtime tables.
+ * When no runtime is provided, the result includes all runtimes.
  */
 export function runtimeSupport(): RuntimeSupportMap;
+/**
+ * Return support details for exactly one runtime.
+ */
 export function runtimeSupport(runtime: BytefoldRuntime): RuntimeSupport;
+/**
+ * Implementation signature for the runtime support accessor.
+ */
 export function runtimeSupport(runtime?: BytefoldRuntime): RuntimeSupport | RuntimeSupportMap {
   if (runtime) {
     return cloneRuntimeSupport(runtimeSupportMap[runtime]);

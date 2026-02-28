@@ -4,8 +4,6 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const ROOT_DIR = path.resolve(fileURLToPath(new URL('..', import.meta.url)));
-const PACKAGE_JSON_PATH = path.join(ROOT_DIR, 'package.json');
-const JSR_JSON_PATH = path.join(ROOT_DIR, 'jsr.json');
 const SNAPSHOT_PATH = path.join(ROOT_DIR, 'test/fixtures/type-surface-manifest.json');
 const PACKAGE_NAME = '@ismail-elkorchi/bytefold';
 

@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { spawnSync } from 'node:child_process';
 import { ZipError, ZipReader, ZipWriter } from '@ismail-elkorchi/bytefold/node/zip';
 
@@ -199,19 +199,24 @@ test('aes headers and crc rules', async () => {
 
 test('seekable patch mode writes encrypted entries without data descriptor', async () => {
   const data = new TextEncoder().encode('seekable aes');
-  const filePath = path.join(tmpdir(), `bytefold-aes-seekable-${Date.now()}.zip`);
-  const writer = await ZipWriter.toFile(filePath, { sinkSeekabilityPolicy: 'on' });
-  await writer.add('file.txt', data, {
-    method: 8,
-    encryption: { type: 'aes', password: PASSWORD, strength: 256, vendorVersion: 2 }
-  });
-  await writer.close();
-  const zip = new Uint8Array(await readFile(filePath));
-  const flags = readUint16LE(zip, 6);
-  assert.equal(flags & 0x08, 0, 'data descriptor flag should be clear');
-  const reader = await ZipReader.fromFile(filePath);
-  assert.deepEqual(await readEntryBytes(reader, 'file.txt', PASSWORD), data);
-  await reader.close();
+  const dir = await makeTempDir();
+  const filePath = path.join(dir, 'seekable-aes.zip');
+  try {
+    const writer = await ZipWriter.toFile(filePath, { sinkSeekabilityPolicy: 'on' });
+    await writer.add('file.txt', data, {
+      method: 8,
+      encryption: { type: 'aes', password: PASSWORD, strength: 256, vendorVersion: 2 }
+    });
+    await writer.close();
+    const zip = new Uint8Array(await readFile(filePath));
+    const flags = readUint16LE(zip, 6);
+    assert.equal(flags & 0x08, 0, 'data descriptor flag should be clear');
+    const reader = await ZipReader.fromFile(filePath);
+    assert.deepEqual(await readEntryBytes(reader, 'file.txt', PASSWORD), data);
+    await reader.close();
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
 });
 
 test('7z interoperability (optional)', async (t) => {
@@ -313,7 +318,5 @@ function run7z(cmd: string, args: string[], cwd: string): void {
 }
 
 async function makeTempDir(): Promise<string> {
-  const dir = path.join(tmpdir(), `bytefold-7z-${Math.random().toString(16).slice(2)}`);
-  await mkdir(dir, { recursive: true });
-  return dir;
+  return mkdtemp(path.join(tmpdir(), 'bytefold-tmp-'));
 }

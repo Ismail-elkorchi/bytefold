@@ -33,13 +33,6 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 
 ### jsr (jsr.json exports)
 - `@ismail-elkorchi/bytefold`
-- `@ismail-elkorchi/bytefold/archive`
-- `@ismail-elkorchi/bytefold/compress`
-- `@ismail-elkorchi/bytefold/zip`
-- `@ismail-elkorchi/bytefold/tar`
-- `@ismail-elkorchi/bytefold/deno`
-- `@ismail-elkorchi/bytefold/bun`
-- `@ismail-elkorchi/bytefold/web`
 - `@ismail-elkorchi/bytefold/support`
 
 ## Invariants (test-linked)
