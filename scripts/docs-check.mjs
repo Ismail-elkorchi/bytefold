@@ -4,6 +4,7 @@ import path from 'node:path';
 const ROOT = process.cwd();
 const REQUIRED_KEYS = ['role', 'audience', 'source_of_truth', 'update_triggers'];
 const EXCLUDE_DIRS = new Set(['.bytefold_meta', '.git', '.github', 'node_modules', 'dist', 'dist-test', 'test/fixtures']);
+const FRONTMATTER_OPTIONAL = new Set(['README.md']);
 
 const missing = [];
 
@@ -38,6 +39,9 @@ async function checkFile(filePath, rel) {
   const text = data.toString('utf8').replace(/\r\n/g, '\n');
   const frontmatter = extractFrontmatter(text);
   if (!frontmatter) {
+    if (FRONTMATTER_OPTIONAL.has(rel)) {
+      return;
+    }
     missing.push(`${rel} (missing frontmatter)`);
     return;
   }
