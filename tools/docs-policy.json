@@ -7,7 +7,7 @@
     "src/index.ts",
     "src/support.ts"
   ],
-  "minDocumentedSymbols": 0.5,
-  "baselineMinDocumentedSymbols": 0.5,
-  "targetTotal": 14
+  "minDocumentedSymbols": 0.9,
+  "baselineMinDocumentedSymbols": 0.9,
+  "targetTotal": 18
 }

@@ -4,13 +4,6 @@
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
-    "./archive": "./archive/mod.ts",
-    "./compress": "./compress/mod.ts",
-    "./zip": "./zip/mod.ts",
-    "./tar": "./tar/mod.ts",
-    "./deno": "./deno/mod.ts",
-    "./bun": "./bun/mod.ts",
-    "./web": "./web/mod.ts",
     "./support": "./support/mod.ts"
   },
   "publish": {
@@ -19,14 +12,7 @@
       "README.md",
       "docs/**",
       "mod.ts",
-      "archive/mod.ts",
-      "compress/mod.ts",
-      "zip/mod.ts",
-      "tar/mod.ts",
-      "deno/mod.ts",
-      "bun/mod.ts",
       "support/mod.ts",
-      "web/mod.ts",
       "src/**",
       "jsr.json",
       "package.json"

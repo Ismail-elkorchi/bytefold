@@ -1,3 +1,4 @@
+import { constants as fsConstants } from 'node:fs';
 import { open } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { Writable } from 'node:stream';
@@ -19,7 +20,9 @@ export class FileSink implements SeekableSink {
 
   constructor(path: string | URL) {
     const filePath = typeof path === 'string' ? path : fileURLToPath(path);
-    this.handlePromise = open(filePath, 'w');
+    const openFlags =
+      fsConstants.O_WRONLY | fsConstants.O_CREAT | fsConstants.O_TRUNC | (fsConstants.O_NOFOLLOW ?? 0);
+    this.handlePromise = open(filePath, openFlags, 0o600);
   }
 
   async write(chunk: Uint8Array): Promise<void> {
