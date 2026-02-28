@@ -25,7 +25,9 @@ import { resolveXzDictionaryLimit, resolveXzPreflightLimits, shouldPreflightXz }
 import { isZipSignature, preflightZip, resolveZipPreflightLimits, shouldPreflightZip } from '../archive/zipPreflight.js';
 import type { ZipProfile, ZipReaderOptions } from '../types.js';
 
+/** Typed archive error class for Node runtime adapters. */
 export { ArchiveError } from '../archive/errors.js';
+/** Archive report/input/options/domain types for Node runtime adapters. */
 export type {
   ArchiveAuditReport,
   ArchiveDetectionReport,
@@ -39,14 +41,20 @@ export type {
   ArchiveOpenOptions,
   ArchiveProfile
 } from '../archive/types.js';
+/** Unified archive reader/writer types. */
 export type { ArchiveReader, ArchiveWriter } from '../archive/index.js';
+/** Create archive writers from Node runtime entrypoint. */
 export { createArchiveWriter } from '../archive/index.js';
 
+/** ZIP APIs and ZIP-domain types from Node runtime entrypoint. */
 export * from './zip/index.js';
+/** TAR APIs and TAR-domain types from Node runtime entrypoint. */
 export * from '../tar/index.js';
 
+/** Node/Web stream adapter helpers. */
 export { toWebReadable, toWebWritable, toNodeReadable, toNodeWritable } from '../streams/adapters.js';
 
+/** Inputs accepted by the Node runtime adapter. */
 export type NodeArchiveInput =
   | Uint8Array
   | ArrayBuffer
@@ -78,6 +86,7 @@ type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
   __zipDetection?: ZipDetectionInfo;
 };
 
+/** Open an archive input through Node runtime facilities. */
 export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) {
     return openArchiveCore(input, {
@@ -185,6 +194,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
   });
 }
 
+/** Extract all entries from a source archive into a destination directory. */
 export async function extractAll(
   input: NodeArchiveInput,
   destDir: string | URL,

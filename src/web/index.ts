@@ -3,7 +3,9 @@ import { createArchiveWriter, openArchive as openArchiveCore, type ArchiveReader
 import { ArchiveError } from '../archive/errors.js';
 import { readAllBytes } from '../streams/buffer.js';
 
+/** Typed archive error class for Web runtime adapters. */
 export { ArchiveError } from '../archive/errors.js';
+/** Archive report/input/options/domain types for Web runtime adapters. */
 export type {
   ArchiveAuditReport,
   ArchiveDetectionReport,
@@ -17,12 +19,17 @@ export type {
   ArchiveOpenOptions,
   ArchiveProfile
 } from '../archive/types.js';
+/** Unified archive reader/writer types. */
 export type { ArchiveReader, ArchiveWriter } from '../archive/index.js';
+/** Create archive writers from Web runtime entrypoint. */
 export { createArchiveWriter };
 
+/** ZIP APIs and ZIP-domain types from Web runtime entrypoint. */
 export * from '../zip/index.js';
+/** TAR APIs and TAR-domain types from Web runtime entrypoint. */
 export * from '../tar/index.js';
 
+/** Inputs accepted by the Web runtime adapter. */
 export type WebArchiveInput =
   | Uint8Array
   | ArrayBuffer
@@ -31,6 +38,7 @@ export type WebArchiveInput =
   | string
   | URL;
 
+/** Open an archive input through Web runtime facilities. */
 export async function openArchive(input: WebArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) {
     return openArchiveCore(input, {

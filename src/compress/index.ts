@@ -5,9 +5,13 @@ import type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions 
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 import type { ResourceLimits } from '../limits.js';
 
+/** Compression algorithm/options/capabilities/profile types. */
 export type { CompressionAlgorithm, CompressionCapabilities, CompressionOptions, CompressionProfile } from './types.js';
+/** Compression backend and progress-event contract types. */
 export type { CompressionBackend, CompressionProgressEvent } from './types.js';
+/** Typed compression-domain error class. */
 export { CompressionError } from './errors.js';
+/** Stable compression error code union. */
 export type { CompressionErrorCode } from './errors.js';
 
 const RUNTIME = detectRuntime();
