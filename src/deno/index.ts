@@ -29,7 +29,9 @@ type DenoApi = {
   SeekMode: { Start: number };
 };
 
+/** Typed archive error class for Deno runtime adapters. */
 export { ArchiveError } from '../archive/errors.js';
+/** Archive report/input/options/domain types for Deno runtime adapters. */
 export type {
   ArchiveAuditReport,
   ArchiveDetectionReport,
@@ -43,10 +45,14 @@ export type {
   ArchiveOpenOptions,
   ArchiveProfile
 } from '../archive/types.js';
+/** Unified archive reader/writer types. */
 export type { ArchiveReader, ArchiveWriter } from '../archive/index.js';
+/** Create archive writers from Deno runtime entrypoint. */
 export { createArchiveWriter } from '../archive/index.js';
 
+/** ZIP APIs and ZIP-domain types from Deno runtime entrypoint. */
 export * from '../zip/index.js';
+/** TAR APIs and TAR-domain types from Deno runtime entrypoint. */
 export * from '../tar/index.js';
 
 const DenoGlobal = (globalThis as { Deno?: DenoApi }).Deno;
@@ -105,6 +111,7 @@ class DenoFileRandomAccess implements RandomAccess {
   }
 }
 
+/** Inputs accepted by the Deno runtime adapter. */
 export type DenoArchiveInput = Uint8Array | ArrayBuffer | Blob | ReadableStream<Uint8Array> | string | URL;
 
 type XzPreflightInfo = {
@@ -129,6 +136,7 @@ type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
   __zipDetection?: ZipDetectionInfo;
 };
 
+/** Open an archive input through Deno runtime facilities. */
 export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   if (input instanceof Uint8Array || input instanceof ArrayBuffer) {
     return openArchiveCore(input, {
@@ -227,6 +235,7 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
   });
 }
 
+/** Open a ZIP archive from a filesystem path. */
 export async function zipFromFile(
   path: string,
   options?: Parameters<typeof ZipReader.fromRandomAccess>[1]
@@ -240,6 +249,7 @@ export async function zipFromFile(
   }
 }
 
+/** Open a TAR archive from a filesystem path. */
 export async function tarFromFile(
   path: string,
   options?: Parameters<typeof TarReader.fromUint8Array>[1]
@@ -248,6 +258,7 @@ export async function tarFromFile(
   return TarReader.fromUint8Array(data, options);
 }
 
+/** Create a ZIP writer that writes to a filesystem path. */
 export async function zipToFile(
   path: string,
   options?: Parameters<typeof ZipWriter.toWritable>[1]
@@ -266,6 +277,7 @@ export async function zipToFile(
   return writer;
 }
 
+/** Create a TAR writer that writes to a filesystem path. */
 export async function tarToFile(
   path: string,
   options?: Parameters<typeof TarWriter.toWritable>[1]
