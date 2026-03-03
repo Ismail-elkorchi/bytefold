@@ -1,12 +1,3 @@
----
-role: support
-audience: users, contributors
-source_of_truth: SUPPORT.md
-update_triggers:
-  - support channel changes
-  - escalation policy changes
----
-
 # Support
 
 ## Usage questions

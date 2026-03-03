@@ -69,7 +69,13 @@ const findings = [];
 for (const filePath of files) {
   const relativePath = normalizeDisplayPath(filePath);
   if (shouldSkipFile(relativePath)) continue;
-  const bytes = await readFile(filePath);
+  let bytes;
+  try {
+    bytes = await readFile(filePath);
+  } catch (error) {
+    if (isMissingFileError(error)) continue;
+    throw error;
+  }
   if (bytes.includes(0)) continue;
   const text = bytes.toString('utf8');
   findings.push(...scanText(text, relativePath));
@@ -203,4 +209,13 @@ function scanText(text, file) {
     offset += width;
   }
   return output;
+}
+
+function isMissingFileError(error) {
+  return Boolean(
+    error &&
+      typeof error === 'object' &&
+      'code' in error &&
+      /** @type {{ code?: unknown }} */ (error).code === 'ENOENT'
+  );
 }

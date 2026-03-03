@@ -1,20 +1,36 @@
 /** Shared resource ceilings for archive and compression operations. */
 export type ResourceLimits = {
+  /** Maximum allowed XZ dictionary size in bytes. */
   maxXzDictionaryBytes?: bigint | number;
+  /** Maximum XZ decoder buffered input bytes. */
   maxXzBufferedBytes?: number;
+  /** Maximum number of XZ index records accepted. */
   maxXzIndexRecords?: number;
+  /** Maximum total XZ index bytes accepted. */
   maxXzIndexBytes?: number;
+  /** Maximum XZ block headers scanned during preflight. */
   maxXzPreflightBlockHeaders?: number;
+  /** Maximum ZIP central directory bytes accepted. */
   maxZipCentralDirectoryBytes?: number;
+  /** Maximum ZIP comment bytes accepted. */
   maxZipCommentBytes?: number;
+  /** Maximum bytes scanned while locating ZIP EOCD. */
   maxZipEocdSearchBytes?: number;
+  /** Maximum BZip2 block size level (1-9). */
   maxBzip2BlockSize?: number;
+  /** Maximum decompressed output bytes produced by a pipeline. */
   maxTotalDecompressedBytes?: bigint | number;
+  /** Maximum raw input bytes consumed from the source. */
   maxInputBytes?: bigint | number;
+  /** Maximum number of archive entries processed. */
   maxEntries?: number;
+  /** Maximum uncompressed bytes for any single entry. */
   maxUncompressedEntryBytes?: bigint | number;
+  /** Maximum uncompressed bytes across all processed entries. */
   maxTotalUncompressedBytes?: bigint | number;
+  /** Maximum allowed expansion ratio for compressed data. */
   maxCompressionRatio?: number;
+  /** Generic dictionary size ceiling for codecs that use dictionaries. */
   maxDictionaryBytes?: bigint | number;
 };
 

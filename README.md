@@ -1,73 +1,77 @@
 # bytefold
 
-Multi-format archive reader/writer for Node 24+, Deno, Bun, and Web (Browser). ESM-only, TypeScript strict, no runtime dependencies (tests: `test/repo-invariants.test.ts`).
+Multi-format archive reader and writer with safety profiles for Node 24+, Deno, Bun, and Web.
+
+## What it is
+
+`bytefold` opens archives, audits safety conditions, and streams entry data with typed error/report contracts.
 
 ## Install
 
 ```sh
 npm install @ismail-elkorchi/bytefold
-# or
 deno add jsr:@ismail-elkorchi/bytefold
 ```
 
-## Quickstart (auto-detect)
+## Quickstart
 
-```js
-import { openArchive } from '@ismail-elkorchi/bytefold';
+```ts
+import { readFile } from "node:fs/promises";
+import { openArchive } from "@ismail-elkorchi/bytefold";
 
-const reader = await openArchive(bytesOrStream, { profile: 'agent' });
-const report = await reader.audit({ profile: 'agent' });
-console.log(JSON.stringify(report));
+const input = await readFile("./archive.zip");
+const reader = await openArchive(input, { profile: "agent" });
+const report = await reader.audit({ profile: "agent" });
+if (!report.ok) throw new Error("archive audit failed");
 
-await reader.assertSafe({ profile: 'agent' });
+await reader.assertSafe({ profile: "agent" });
 for await (const entry of reader.entries()) {
-  if (entry.isDirectory) continue;
+  if (entry.isDirectory || entry.isSymlink) continue;
   const data = await new Response(await entry.open()).arrayBuffer();
   console.log(entry.name, data.byteLength);
 }
 ```
 
-Support matrix: see `SPEC.md` (Support matrix section).
-Machine-readable support entrypoint: `@ismail-elkorchi/bytefold/support`.
+## Options reference
 
-Web runtime entrypoint: `@ismail-elkorchi/bytefold/web` (HTTPS URL input only; full-fetch by design; no seekable HTTP range sessions in web adapter).
+- [Options reference](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/reference/options.md)
 
-## Common recipes
+## When not to use
 
-### 1) Validate untrusted archives before extraction
+- You only need a platform-specific native wrapper.
+- You need CommonJS entrypoints.
+- You need interactive archive browsing UI features.
 
-```js
-import { openArchive } from '@ismail-elkorchi/bytefold';
+## When to use
 
-const reader = await openArchive(input, { profile: 'agent' });
-const report = await reader.audit({ profile: 'agent' });
-await reader.assertSafe({ profile: 'agent' });
-```
+- You need a single API across runtimes for ZIP/TAR and layered compression formats.
+- You need explicit safety profiles for untrusted inputs.
+- You need deterministic audits and normalization.
 
-### 2) Extract safely with strict limits
+## Compatibility
 
-```js
-import { openArchive } from '@ismail-elkorchi/bytefold';
+- Module system: ESM-only.
+- Runtimes: Node `>=24`, current Deno, current Bun, modern browsers (web entrypoint).
+- Web entrypoint means `@ismail-elkorchi/bytefold/web` (browser runtime with `Uint8Array`/`Blob`/`ReadableStream`/HTTPS URL inputs).
+- The quickstart snippet above is Node-oriented; Deno/Bun can pass `Uint8Array` from their runtime file APIs.
 
-const reader = await openArchive(input, {
-  profile: 'strict',
-  limits: { maxTotalExtractedBytes: 512 * 1024 * 1024 }
-});
-await reader.extractAll('./out', { profile: 'strict' });
-```
+## Links
 
-## Troubleshooting
-
-- `ARCHIVE_UNSUPPORTED_FEATURE`: format/operation is intentionally unsupported; verify format hints and runtime support matrix in `SPEC.md`.
-- `COMPRESSION_UNSUPPORTED_ALGORITHM`: runtime lacks codec support (common on some Deno/Web paths); check `@ismail-elkorchi/bytefold/support`.
-- `ZIP_HTTP_*` errors: remote ZIP seekable reads require compliant HTTP range behavior.
+- [Docs index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/index.md)
+- Reference:
+  - [SPEC](https://github.com/Ismail-elkorchi/bytefold/blob/main/SPEC.md)
+  - [Security policy](https://github.com/Ismail-elkorchi/bytefold/blob/main/SECURITY.md)
+  - [Reference index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/reference/index.md)
+- How-to:
+  - [How-to index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/how-to/index.md)
+  - [Audit before extract](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/how-to/audit-before-extract.md)
+  - [Contributing](https://github.com/Ismail-elkorchi/bytefold/blob/main/CONTRIBUTING.md)
+- Explanation: [ARCHITECTURE](https://github.com/Ismail-elkorchi/bytefold/blob/main/ARCHITECTURE.md)
 
 ## Verification
-`npm run check`
 
-## Docs
-- `SPEC.md` (invariants, API entrypoints, error/report model)
-- `ARCHITECTURE.md` (module map and data flow)
-- `SECURITY.md` (threat model and reporting)
-- `CONTRIBUTING.md`, `CHANGELOG.md`
-- `CODE_OF_CONDUCT.md`, `SUPPORT.md`
+```sh
+npm run examples:run
+npm run check:fast
+npm run check
+```

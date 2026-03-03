@@ -1,13 +1,3 @@
----
-role: policy
-audience: agent
-source_of_truth: AGENTS.md
-update_triggers:
-  - scripts or verification command changes
-  - new archive formats or compression codecs
-  - dependency policy changes
----
-
 # AGENTS
 
 ## Obey
@@ -27,13 +17,28 @@ update_triggers:
 ## Definition of Done
 1. `npm run check`
 2. SPEC.md updated for new guarantees and linked to tests.
-3. Naming choices follow `docs/NAMING.md` (especially booleans, boundary adapters, and greppability).
+3. Naming choices stay explicit, proposition-style, and grep-friendly.
+
+## Commands
+- `npm run check:fast` (local sanity)
+- `npm run check` (required before completion)
+
+## Doc structure rules
+- README is a front door (purpose, quickstart, when to use, doc map).
+- `docs/` holds tutorial/how-to/reference/explanation pages.
+- `SPEC.md` is reference; `ARCHITECTURE.md` is explanation.
+- `SECURITY.md` is security guidance; `CONTRIBUTING.md` is how-to.
+
+## Doc constraints
+- No YAML frontmatter in public docs.
+- No private repo/workspace references in public docs.
+- No invisible Unicode selectors in public docs.
 
 ## Change grammar
 1. New compression algorithm: update `src/compress/types.ts`, `src/compression/streams.ts`, codec registry, tests under `test/`, SPEC.md, and `repo.manifest.yaml`.
 2. New archive format: update `src/archive/**`, `src/archive/types.ts`, tests under `test/`, SPEC.md, and README.md.
 3. New XZ filter/check support: update `src/compression/xz.ts` and `test/xz-utils-conformance.test.ts`.
-4. New docs: add frontmatter and link to tests; avoid duplicate docs.
+4. New docs: keep public docs free of YAML-style metadata blocks and avoid duplicate docs.
 
 ## Forbidden patterns
 1. Importing `node:*` in default entrypoints at module evaluation.
