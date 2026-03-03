@@ -148,7 +148,7 @@ function parseFormatLabel(label: string): Array<(typeof supportMatrix.formats)[n
 function parseState(cell: string): RuntimeOperationState {
   if (cell.startsWith('✅')) return 'supported';
   if (cell.startsWith('❌')) return 'unsupported';
-  if (cell.startsWith('⚠️') || cell.startsWith('⚠')) return 'hint-required';
+  if (cell.startsWith('⚠') || cell.startsWith('WARN')) return 'hint-required';
   if (cell.startsWith('🟦')) return 'capability-gated';
   throw new Error(`Unknown support state token in cell "${cell}"`);
 }

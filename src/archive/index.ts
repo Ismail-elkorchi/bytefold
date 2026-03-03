@@ -42,11 +42,17 @@ import { decodeNullTerminatedUtf8 } from '../binary.js';
 
 /** Unified archive reader API returned by openArchive(). */
 export type ArchiveReader = {
+  /** Detected or forced archive format for this reader instance. */
   format: ArchiveFormat;
+  /** Detection metadata when the reader was opened through `openArchive`. */
   detection?: ArchiveDetectionReport;
+  /** Async iterator over normalized archive entries. */
   entries(): AsyncGenerator<ArchiveEntry>;
+  /** Run a non-mutating safety/structure audit. */
   audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport>;
+  /** Throw on any error-severity issue under the selected profile. */
   assertSafe(options?: ArchiveAuditOptions): Promise<void>;
+  /** Rewrite archive output deterministically when supported by the format. */
   normalizeToWritable?(
     writable: WritableStream<Uint8Array>,
     options?: ArchiveNormalizeOptions
@@ -55,19 +61,25 @@ export type ArchiveReader = {
 
 /** Unified archive writer API for ZIP/TAR and layered formats. */
 export type ArchiveWriter = {
+  /** Output format for entries written through this writer. */
   format: ArchiveFormat;
+  /** Append one entry from bytes/stream/async iterable input. */
   add(
     name: string,
     source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
     options?: unknown
   ): Promise<void>;
+  /** Finalize central directory/footer metadata and flush output. */
   close(): Promise<void>;
 };
 
 /** Options for creating archive writers. */
 export type ArchiveWriterOptions = {
+  /** ZIP writer passthrough options for `format=zip`. */
   zip?: ZipWriterOptions;
+  /** TAR writer passthrough options for `format=tar` and layered tar codecs. */
   tar?: TarWriterOptions;
+  /** Compression settings for layered output formats. */
   compression?: { level?: number; quality?: number };
 };
 
@@ -96,23 +108,41 @@ type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
 
 /** Options for auditing archives opened via openArchive(). */
 export type ArchiveAuditOptions = {
+  /** Safety profile used for issue policy defaults. */
   profile?: ArchiveProfile;
+  /** Explicit strict-mode override. */
   isStrict?: boolean;
+  /** Resource ceilings used during audit/open checks. */
   limits?: ArchiveLimits;
+  /** Abort signal for long-running audit operations. */
   signal?: AbortSignal;
 };
 
 /** Options for normalization via openArchive(). */
 export type ArchiveNormalizeOptions = {
+  /** Enable deterministic output ordering/metadata normalization. */
   isDeterministic?: boolean;
+  /** Resource ceilings for normalize read/write phases. */
   limits?: ArchiveLimits;
+  /** Abort signal for normalization pipelines. */
   signal?: AbortSignal;
 };
 
 /** Inputs accepted by openArchive(). */
 export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | Blob;
 
-/** Open an archive with auto-detection (or a forced format). */
+/**
+ * Open an archive with auto-detection (or a forced format).
+ *
+ * @example
+ * ```ts
+ * import { openArchive } from "@ismail-elkorchi/bytefold";
+ *
+ * const reader = await openArchive(bytes, { profile: "agent" });
+ * const report = await reader.audit({ profile: "agent" });
+ * if (!report.ok) throw new Error("Unsafe archive");
+ * ```
+ */
 export async function openArchive(input: ArchiveInput, options?: ArchiveOpenOptions): Promise<ArchiveReader> {
   const internal = options as ArchiveOpenOptionsInternal | undefined;
   if (internal?.__zipReader) {
@@ -254,7 +284,18 @@ async function openZipFromRandomAccess(
   }
 }
 
-/** Create an archive writer for a specific format. */
+/**
+ * Create an archive writer for a specific format.
+ *
+ * @example
+ * ```ts
+ * import { createArchiveWriter } from "@ismail-elkorchi/bytefold/archive";
+ *
+ * const writer = createArchiveWriter("zip", writable);
+ * await writer.add("hello.txt", new TextEncoder().encode("hello"));
+ * await writer.close();
+ * ```
+ */
 export function createArchiveWriter(
   format: ArchiveFormat,
   writable: WritableStream<Uint8Array>,

@@ -1,13 +1,3 @@
----
-role: policy
-audience: maintainers, agents, users
-source_of_truth: SECURITY.md
-update_triggers:
-  - new threat mitigations
-  - new formats or codecs
-  - changes to extraction behavior
----
-
 # SECURITY
 
 ## Supported versions

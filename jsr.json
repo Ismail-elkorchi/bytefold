@@ -1,6 +1,6 @@
 {
   "name": "@ismail-elkorchi/bytefold",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "license": "MIT",
   "exports": {
     ".": "./mod.ts",
@@ -10,7 +10,12 @@
     "include": [
       "LICENSE",
       "README.md",
-      "docs/**",
+      "CHANGELOG.md",
+      "SECURITY.md",
+      "SPEC.md",
+      "ARCHITECTURE.md",
+      "CONTRIBUTING.md",
+      "SUPPORT.md",
       "mod.ts",
       "support/mod.ts",
       "src/**",
@@ -23,7 +28,9 @@
       "specs/**",
       "bench/**",
       "node_modules/**",
-      "scripts/**"
+      "scripts/**",
+      "docs/**",
+      ".bytefold_meta/**"
     ]
   }
 }

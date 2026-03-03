@@ -1,17 +1,25 @@
----
-role: history
-audience: maintainers, users
-source_of_truth: CHANGELOG.md
-update_triggers:
-  - release cut
-  - notable user-visible changes
----
-
 # CHANGELOG
 
 ## Unreleased
 
 _No entries yet._
+
+## 0.8.1
+
+### Changed
+
+- Rework README and module overview docs for faster first-use onboarding and clearer navigation.
+- Add runnable offline examples and include `examples:run` in check workflows.
+- Add example doc blocks (Goal/Prereqs/Run/Expected output/Safety notes) for every `examples/*.mjs` file.
+- Expand API-adjacent docs and key JSDoc examples without changing runtime behavior.
+- carry-forward release-truth theme continuity:
+  - web adapter URL hardening (non-HTTPS rejection and maxInputBytes abort constraints)
+  - security simulation corpus (`security-audit-simulation`)
+  - browser smoke matrix coverage (Chromium, Firefox, WebKit)
+  - Zip64 boundary and Zip64 writer structural proof suites
+  - fixture integrity manifest enforcement (`fixtures:hashes:check`, `security-fixture-hashes`)
+  - deterministic property-based parser boundary coverage (`fuzz-property-boundaries`)
+  - unicode trojan source guard (`unicode:check`, bidi override scanner)
 
 ## 0.8.0
 

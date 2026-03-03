@@ -1,14 +1,6 @@
----
-role: reference
-audience: maintainers, agents, users
-source_of_truth: ARCHITECTURE.md
-update_triggers:
-  - new module boundaries
-  - new formats or codecs
-  - changes to data flow or extension points
----
-
 # ARCHITECTURE
+
+Explanation of module boundaries, data flow, and tradeoffs.
 
 ## Module map
 - `src/index.ts`: top-level archive detection and orchestration.
@@ -27,6 +19,14 @@ update_triggers:
 ## Data flow (write path)
 1. Writer constructs headers and entry metadata.
 2. Payloads stream through compressors and into the sink.
+
+## Tradeoffs (why this shape)
+- Pure-JS codec implementations prioritize portability and deterministic behavior
+  over native-addon peak throughput.
+- Runtime adapters are opt-in entrypoints to keep default imports free from
+  `node:*` coupling.
+- Safety profiles bias toward explicit typed failures for untrusted input rather
+  than permissive best-effort extraction.
 
 ## Extension points
 - Add a compression algorithm: implement codec in `src/compression/**`, register in `src/compression/streams.ts`, extend `src/compress/types.ts`, and add tests.

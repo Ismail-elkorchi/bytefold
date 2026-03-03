@@ -1,13 +1,3 @@
----
-role: policy
-audience: maintainers, contributors
-source_of_truth: CONTRIBUTING.md
-update_triggers:
-  - script changes
-  - new formats or codecs
-  - dependency policy changes
----
-
 # CONTRIBUTING
 
 ## Requirements
@@ -16,7 +6,8 @@ update_triggers:
 - Deterministic, offline tests only.
 
 ## Verification
-- `npm run check` (canonical one-command truth)
+- `npm run check:fast` (lint + typecheck + Node test suite)
+- `npm run check` (full repository gate)
 
 ## Branch protection policy (GitHub)
 - `main` is PR-only: direct pushes should be disabled after bootstrap.
@@ -40,11 +31,16 @@ update_triggers:
 - Add tests for every bug fix and new guarantee.
 - Update SPEC.md invariants and link tests for each guarantee.
 - Update repo.manifest.yaml when commands or invariants change.
-- Follow naming rules in `docs/NAMING.md` for new/renamed symbols.
+- Use explicit, grep-friendly names for APIs, options, and error codes.
 
 ## Dev dependency policy (justification required)
 - Dev-only dependencies are allowed only when they improve correctness, determinism, or safety and are wired into verification.
 - Current approved dev-only tooling:
-  - `esbuild`: browser bundle verification for `npm run web:check` to prove the web entrypoint does not pull `node:*` builtins.
-  - `@playwright/test`: real Chromium smoke proofs for the web entrypoint (`npm run test:browser`) covering Blob roundtrips, writer roundtrips, and adversarial URL budget cancellation in a browser runtime.
-  - `fast-check`: deterministic property-based parser boundary tests (fixed seeds + bounded runs) for TAR numeric parsing, ZIP EOCD mutations, gzip optional headers, and web URL budget abort behavior.
+  - `esbuild`: browser bundle verification for `npm run web:check` to prove
+    the web entrypoint does not pull `node:*` builtins.
+  - `@playwright/test`: Chromium smoke proofs for `npm run test:browser`
+    covering Blob roundtrips, writer roundtrips, and URL budget cancellation
+    behavior in browser runtime.
+  - `fast-check`: deterministic property tests (fixed seeds + bounded runs)
+    for TAR numeric parsing, ZIP EOCD mutations, gzip optional headers, and
+    web URL budget abort behavior.

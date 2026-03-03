@@ -1,14 +1,6 @@
----
-role: spec
-audience: maintainers, agents, users
-source_of_truth: SPEC.md
-update_triggers:
-  - public API changes
-  - new invariants or error codes
-  - new formats, codecs, or filters
----
-
 # SPEC
+
+Reference contract for public behavior guarantees and support coverage.
 
 ## Domain model (conceptual)
 - Archive: a container of entries (files, directories, links) that can be opened, audited, normalized, and extracted.
@@ -70,7 +62,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 32. npm pack payload obeys allowlist/denylist policy: runtime artifacts plus contract metadata (`SPEC.md`) and JSON schemas (`schemas/*.json`) only; repo-internal indexes (`docs/REPO_INDEX.*`) and internal sources are excluded. (tests: `test/packaging-contract.test.ts`, `scripts/verify-pack.mjs`)
 33. Normalize safe mode is deterministic and lossless mode preserves bytes where documented. (zip/tar idempotent.) (tests: `test/normalize.test.ts`, `test/audit-normalize-proof.test.ts`)
 34. `extractAll` blocks path traversal. Deterministic ZIP/TAR adversarial corpora also surface traversal as audit failures (`ZIP_PATH_TRAVERSAL` / `TAR_PATH_TRAVERSAL`) and fail `assertSafe` under the agent profile. (tests: `test/zip.test.ts`, `test/security-audit-simulation.test.ts`)
-35. `openArchive` auto-detects documented formats; tar.br requires an explicit hint. (tests: `test/archive.test.ts`, `test/bzip2.test.ts`, `test/xz.test.ts`, `test/tar-xz.test.ts`)
+35. `openArchive` auto-detects documented formats; tar.br requires an explicit hint. The hint can come from `format` or `filename`. (tests: `test/archive.test.ts`, `test/bzip2.test.ts`, `test/xz.test.ts`, `test/tar-xz.test.ts`)
 36. Context index artifacts are deterministic and bounded: `npm run context:index` produces `docs/REPO_INDEX.md` (<= 250 KiB) plus `docs/REPO_INDEX.md.sha256` with stable sorting and no timestamps. (tests: `test/context-tools.test.ts`)
 37. Error JSON `context` never shadows top-level keys (`schemaVersion`, `name`, `code`, `message`, `hint`, `context`, plus top-level optionals such as `entryName`, `method`, `offset`, `algorithm`). (tests: `test/error-contracts.test.ts`, `test/error-json-ambiguity.test.ts`, `test/schema-contracts.test.ts`)
 38. Profile/limits precedence is deterministic across readers and decompressor setup: profile selects defaults, explicit `limits` override only provided fields, and explicit decompressor scalar limits override `limits` for matching knobs. (tests: `test/option-precedence.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
@@ -106,7 +98,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 - Filter IDs 0x0A (ARM64) and 0x0B (RISC-V) are grounded in `specs/xz-filter-ids.md`.
 
 ## Support matrix (format × operation × runtime)
-Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit hint required · 🟦 capability-gated (throws `COMPRESSION_UNSUPPORTED_ALGORITHM` when missing).
+Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠ explicit hint required · 🟦 capability-gated (throws `COMPRESSION_UNSUPPORTED_ALGORITHM` when missing).
 
 ### Node (>=24)
 | Format | Detect | List | Audit | Extract | Normalize | Write |
@@ -121,8 +113,8 @@ Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit
 | xz | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
 | tar.zst | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | zst | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
-| tar.br | ⚠️ (format: `tar.br` or filename) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| br | ⚠️ (format: `br` or filename) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
+| tar.br | ⚠ (format: `tar.br` or filename) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| br | ⚠ (format: `br` or filename) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
 
 ### Deno
 | Format | Detect | List | Audit | Extract | Normalize | Write |
@@ -153,8 +145,8 @@ Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit
 | xz | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
 | tar.zst | ✅ | ✅ | ✅ | ✅ | ✅ | ✅ |
 | zst | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
-| tar.br | ⚠️ (format: `tar.br` or filename) | ✅ | ✅ | ✅ | ✅ | ✅ |
-| br | ⚠️ (format: `br` or filename) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
+| tar.br | ⚠ (format: `tar.br` or filename) | ✅ | ✅ | ✅ | ✅ | ✅ |
+| br | ⚠ (format: `br` or filename) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ✅ |
 
 ### Web (Browser)
 | Format | Detect | List | Audit | Extract | Normalize | Write |
@@ -169,8 +161,8 @@ Legend: ✅ supported · ❌ unsupported (error code in cell) · ⚠️ explicit
 | xz | ✅ | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | ❌ (`ARCHIVE_UNSUPPORTED_FORMAT`) |
 | tar.zst | 🟦 | 🟦 | 🟦 | 🟦 | 🟦 | 🟦 |
 | zst | 🟦 | 🟦 | 🟦 | 🟦 | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
-| tar.br | ⚠️ (format: `tar.br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ✅ | 🟦 |
-| br | ⚠️ (format: `br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
+| tar.br | ⚠ (format: `tar.br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ✅ | 🟦 |
+| br | ⚠ (format: `br` or filename; 🟦 on runtimes without brotli streams) | ✅ | ✅ | ✅ | ❌ (`ARCHIVE_UNSUPPORTED_FEATURE`) | 🟦 |
 
 Matrix proofs: `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/xz.test.ts`, `test/bzip2.test.ts`, `test/tar-xz.test.ts`, `test/single-file-formats.test.ts`, `test/archive-writer-proof.test.ts`, `test/audit-normalize-proof.test.ts`, `test/support-matrix-behavior.test.ts`, `test/support-matrix.test.ts`, `test/web-adapter.test.ts`, `test/web-writer-roundtrip.test.ts`.
 Write proofs: `test/archive-writer-proof.test.ts`, `test/archive.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/web-writer-roundtrip.test.ts`.

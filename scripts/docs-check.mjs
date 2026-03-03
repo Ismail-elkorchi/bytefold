@@ -1,67 +1,75 @@
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile, stat } from 'node:fs/promises'
+import path from 'node:path'
 
-const ROOT = process.cwd();
-const REQUIRED_KEYS = ['role', 'audience', 'source_of_truth', 'update_triggers'];
-const EXCLUDE_DIRS = new Set(['.bytefold_meta', '.git', '.github', 'node_modules', 'dist', 'dist-test', 'test/fixtures']);
-const FRONTMATTER_OPTIONAL = new Set(['README.md']);
+const ROOT = process.cwd()
+const USER_DOCS = [
+  'README.md',
+  'SECURITY.md',
+  'CHANGELOG.md',
+  'CONTRIBUTING.md',
+  'SUPPORT.md',
+  'SPEC.md',
+  'ARCHITECTURE.md'
+]
+const FORBIDDEN_METADATA_KEYS = ['role', 'audience', 'source_of_truth', 'update_triggers']
+const PRIVATE_ARTIFACTS = [
+  'docs/REPO_INDEX.md',
+  'docs/REPO_INDEX.md.sha256',
+  '.bytefold_meta'
+]
 
-const missing = [];
+const failures = []
 
-await walk(ROOT);
-
-if (missing.length > 0) {
-  console.error('docs:check failed for:');
-  for (const item of missing) {
-    console.error(`- ${item}`);
-  }
-  process.exitCode = 1;
+for (const relativePath of USER_DOCS) {
+  await assertPublicDocClean(relativePath)
+}
+for (const relativePath of PRIVATE_ARTIFACTS) {
+  await assertMissing(relativePath)
 }
 
-async function walk(dir) {
-  const entries = await readdir(dir, { withFileTypes: true });
-  for (const entry of entries) {
-    const entryPath = path.join(dir, entry.name);
-    const rel = path.relative(ROOT, entryPath);
-    if (entry.isDirectory()) {
-      if (EXCLUDE_DIRS.has(rel)) continue;
-      await walk(entryPath);
-      continue;
-    }
-    if (path.extname(entry.name) !== '.md') continue;
-    await checkFile(entryPath, rel);
+if (failures.length > 0) {
+  console.error('docs:check failed for:')
+  for (const failure of failures) {
+    console.error(`- ${failure}`)
   }
+  process.exitCode = 1
 }
 
-async function checkFile(filePath, rel) {
-  const data = await readFile(filePath);
-  if (data.includes(0)) return;
-  const text = data.toString('utf8').replace(/\r\n/g, '\n');
-  const frontmatter = extractFrontmatter(text);
-  if (!frontmatter) {
-    if (FRONTMATTER_OPTIONAL.has(rel)) {
-      return;
-    }
-    missing.push(`${rel} (missing frontmatter)`);
-    return;
+async function assertPublicDocClean(relativePath) {
+  const filePath = path.join(ROOT, relativePath)
+  let text = ''
+  try {
+    text = await readFile(filePath, 'utf8')
+  } catch {
+    failures.push(`${relativePath} (missing required public doc)`)
+    return
   }
-  for (const key of REQUIRED_KEYS) {
-    if (!frontmatter.has(key)) {
-      missing.push(`${rel} (missing ${key})`);
-      return;
+
+  const normalized = text.replace(/\r\n/g, '\n')
+  if (hasLeadingFrontmatter(normalized)) {
+    failures.push(`${relativePath} (leading frontmatter is forbidden in public docs)`)
+  }
+
+  for (const key of FORBIDDEN_METADATA_KEYS) {
+    const keyPattern = new RegExp(`^\\s*${key}\\s*:`, 'm')
+    if (keyPattern.test(normalized)) {
+      failures.push(`${relativePath} (contains forbidden metadata key: ${key})`)
     }
   }
 }
 
-function extractFrontmatter(text) {
-  if (!text.startsWith('---\n')) return null;
-  const end = text.indexOf('\n---', 4);
-  if (end === -1) return null;
-  const body = text.slice(4, end).trim();
-  const keys = new Set();
-  for (const line of body.split('\n')) {
-    const match = line.match(/^([a-zA-Z0-9_]+):/);
-    if (match) keys.add(match[1]);
+async function assertMissing(relativePath) {
+  const filePath = path.join(ROOT, relativePath)
+  try {
+    await stat(filePath)
+    failures.push(`${relativePath} (must not exist in public repo)`)
+  } catch {
+    // expected
   }
-  return keys;
+}
+
+function hasLeadingFrontmatter(text) {
+  if (!text.startsWith('---\n')) return false
+  const end = text.indexOf('\n---\n', 4)
+  return end !== -1
 }

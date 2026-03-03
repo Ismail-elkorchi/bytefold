@@ -29,22 +29,32 @@ test('context index generation is deterministic and bounded', async () => {
 
 test('context index writes markdown + sha256 companion deterministically', async () => {
   const { writeRepositoryIndex } = await loadContextModule();
+  const tempRoot = await mkdtemp(path.join(os.tmpdir(), 'bytefold-context-write-'));
 
-  await writeRepositoryIndex(ROOT_DIRECTORY);
-  const indexPath = path.join(ROOT_DIRECTORY, 'docs/REPO_INDEX.md');
-  const shaPath = `${indexPath}.sha256`;
+  try {
+    await writeFile(path.join(tempRoot, 'package.json'), '{"name":"tmp","scripts":{"check":"npm run check"}}\n');
+    await writeFile(path.join(tempRoot, 'README.md'), '# temp\n');
+    await mkdir(path.join(tempRoot, 'src'), { recursive: true });
+    await writeFile(path.join(tempRoot, 'src', 'index.ts'), 'export const value = 1;\n');
 
-  await writeRepositoryIndex(ROOT_DIRECTORY);
-  const settledIndex = await readFile(indexPath, 'utf8');
-  const settledSha = await readFile(shaPath, 'utf8');
+    await writeRepositoryIndex(tempRoot);
+    const indexPath = path.join(tempRoot, 'docs/REPO_INDEX.md');
+    const shaPath = `${indexPath}.sha256`;
 
-  await writeRepositoryIndex(ROOT_DIRECTORY);
-  const stableIndex = await readFile(indexPath, 'utf8');
-  const stableSha = await readFile(shaPath, 'utf8');
+    await writeRepositoryIndex(tempRoot);
+    const settledIndex = await readFile(indexPath, 'utf8');
+    const settledSha = await readFile(shaPath, 'utf8');
 
-  assert.equal(settledIndex, stableIndex);
-  assert.equal(settledSha, stableSha);
-  assert.match(stableSha, /^[a-f0-9]{64}  REPO_INDEX\.md\n$/);
+    await writeRepositoryIndex(tempRoot);
+    const stableIndex = await readFile(indexPath, 'utf8');
+    const stableSha = await readFile(shaPath, 'utf8');
+
+    assert.equal(settledIndex, stableIndex);
+    assert.equal(settledSha, stableSha);
+    assert.match(stableSha, /^[a-f0-9]{64}  REPO_INDEX\.md\n$/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
 });
 
 test('context index excludes local-only meta directories', async () => {
