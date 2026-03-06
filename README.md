@@ -1,6 +1,6 @@
 # bytefold
 
-Multi-format archive reader and writer with safety profiles for Node 24+, Deno, Bun, and Web.
+Multi-format archive reader and writer with safety profiles and deterministic normalization for Node, Deno, Bun, and browsers.
 
 ## What it is
 
@@ -32,10 +32,6 @@ for await (const entry of reader.entries()) {
 }
 ```
 
-## Options reference
-
-- [Options reference](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/reference/options.md)
-
 ## When not to use
 
 - You only need a platform-specific native wrapper.
@@ -55,18 +51,11 @@ for await (const entry of reader.entries()) {
 - Web entrypoint means `@ismail-elkorchi/bytefold/web` (browser runtime with `Uint8Array`/`Blob`/`ReadableStream`/HTTPS URL inputs).
 - The quickstart snippet above is Node-oriented; Deno/Bun can pass `Uint8Array` from their runtime file APIs.
 
-## Links
+## Documentation
 
-- [Docs index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/index.md)
-- Reference:
-  - [SPEC](https://github.com/Ismail-elkorchi/bytefold/blob/main/SPEC.md)
-  - [Security policy](https://github.com/Ismail-elkorchi/bytefold/blob/main/SECURITY.md)
-  - [Reference index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/reference/index.md)
-- How-to:
-  - [How-to index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/how-to/index.md)
-  - [Audit before extract](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/how-to/audit-before-extract.md)
-  - [Contributing](https://github.com/Ismail-elkorchi/bytefold/blob/main/CONTRIBUTING.md)
-- Explanation: [ARCHITECTURE](https://github.com/Ismail-elkorchi/bytefold/blob/main/ARCHITECTURE.md)
+- [Docs index](./docs/index.md)
+- [Tutorial: first safe archive read](./docs/tutorial/first-safe-read.md)
+- [Reference: reader and writer options](./docs/reference/options.md)
 
 ## Verification
 

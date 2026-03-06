@@ -3,6 +3,17 @@
 This reference summarizes common option groups. For exhaustive detail, use
 `SPEC.md`.
 
+## Profiles
+
+- `compat`: keep interoperability highest and surface more conditions as
+  warnings.
+- `strict`: safer default for trusted automation and CI pipelines.
+- `agent`: strongest default posture for untrusted, user-supplied, or
+  internet-facing archives.
+
+Profiles set defaults. They do not replace explicit `limits` when a workflow
+needs hard ceilings.
+
 ## Reader options
 
 - `profile`: `compat | strict | agent`
@@ -16,6 +27,16 @@ This reference summarizes common option groups. For exhaustive detail, use
 - `zip`: ZIP-reader tuning options for advanced read/audit flows
 - `tar`: TAR-reader tuning options for advanced read/audit flows
 - Brotli ambiguity: when no filename hint is available, set `format: "br"` for single-file Brotli input or `format: "tar.br"` for TAR+Brotli input
+
+### Reader options that matter first
+
+- `profile`: start here before fine-tuning limits.
+- `limits.maxUncompressedEntryBytes`: bound a single large extracted file.
+- `limits.maxTotalUncompressedBytes`: bound total archive payload size.
+- `limits.maxInputBytes`: bound source bytes read from local/network inputs.
+- `limits.maxCompressionRatio`: catch compression-bomb style expansion.
+- `zip.shouldStoreEntries`: disable eager entry caching for one-pass scans.
+- `zip.http.snapshotPolicy`: tighten HTTP range consistency for remote ZIPs.
 
 ## Writer options (`createArchiveWriter(format, writable, options?)`)
 

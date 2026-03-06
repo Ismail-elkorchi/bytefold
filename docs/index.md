@@ -1,18 +1,17 @@
 # Documentation
 
-## Start here
+## Tutorial
 - [Tutorial: first safe archive read](tutorial/first-safe-read.md)
 
-## How-to guides
-- [How-to index](how-to/index.md)
+## How-to
 - [Inspect uploaded archives in browser flows](how-to/inspect-upload-in-browser.md)
 - [Audit before reading entry content](how-to/audit-before-extract.md)
 - [Normalize archives for stable diffs](how-to/normalize-for-diffs.md)
-- [Configure limits](how-to/limits.md)
+- [Choose a profile and configure limits](how-to/limits.md)
+- [Troubleshoot unsupported, password, and error cases](how-to/troubleshoot-unsupported-password-and-error-cases.md)
 - [Validate, then extract](how-to/validate-then-extract.md)
 
 ## Reference
-- [Reference index](reference/index.md)
 - [Error codes](reference/errors.md)
 - [Reader and writer options](reference/options.md)
 - [Runtime compatibility](reference/compat.md)
@@ -20,6 +19,3 @@
 
 ## Explanation
 - [ARCHITECTURE.md](../ARCHITECTURE.md)
-
-## Security
-- [SECURITY.md](../SECURITY.md)

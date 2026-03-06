@@ -2,6 +2,8 @@ import { execFile } from 'node:child_process';
 import { readFile } from 'node:fs/promises';
 import { promisify } from 'node:util';
 
+import { loadPullRequestsByNumber, renderPullRequestBullets } from './release-notes-lib.mjs';
+
 const execFileAsync = promisify(execFile);
 const PR_HASH_REFERENCE_PATTERN = /#([0-9]+)/g;
 const PR_LINK_REFERENCE_PATTERN = /\/pull\/([0-9]+)/g;
@@ -25,7 +27,7 @@ const run = async () => {
       latestTag: tagName,
       previousTag
     });
-    process.stdout.write(formatPullRequestSection(expectedPullRequests));
+    process.stdout.write(await formatPullRequestSection(repository, expectedPullRequests));
     return;
   }
 
@@ -334,15 +336,13 @@ function difference(left, right) {
   return [...left].filter((value) => !right.has(value)).sort((a, b) => a - b);
 }
 
-function formatPullRequestSection(ids) {
-  const sorted = [...ids].sort((a, b) => a - b);
+async function formatPullRequestSection(repository, ids) {
   const lines = ['## Merged pull requests', ''];
-  if (sorted.length === 0) {
+  if (ids.size === 0) {
     lines.push('- _No pull requests detected._');
   } else {
-    for (const id of sorted) {
-      lines.push(`- #${id}`);
-    }
+    const pullRequests = loadPullRequestsByNumber(repository, ids);
+    lines.push(renderPullRequestBullets(pullRequests));
   }
   return `${lines.join('\n')}\n`;
 }

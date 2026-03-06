@@ -4,7 +4,7 @@
 Produce deterministic archive bytes so diff/review tooling compares meaningful
 changes instead of metadata noise.
 
-## Prereqs
+## Prerequisites
 - Node `>=24`
 - `npm install`
 - `npm run build`
@@ -25,16 +25,32 @@ const writable = new WritableStream<Uint8Array>({
     // store normalized bytes
   },
 });
-const report = await reader.normalizeToWritable?.(writable, {
+if (!reader.normalizeToWritable) {
+  throw new Error("normalizeToWritable is unavailable for this format");
+}
+
+const report = await reader.normalizeToWritable(writable, {
   isDeterministic: true,
 });
+
+console.log(JSON.stringify({
+  ok: report.ok,
+  warnings: report.summary.warnings,
+  errors: report.summary.errors,
+}, null, 2));
 ```
 
-## What you should see
+## Expected output or shape
 - JSON output contains `reportOk: true`.
 - `outputBytes` indicates normalized archive size.
 
-## Safety notes
-> [!NOTE]
-> Normalization reports explicit `warnings`/`errors`; gate CI on those fields
-> instead of assuming success from file creation alone.
+## Common failure modes
+- CI compares raw archive bytes instead of normalized output.
+- Normalize reports are ignored and file creation is treated as success.
+- The chosen format cannot be deterministically rewritten the way the workflow
+  expects.
+
+## Related reference
+- [Reader and writer options](../reference/options.md)
+- [Error codes](../reference/errors.md)
+- [SPEC.md](../../SPEC.md)

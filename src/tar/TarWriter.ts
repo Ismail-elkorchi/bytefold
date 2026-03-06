@@ -7,12 +7,43 @@ import type { TarEntryType, TarWriterAddOptions, TarWriterOptions } from './type
 const BLOCK_SIZE = 512;
 const TEXT_ENCODER = new TextEncoder();
 
-/** Write TAR archives to a writable stream. */
+/**
+ * Write TAR archives to a writable stream.
+ *
+ * @example
+ * ```ts
+ * import { TarWriter } from "../../mod.ts";
+ *
+ * const writer = TarWriter.toWritable(writable, { isDeterministic: true });
+ * await writer.add("docs/readme.txt", new TextEncoder().encode("hello"));
+ * await writer.close();
+ * ```
+ */
 export class TarWriter {
+  /**
+   * Writable-stream sink used for TAR block writes.
+   * @internal
+   */
   private readonly writer: WritableStreamDefaultWriter<Uint8Array>;
+  /**
+   * Whether deterministic metadata defaults are enabled.
+   * @internal
+   */
   private readonly deterministic: boolean;
+  /**
+   * Writer-level abort signal reused across add/close operations.
+   * @internal
+   */
   private readonly signal: AbortSignal | undefined;
+  /**
+   * Whether end-of-archive blocks have already been written.
+   * @internal
+   */
   private closed = false;
+  /**
+   * Monotonic counter used to name generated PAX header entries.
+   * @internal
+   */
   private paxCounter = 0;
 
   private constructor(stream: WritableStream<Uint8Array>, options?: TarWriterOptions) {

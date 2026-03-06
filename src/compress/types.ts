@@ -9,9 +9,13 @@ export type CompressionBackend = 'web' | 'node-zlib' | 'pure-js' | 'none';
 
 /** Progress event for compression/decompression streams. */
 export type CompressionProgressEvent = {
+  /** Pipeline direction emitting the event. */
   kind: 'compress' | 'decompress';
+  /** Algorithm associated with the active transform. */
   algorithm: CompressionAlgorithm;
+  /** Source bytes consumed so far. */
   bytesIn: bigint;
+  /** Output bytes produced so far. */
   bytesOut: bigint;
 };
 

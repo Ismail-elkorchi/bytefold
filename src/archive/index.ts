@@ -29,11 +29,18 @@ import type {
   ZipProfile,
   ZipReaderOptions,
   ZipReaderOpenOptions,
+  ZipWriterAddOptions,
   ZipWriterOptions
 } from '../types.js';
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
-import type { TarAuditOptions, TarNormalizeOptions, TarReaderOptions, TarWriterOptions } from '../tar/types.js';
+import type {
+  TarAuditOptions,
+  TarNormalizeOptions,
+  TarReaderOptions,
+  TarWriterAddOptions,
+  TarWriterOptions
+} from '../tar/types.js';
 import type { CompressionAlgorithm } from '../compress/types.js';
 import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import { resolveXzDictionaryLimit, resolveXzIndexLimits } from './xzPreflight.js';
@@ -67,11 +74,14 @@ export type ArchiveWriter = {
   add(
     name: string,
     source?: Uint8Array | ArrayBuffer | ReadableStream<Uint8Array> | AsyncIterable<Uint8Array>,
-    options?: unknown
+    options?: ArchiveWriterAddOptions
   ): Promise<void>;
   /** Finalize central directory/footer metadata and flush output. */
   close(): Promise<void>;
 };
+
+/** Format-specific add options accepted by `ArchiveWriter.add()`. */
+export type ArchiveWriterAddOptions = ZipWriterAddOptions | TarWriterAddOptions;
 
 /** Options for creating archive writers. */
 export type ArchiveWriterOptions = {
@@ -136,7 +146,7 @@ export type ArchiveInput = Uint8Array | ArrayBuffer | ReadableStream<Uint8Array>
  *
  * @example
  * ```ts
- * import { openArchive } from "@ismail-elkorchi/bytefold";
+ * import { openArchive } from "../../mod.ts";
  *
  * const reader = await openArchive(bytes, { profile: "agent" });
  * const report = await reader.audit({ profile: "agent" });
@@ -289,7 +299,7 @@ async function openZipFromRandomAccess(
  *
  * @example
  * ```ts
- * import { createArchiveWriter } from "@ismail-elkorchi/bytefold/archive";
+ * import { createArchiveWriter } from "../../mod.ts";
  *
  * const writer = createArchiveWriter("zip", writable);
  * await writer.add("hello.txt", new TextEncoder().encode("hello"));

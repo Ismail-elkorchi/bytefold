@@ -3,11 +3,18 @@
 ## Goal
 Audit archives before reading payload bytes so unsafe archives fail early.
 
-## Prereqs
-- `@ismail-elkorchi/bytefold` installed
-- Input archive bytes
+## Prerequisites
+- Node `>=24`
+- `npm install`
+- `npm run build`
 
 ## Copy/paste
+```sh
+node examples/audit-before-extract.mjs
+```
+
+Equivalent API pattern:
+
 ```ts
 import { openArchive } from "@ismail-elkorchi/bytefold";
 
@@ -30,11 +37,16 @@ for await (const entry of reader.entries()) {
 }
 ```
 
-## What you should see
+## Expected output or shape
 - Failed audits stop processing before entry payload reads.
 - Successful audits allow controlled iteration over entries.
 
-## Safety notes
-> [!CAUTION]
-> Do not call `entry.open()` for untrusted archives before `audit()` +
-> `assertSafe()` completes.
+## Common failure modes
+- The caller treats `audit()` as optional because `entries()` is available.
+- Audit failures are logged and ignored instead of blocking the read path.
+- Directory or symlink entries are opened as if they were regular files.
+
+## Related reference
+- [Reader and writer options](../reference/options.md)
+- [Error codes](../reference/errors.md)
+- [SPEC.md](../../SPEC.md)

@@ -12,7 +12,9 @@
 import assert from "node:assert/strict";
 import { run as runInspectBrowser } from "./inspect-upload-in-browser.mjs";
 import { run as runAuditBeforeExtract } from "./audit-before-extract.mjs";
+import { run as runChooseProfileAndLimits } from "./choose-profile-and-limits.mjs";
 import { run as runNormalizeForDiffs } from "./normalize-for-diffs.mjs";
+import { run as runTroubleshootErrors } from "./troubleshoot-errors.mjs";
 
 const inspect = await runInspectBrowser();
 assert.equal(inspect.ok, true);
@@ -28,5 +30,16 @@ const normalize = await runNormalizeForDiffs();
 assert.equal(normalize.ok, true);
 assert.equal(normalize.reportOk, true);
 assert.equal(typeof normalize.outputBytes, "number");
+
+const limits = await runChooseProfileAndLimits();
+assert.equal(limits.ok, true);
+assert.equal(limits.compatOk, true);
+assert.equal(typeof limits.strictFailureCode, "string");
+assert.equal(limits.strictFailureCode.length > 0, true);
+
+const troubleshoot = await runTroubleshootErrors();
+assert.equal(troubleshoot.ok, true);
+assert.equal(typeof troubleshoot.code, "string");
+assert.equal(troubleshoot.code.length > 0, true);
 
 console.log("examples:run bytefold PASS");

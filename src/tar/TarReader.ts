@@ -30,14 +30,53 @@ type TarEntryRecord = TarEntry & {
   dataSize: bigint;
 };
 
-/** Read TAR archives from bytes, streams, or URLs. */
+/**
+ * Read TAR archives from bytes, streams, or URLs.
+ *
+ * @example
+ * ```ts
+ * import { TarReader } from "../../mod.ts";
+ *
+ * const reader = await TarReader.fromUint8Array(bytes, { profile: "strict" });
+ * const report = await reader.audit({ profile: "strict" });
+ * console.log(report.ok);
+ * ```
+ */
 export class TarReader {
+  /**
+   * Resolved safety profile used for TAR audit/open defaults.
+   * @internal
+   */
   private readonly profile: ArchiveProfile;
+  /**
+   * Effective strict-mode flag after profile and option resolution.
+   * @internal
+   */
   private readonly strict: boolean;
+  /**
+   * Fully resolved resource ceilings applied to this reader.
+   * @internal
+   */
   private readonly limits: Required<ArchiveLimits>;
+  /**
+   * Accumulated non-fatal TAR issues discovered during parse/open flows.
+   * @internal
+   */
   private readonly warningsList: TarIssue[] = [];
+  /**
+   * Cached TAR entries when `shouldStoreEntries` is enabled.
+   * @internal
+   */
   private entriesList: TarEntryRecord[] | null = null;
+  /**
+   * Whether entries should remain cached after initialization.
+   * @internal
+   */
   private readonly storeEntries: boolean;
+  /**
+   * Reader-level abort signal reused across audit/open/normalize calls.
+   * @internal
+   */
   private readonly signal: AbortSignal | undefined;
 
   private constructor(

@@ -4,7 +4,7 @@
 Gate archive reads behind `audit()` + `assertSafe()` so unsafe inputs fail
 before content handling.
 
-## Prereqs
+## Prerequisites
 - Node `>=24`
 - `npm install`
 - `npm run build`
@@ -25,11 +25,18 @@ if (!report.ok) throw new Error("Audit failed");
 await reader.assertSafe({ profile: "agent" });
 ```
 
-## What you should see
+## Expected output or shape
 - Example output reports `"auditOk": true`.
 - Entry metadata/content is processed only after safety checks pass.
 
-## Safety notes
-> [!CAUTION]
-> Skipping `audit()` can allow unsafe archives to reach parsing/extraction
-> paths with a larger blast radius.
+## Common failure modes
+- `entries()` or extraction starts before `audit()` and `assertSafe()`.
+- The reader uses `profile: "compat"` for hostile input where `strict` or
+  `agent` should be the baseline.
+- Callers check only `report.ok` and ignore the issue details needed for policy
+  decisions.
+
+## Related reference
+- [Reader and writer options](../reference/options.md)
+- [Error codes](../reference/errors.md)
+- [SPEC.md](../../SPEC.md)

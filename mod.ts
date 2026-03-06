@@ -11,7 +11,7 @@
  *
  * Quickstart:
  * ```ts
- * import { openArchive } from "@ismail-elkorchi/bytefold";
+ * import { openArchive } from "./mod.ts";
  *
  * export async function auditArchive(bytes: Uint8Array): Promise<boolean> {
  *   const reader = await openArchive(bytes, { profile: "agent" });

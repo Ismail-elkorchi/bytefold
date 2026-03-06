@@ -7,14 +7,53 @@ import { writeCentralDirectory } from './centralDirectoryWriter.js';
 import { finalizeArchive } from './finalize.js';
 import type { ZipEncryption, ZipWriterAddOptions, ZipWriterCloseOptions, ZipWriterOptions } from '../types.js';
 
-/** Write ZIP archives to a writable stream. */
+/**
+ * Write ZIP archives to a writable stream.
+ *
+ * @example
+ * ```ts
+ * import { ZipWriter } from "../../mod.ts";
+ *
+ * const writer = ZipWriter.toWritable(writable, { defaultMethod: 8 });
+ * await writer.add("notes.txt", new TextEncoder().encode("hello"));
+ * await writer.close();
+ * ```
+ */
 export class ZipWriter {
+  /**
+   * Central-directory entry records accumulated for finalization.
+   * @internal
+   */
   private readonly entries: EntryWriteResult[] = [];
+  /**
+   * Whether `close()` has already finalized the sink.
+   * @internal
+   */
   private closed = false;
+  /**
+   * Force Zip64 structures even when archive sizes would fit legacy ZIP.
+   * @internal
+   */
   private readonly forceZip64: boolean;
+  /**
+   * Compression method applied when callers omit `options.method`.
+   * @internal
+   */
   private readonly defaultMethod: number;
+  /**
+   * Whether local headers are patched in place for seekable sinks.
+   * @internal
+   */
   private readonly patchLocalHeaders: boolean;
+  /**
+   * Default encryption policy applied to entries written through this writer.
+   * @internal
+   */
   private readonly defaultEncryption: ZipEncryption;
+  /**
+   * Throttled progress callback configuration shared across entry writes.
+   * @internal
+   */
   private readonly progress:
     | {
         onProgress: (event: Parameters<NonNullable<ZipWriterOptions['onProgress']>>[0]) => void;
@@ -22,6 +61,10 @@ export class ZipWriter {
         progressChunkInterval?: number;
       }
     | undefined;
+  /**
+   * Writer-level abort signal merged into each add/close operation.
+   * @internal
+   */
   private readonly signal: AbortSignal | undefined;
 
   /** @internal */
