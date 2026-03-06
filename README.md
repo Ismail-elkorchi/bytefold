@@ -1,6 +1,8 @@
 # bytefold
 
-Multi-format archive reader and writer with safety profiles and deterministic normalization for Node, Deno, Bun, and browsers.
+Multi-format archive reader/writer with safety profiles and deterministic normalization.
+
+Supports Node, Deno, Bun, and browsers.
 
 ## What it is
 
@@ -53,9 +55,9 @@ for await (const entry of reader.entries()) {
 
 ## Documentation
 
-- [Docs index](./docs/index.md)
-- [Tutorial: first safe archive read](./docs/tutorial/first-safe-read.md)
-- [Reference: reader and writer options](./docs/reference/options.md)
+- [Docs index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/index.md)
+- [Tutorial: first safe archive read](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/tutorial/first-safe-read.md)
+- [Reference: reader and writer options](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/reference/options.md)
 
 ## Verification
 

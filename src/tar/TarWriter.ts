@@ -127,7 +127,12 @@ export class TarWriter {
     this.closed = true;
   }
 
-  /** @internal */
+  /**
+   * Emit a PAX extended-header record before the next TAR member.
+   *
+   * This is used when names, sizes, or timestamps no longer fit the fixed TAR
+   * header fields and must be carried in portable key-value metadata instead.
+   */
   private async writePaxHeader(
     records: Record<string, string>,
     uid: number,
@@ -155,7 +160,11 @@ export class TarWriter {
     await this.writePadding(BigInt(data.length));
   }
 
-  /** @internal */
+  /**
+   * Drain one entry payload stream into the underlying TAR writer.
+   *
+   * @throws {ArchiveError} When the writer signal is aborted while streaming payload bytes.
+   */
   private async pipeData(stream: ReadableStream<Uint8Array>): Promise<void> {
     const reader = stream.getReader();
     try {
@@ -170,7 +179,9 @@ export class TarWriter {
     }
   }
 
-  /** @internal */
+  /**
+   * Append zero-byte padding so the current TAR member ends on a 512-byte block boundary.
+   */
   private async writePadding(size: bigint): Promise<void> {
     const padding = Number((BigInt(BLOCK_SIZE) - (size % BigInt(BLOCK_SIZE))) % BigInt(BLOCK_SIZE));
     if (padding > 0) {
@@ -178,7 +189,11 @@ export class TarWriter {
     }
   }
 
-  /** @internal */
+  /**
+   * Write one raw byte chunk to the underlying TAR sink after checking for cancellation.
+   *
+   * @throws {ArchiveError} When the writer signal has already been aborted.
+   */
   private async writeChunk(chunk: Uint8Array): Promise<void> {
     throwIfAborted(this.signal);
     await this.writer.write(chunk);

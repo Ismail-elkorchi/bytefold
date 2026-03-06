@@ -1,7 +1,7 @@
 {
   "name": "@ismail-elkorchi/bytefold",
   "version": "0.8.1",
-  "description": "Multi-format archive reader/writer with safety profiles and deterministic normalization for Node, Deno, Bun, and browsers",
+  "description": "Multi-format archive reader/writer with safety profiles and deterministic normalization.",
   "license": "MIT",
   "type": "module",
   "repository": {

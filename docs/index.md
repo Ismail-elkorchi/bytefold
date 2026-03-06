@@ -1,5 +1,7 @@
 # Documentation
 
+`@ismail-elkorchi/bytefold` provides multi-format archive reading and writing with safety profiles and deterministic normalization.
+
 ## Tutorial
 - [Tutorial: first safe archive read](tutorial/first-safe-read.md)
 
@@ -15,7 +17,7 @@
 - [Error codes](reference/errors.md)
 - [Reader and writer options](reference/options.md)
 - [Runtime compatibility](reference/compat.md)
-- [SPEC.md](../SPEC.md)
+- [Archive specification notes](reference/specification.md)
 
 ## Explanation
-- [ARCHITECTURE.md](../ARCHITECTURE.md)
+- [Architecture](explanation/architecture.md)

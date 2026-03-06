@@ -1,7 +1,6 @@
 /**
- * Bytefold reads and writes ZIP/TAR archives with layered compression support.
- * It provides explicit safety profiles and typed error/report contracts.
- * It runs on Node 24+, Deno, Bun, and browsers (via the web entrypoint).
+ * Multi-format archive reader/writer with safety profiles and deterministic normalization.
+ * Supports Node 24+, Deno, Bun, and browsers (via the web entrypoint).
  *
  * Install:
  * ```sh

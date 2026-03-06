@@ -11,7 +11,29 @@ const nodes = new Map((docJson.nodes ?? []).map((node) => [node.name, node]));
 
 checkClass('ZipReader', {
   properties: ['profile', 'strict', 'limits', 'warningsList', 'entriesList', 'password', 'storeEntries', 'eocd', 'signal', 'reader'],
-  methods: ['fromRandomAccess', 'fromUint8Array', 'fromStream', 'fromUrl', 'entries', 'warnings', 'iterEntries', 'open', 'openRaw', 'normalizeToWritable', 'audit', 'assertSafe', 'close']
+  methods: [
+    'fromRandomAccess',
+    'fromUint8Array',
+    'fromStream',
+    'fromUrl',
+    'entries',
+    'warnings',
+    'iterEntries',
+    'open',
+    'openRaw',
+    'openEntryStream',
+    'normalizeToWritable',
+    'audit',
+    'assertSafe',
+    'close',
+    'init',
+    'loadEntries',
+    'applyEntryLimits',
+    'resolveAuditSettings',
+    'resolveSignal',
+    'normalizeToSink',
+    'collectNormalizedEntries'
+  ]
 });
 checkClass('ZipWriter', {
   properties: ['entries', 'closed', 'forceZip64', 'defaultMethod', 'patchLocalHeaders', 'defaultEncryption', 'progress', 'signal'],
@@ -19,11 +41,11 @@ checkClass('ZipWriter', {
 });
 checkClass('TarReader', {
   properties: ['profile', 'strict', 'limits', 'warningsList', 'entriesList', 'storeEntries', 'signal'],
-  methods: ['fromUint8Array', 'fromStream', 'fromUrl', 'entries', 'warnings', 'iterEntries', 'open', 'audit', 'assertSafe', 'normalizeToWritable']
+  methods: ['fromUint8Array', 'fromStream', 'fromUrl', 'entries', 'warnings', 'iterEntries', 'open', 'audit', 'assertSafe', 'normalizeToWritable', 'resolveAuditSettings', 'init']
 });
 checkClass('TarWriter', {
   properties: ['writer', 'deterministic', 'signal', 'closed', 'paxCounter'],
-  methods: ['toWritable', 'add', 'close']
+  methods: ['toWritable', 'add', 'close', 'writePaxHeader', 'pipeData', 'writePadding', 'writeChunk']
 });
 
 checkTypeLiteralProperties('ZipProgressOptions', ['onProgress', 'progressIntervalMs', 'progressChunkInterval']);

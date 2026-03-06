@@ -397,7 +397,12 @@ export class TarReader {
     return finalizeNormalizeReport(issues, summary);
   }
 
-  /** @internal */
+  /**
+   * Resolve the effective audit profile, strictness, and limits for one audit call.
+   *
+   * This merges per-call overrides with the reader defaults established at
+   * construction time so `audit()` and `assertSafe()` evaluate the same policy.
+   */
   private resolveAuditSettings(options?: TarAuditOptions): {
     profile: ArchiveProfile;
     strict: boolean;
@@ -416,7 +421,12 @@ export class TarReader {
     };
   }
 
-  /** @internal */
+  /**
+   * Parse the TAR headers once and populate cached entries/warnings for later operations.
+   *
+   * @throws {ArchiveError} When the archive headers are malformed or configured
+   * limits are exceeded during initialization.
+   */
   private async init(): Promise<void> {
     const { entries, warnings } = parseTarEntries(this.data, {
       strict: this.strict,
