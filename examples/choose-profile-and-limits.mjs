@@ -21,24 +21,7 @@ export async function run() {
   const compatReader = await openArchive(bytes, { profile: "compat" });
   const compatReport = await compatReader.audit({ profile: "compat" });
 
-  let strictFailureCode = "UNSET";
-  let strictFailureMessage = "UNSET";
-  try {
-    await openArchive(bytes, {
-      profile: "strict",
-      limits: {
-        maxUncompressedEntryBytes: 4,
-        maxTotalUncompressedBytes: 8,
-      },
-    });
-    throw new Error("Expected strict limits to fail.");
-  } catch (error) {
-    if (!(error instanceof ArchiveError || error instanceof ZipError)) {
-      throw error;
-    }
-    strictFailureCode = error.code;
-    strictFailureMessage = error.message;
-  }
+  const { strictFailureCode, strictFailureMessage } = await captureStrictFailure(bytes);
 
   const payload = {
     ok: true,
@@ -52,4 +35,25 @@ export async function run() {
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   await run();
+}
+
+async function captureStrictFailure(bytes) {
+  try {
+    await openArchive(bytes, {
+      profile: "strict",
+      limits: {
+        maxUncompressedEntryBytes: 4,
+        maxTotalUncompressedBytes: 8,
+      },
+    });
+    throw new Error("Expected strict limits to fail.");
+  } catch (error) {
+    if (!(error instanceof ArchiveError || error instanceof ZipError)) {
+      throw error;
+    }
+    return {
+      strictFailureCode: error.code,
+      strictFailureMessage: error.message,
+    };
+  }
 }
