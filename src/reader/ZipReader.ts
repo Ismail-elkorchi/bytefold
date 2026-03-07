@@ -40,27 +40,68 @@ import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 const DEFAULT_LIMITS: Required<ZipLimits> = DEFAULT_RESOURCE_LIMITS;
 const AGENT_LIMITS: Required<ZipLimits> = AGENT_RESOURCE_LIMITS;
 
-/** Read ZIP archives from bytes, streams, or URLs. */
+/**
+ * Read ZIP archives from bytes, streams, or URLs.
+ *
+ * @example
+ * ```ts
+ * import { ZipReader } from "../../mod.ts";
+ *
+ * const reader = await ZipReader.fromUint8Array(bytes, { profile: "agent" });
+ * const report = await reader.audit({ profile: "agent" });
+ * console.log(report.ok);
+ * ```
+ */
 export class ZipReader {
-  /** @internal */
+  /**
+   * Resolved safety profile used for ZIP audit/open defaults.
+   * @internal
+   */
   protected readonly profile: ZipProfile;
-  /** @internal */
+  /**
+   * Effective strict-mode flag after profile and option resolution.
+   * @internal
+   */
   protected readonly strict: boolean;
-  /** @internal */
+  /**
+   * Fully resolved resource ceilings applied to this reader.
+   * @internal
+   */
   protected readonly limits: Required<ZipLimits>;
-  /** @internal */
+  /**
+   * Accumulated non-fatal warnings surfaced during parsing/open operations.
+   * @internal
+   */
   protected readonly warningsList: ZipWarning[] = [];
-  /** @internal */
+  /**
+   * Cached central-directory entries when `shouldStoreEntries` is enabled.
+   * @internal
+   */
   protected entriesList: ZipEntryRecord[] | null = null;
-  /** @internal */
+  /**
+   * Default password reused for encrypted entry opens when provided.
+   * @internal
+   */
   protected readonly password: string | undefined;
-  /** @internal */
+  /**
+   * Whether entries should remain cached after initialization.
+   * @internal
+   */
   protected readonly storeEntries: boolean;
-  /** @internal */
+  /**
+   * Parsed EOCD metadata used to reopen entry streams lazily.
+   * @internal
+   */
   protected eocd: EocdResult | null = null;
-  /** @internal */
+  /**
+   * Reader-level abort signal merged with transport-specific signals.
+   * @internal
+   */
   protected readonly signal: AbortSignal | undefined;
-  /** @internal */
+  /**
+   * Random-access source used for EOCD scans and entry reads.
+   * @internal
+   */
   protected readonly reader: RandomAccess;
 
   /** @internal */
@@ -78,7 +119,12 @@ export class ZipReader {
     this.signal = mergeSignals(options?.signal, options?.http?.signal);
   }
 
-  /** @internal */
+  /**
+   * Create a reader from a random-access source.
+   *
+   * Use this when you already have a custom `RandomAccess` implementation and
+   * want the ZIP parser to reuse it instead of buffering new input first.
+   */
   static async fromRandomAccess(reader: RandomAccess, options?: ZipReaderOptions): Promise<ZipReader> {
     const instance = new ZipReader(wrapRandomAccessForZip(reader), options);
     await instance.init();
@@ -233,12 +279,22 @@ export class ZipReader {
     return stream;
   }
 
-  /** @internal */
+  /**
+   * Open a decoded entry stream against the underlying random-access source.
+   *
+   * Subclasses reuse this hook when they need to wrap entry reads with
+   * transport-specific behavior without changing the higher-level API.
+   */
   protected async openEntryStream(
-    entry: ZipEntryRecord,
-    options: OpenEntryOptions
+    entry: ZipEntry,
+    options: ZipReaderOpenOptions & {
+      strict: boolean;
+      onWarning?: (warning: ZipWarning) => void;
+      limits: Required<ZipLimits>;
+      totals?: { totalUncompressed: bigint };
+    }
   ): Promise<ReadableStream<Uint8Array>> {
-    return openEntryStream(this.reader, entry, options);
+    return openEntryStream(this.reader, entry as ZipEntryRecord, options as OpenEntryOptions);
   }
 
   /** Normalize to a writable stream, producing a report. */
@@ -613,7 +669,11 @@ export class ZipReader {
     await this.close();
   }
 
-  /** @internal */
+  /**
+   * Scan the ZIP footer and preload cached entries when entry storage is enabled.
+   *
+   * @throws {ZipError} When EOCD discovery fails or configured ZIP limits are exceeded.
+   */
   private async init(): Promise<void> {
     const eocd = await findEocd(this.reader, this.strict, this.signal, {
       maxSearchBytes: this.limits.maxZipEocdSearchBytes,
@@ -630,7 +690,12 @@ export class ZipReader {
     }
   }
 
-  /** @internal */
+  /**
+   * Force eager entry loading when this reader is configured to cache entries.
+   *
+   * Readers created with `shouldStoreEntries: false` skip this step and instead
+   * resolve entries lazily through `iterEntries()`.
+   */
   private async loadEntries(): Promise<void> {
     if (this.entriesList) return;
     for await (const _ of this.iterEntries()) {
@@ -638,7 +703,11 @@ export class ZipReader {
     }
   }
 
-  /** @internal */
+  /**
+   * Enforce per-entry and cumulative uncompressed-size limits during iteration.
+   *
+   * @throws {ZipError} When an entry exceeds the configured limits or compression-ratio policy.
+   */
   private applyEntryLimits(entry: ZipEntryRecord, totals: { totalUncompressed: bigint }): void {
     if (entry.uncompressedSize > this.limits.maxUncompressedEntryBytes) {
       throw new ZipError('ZIP_LIMIT_EXCEEDED', 'Entry exceeds max uncompressed size', {
@@ -661,7 +730,12 @@ export class ZipReader {
     }
   }
 
-  /** @internal */
+  /**
+   * Resolve the effective audit profile, strictness, and ZIP limits for one audit call.
+   *
+   * This keeps `audit()` and `assertSafe()` aligned with the reader defaults
+   * while still honoring per-call overrides.
+   */
   private resolveAuditSettings(options?: ZipAuditOptions): {
     profile: ZipProfile;
     strict: boolean;
@@ -685,12 +759,19 @@ export class ZipReader {
     };
   }
 
-  /** @internal */
+  /**
+   * Merge the reader-level abort signal with an operation-level abort signal.
+   */
   private resolveSignal(signal?: AbortSignal): AbortSignal | undefined {
     return mergeSignals(this.signal, signal);
   }
 
-  /** @internal */
+  /**
+   * Normalize the current archive into a sink-backed ZIP writer and return the report.
+   *
+   * This is the shared implementation behind `normalizeToWritable()` and
+   * runtime-specific wrappers that target custom sinks.
+   */
   private async normalizeToSink(sink: Sink, options?: ZipNormalizeOptions): Promise<ZipNormalizeReport> {
     const signal = this.resolveSignal(options?.signal);
     throwIfAborted(signal);
@@ -983,7 +1064,12 @@ export class ZipReader {
     return report;
   }
 
-  /** @internal */
+  /**
+   * Build the normalized entry plan before writing the output archive.
+   *
+   * The returned list records renamed or dropped entries so normalization can
+   * report collisions and policy decisions deterministically.
+   */
   private async collectNormalizedEntries(params: {
     signal?: AbortSignal;
     deterministic: boolean;

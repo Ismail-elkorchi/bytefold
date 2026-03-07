@@ -1,14 +1,21 @@
-# How-to: configure resource limits
+# How-to: choose a profile and configure resource limits
 
 ## Goal
-Set explicit size/count limits so archive handling remains bounded for untrusted
-inputs.
+Choose the right profile first, then add explicit size/count limits so archive
+handling stays bounded for untrusted inputs.
 
-## Prereqs
-- `@ismail-elkorchi/bytefold` installed
-- Input archive bytes or stream
+## Prerequisites
+- Node `>=24`
+- `npm install`
+- `npm run build`
 
 ## Copy/paste
+```sh
+node examples/choose-profile-and-limits.mjs
+```
+
+Equivalent API pattern:
+
 ```ts
 import { openArchive } from "@ismail-elkorchi/bytefold";
 
@@ -21,14 +28,27 @@ const reader = await openArchive(input, {
 });
 
 const report = await reader.audit({ profile: "strict" });
-console.log(report.ok);
+console.log(JSON.stringify({
+  ok: report.ok,
+  issues: report.issues.map(({ code, severity }) => ({ code, severity })),
+}, null, 2));
 ```
 
-## What you should see
-- `report.ok` is `true` for healthy archives under limits.
-- Limit violations raise typed errors with stable codes.
+## Expected output or shape
+- Example output contains a passing configuration plus either a failing audit
+  report or a typed open/read error with a stable code.
+- Tight limits can fail early during `openArchive()` when the parser can prove
+  the archive already exceeds the configured ceiling.
 
-## Safety notes
-> [!WARNING]
-> `profile` sets defaults, but explicit `limits` should still be set for
-> internet-facing or user-uploaded archives.
+## Common failure modes
+- `profile` is treated as a full substitute for explicit limits.
+- `compat` is used for untrusted internet-facing input where `strict` or
+  `agent` should be the baseline.
+- Per-entry limits are set but total decompressed/input ceilings are forgotten.
+- Limit failures are expected only from `audit()` even though some readers can
+  reject the archive earlier during open/init.
+
+## Related reference
+- [Reader and writer options](../reference/options.md)
+- [Runtime compatibility](../reference/compat.md)
+- [Error codes](../reference/errors.md)

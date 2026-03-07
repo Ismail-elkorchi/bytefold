@@ -31,8 +31,11 @@ export type ZipProgressEvent = {
 
 /** Progress callback and throttling options. */
 export type ZipProgressOptions = {
+  /** Callback invoked with bounded progress events during read/write pipelines. */
   onProgress?: (event: ZipProgressEvent) => void;
+  /** Minimum wall-clock interval between emitted progress callbacks. */
   progressIntervalMs?: number;
+  /** Minimum chunk count between emitted progress callbacks. */
   progressChunkInterval?: number;
 };
 
@@ -61,6 +64,7 @@ export type ZipAuditReport = {
   schemaVersion: string;
   /** True when no error-severity issues are present. */
   ok: boolean;
+  /** Aggregate entry/error counters for dashboards and policy decisions. */
   summary: {
     /** Number of entries found in central directory traversal. */
     entries: number;
@@ -121,8 +125,11 @@ export type ZipEntry = {
 
 /** Non-fatal warning produced while parsing ZIP structures. */
 export type ZipWarning = {
+  /** Stable machine-readable warning code. */
   code: string;
+  /** Human-readable warning summary. */
   message: string;
+  /** Entry name tied to the warning when it applies to one member. */
   entryName?: string;
 };
 
@@ -143,6 +150,7 @@ export type ZipReaderOptions = {
   password?: string;
   /** Abort signal for reader-level operations. */
   signal?: AbortSignal;
+  /** HTTP range-read tuning for remote ZIP inputs opened from URLs. */
   http?: {
     /** Additional HTTP headers for remote ZIP requests. */
     headers?: Record<string, string>;
@@ -237,6 +245,7 @@ export type ZipWriterAddOptions = {
 
 /** Options for closing ZipWriter. */
 export type ZipWriterCloseOptions = {
+  /** Abort signal for final central-directory and footer writes. */
   signal?: AbortSignal;
 };
 
@@ -280,6 +289,7 @@ export type ZipNormalizeReport = {
   schemaVersion: string;
   /** True when normalize completed without error-severity issues. */
   ok: boolean;
+  /** Aggregate counters describing what normalization preserved, rewrote, or dropped. */
   summary: ZipAuditReport['summary'] & {
     /** Number of entries emitted after normalization. */
     outputEntries: number;
