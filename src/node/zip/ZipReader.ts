@@ -367,7 +367,14 @@ export class ZipReader {
         const buf = await new Response(stream).arrayBuffer();
         const target = new TextDecoder('utf-8').decode(buf);
         assertSymlinkTargetContained(baseRealDir, parentRealPath, target, entry.name);
-        await symlink(target, targetPath);
+        try {
+          await symlink(target, targetPath);
+        } catch (err) {
+          if (isExistingPathError(err)) {
+            throw buildExistingTargetCollision(entry.name, targetPath);
+          }
+          throw err;
+        }
         continue;
       }
 
@@ -383,7 +390,14 @@ export class ZipReader {
         totals
       });
       const nodeReadable = Readable.fromWeb(stream as unknown as NodeReadableStream);
-      await pipeline(nodeReadable, createWriteStream(targetPath));
+      try {
+        await pipeline(nodeReadable, createWriteStream(targetPath, { flags: 'wx' }));
+      } catch (err) {
+        if (isExistingPathError(err)) {
+          throw buildExistingTargetCollision(entry.name, targetPath);
+        }
+        throw err;
+      }
     }
   }
 
@@ -1385,6 +1399,30 @@ function buildCollisionContext(
     key,
     format
   };
+}
+
+function buildExistingTargetCollision(entryName: string, targetPath: string): ZipError {
+  return new ZipError(
+    'ZIP_NAME_COLLISION',
+    'Destination already contains the extracted entry. Rename or remove the existing path first.',
+    {
+      entryName,
+      context: {
+        collisionType: 'existing',
+        collisionKind: 'existing',
+        nameA: targetPath,
+        nameB: entryName,
+        key: entryName,
+        format: 'zip'
+      }
+    }
+  );
+}
+
+function isExistingPathError(err: unknown): err is NodeJS.ErrnoException {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'EEXIST' || code === 'EISDIR';
 }
 
 async function spoolCompressedEntry(options: {
