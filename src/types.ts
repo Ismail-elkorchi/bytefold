@@ -177,7 +177,7 @@ export type ZipReaderOpenOptions = ZipProgressOptions & {
 export type ZipExtractOptions = ZipProgressOptions & {
   /** Explicit strict-mode override. */
   isStrict?: boolean;
-  /** Allow symlink materialization during extraction. */
+  /** Allow materializing symlinks that remain contained under the extraction root. */
   shouldAllowSymlinks?: boolean;
   /** Extraction resource ceilings. */
   limits?: ZipLimits;

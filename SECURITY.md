@@ -15,6 +15,9 @@
 ## Mitigations
 - Size and ratio limits for decompression and extraction.
 - Audit and `assertSafe` checks for structural issues and unsafe entries.
+- Node ZIP extraction keeps symlink targets and follow-on writes contained under the destination root when symlink materialization is enabled.
+- Node full-fetch non-ZIP file and URL inputs enforce raw input byte ceilings, and Node XZ single-file extraction sanitizes inferred output names to stay contained.
+- Node ZIP and XZ extraction helpers fail closed on pre-existing destination files instead of replacing host files in place.
 - Typed errors for corruption and unsupported features.
 - Atomic extraction for XZ-backed single-file paths to prevent partial outputs.
 

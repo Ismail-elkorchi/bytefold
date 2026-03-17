@@ -802,7 +802,7 @@ function startRangeServer(
         stats.statuses.push(200);
         res.setHeader('Content-Length', data.length);
         addValidators();
-        sendInChunks(res, data, stats, { trackRangeBytes: false });
+        sendInChunks(res, data, stats, { trackRangeBytes: false, chunkSize: 4096, delay: true });
         return;
       }
     }
