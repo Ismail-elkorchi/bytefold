@@ -87,6 +87,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 57. Node extraction helpers do not overwrite pre-existing destination files: ZIP extraction fails with `ZIP_NAME_COLLISION`, XZ single-file extraction fails with `ARCHIVE_NAME_COLLISION`, and the existing file remains unchanged. (tests: `test/zip.test.ts`, `test/xz-utils-conformance.test.ts`)
 58. Public docs warn that ZIP password support is provided for format compatibility, not as a confidentiality guarantee; traditional ZipCrypto is weak. (tests: `test/encryption-docs.test.ts`)
 59. Node, Bun, and Deno runtime URL inputs are HTTPS-by-default; insecure `http` requires explicit `url.allowHttp` opt-in, while the web adapter remains HTTPS-only. (tests: `test/node-input-limits.test.ts`, `test/zip-url-seekable-budget.test.ts`, `test/xz-seekable-preflight.test.ts`, `test/xz-http-error-mapping.test.ts`, `test/bun.smoke.ts`, `test/deno.smoke.ts`, `test/security-audit-simulation.test.ts`)
+60. Node extraction helpers fail closed on pre-existing destination directories and symlinks without mutating host content. ZIP file extraction rejects existing directories with `ZIP_NAME_COLLISION` and existing symlink paths with typed `ZIP_PATH_TRAVERSAL`, while XZ single-file extraction rejects both with `ARCHIVE_NAME_COLLISION`. (tests: `test/zip.test.ts`, `test/xz-utils-conformance.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)
