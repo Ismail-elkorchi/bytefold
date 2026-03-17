@@ -68,6 +68,7 @@ invariants:
   - "npm pack payload obeys allowlist/denylist policy: runtime artifacts plus contract metadata (SPEC.md) and JSON schemas (schemas/*.json) only; repo-internal indexes (docs/REPO_INDEX.*) and internal sources are excluded."
   - "Normalize safe mode is deterministic and lossless mode preserves bytes where documented."
   - "extractAll blocks path traversal."
+  - "Node extraction helpers fail closed on pre-existing destination directories and symlinks without mutating host content."
   - "openArchive auto-detects documented formats; tar.br requires an explicit hint."
   - 'openArchive(...) accepts Blob/File inputs (inputKind: "blob"); ZIP on Blob is seekable via random access (slice reads) while non-ZIP Blob inputs are bounded by input limits.'
   - 'Web adapter URL inputs (@ismail-elkorchi/bytefold/web) are HTTPS-only and always full-fetch bytes (no HTTP range sessions); the fetch path enforces input-size limits and preserves inputKind: "url".'

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { CompressionError, createDecompressor, type CompressionOptions } from '@ismail-elkorchi/bytefold/compress';
 import { ArchiveError, extractAll } from '@ismail-elkorchi/bytefold/node';
@@ -232,6 +232,47 @@ test('xz extractAll rejects existing destination files', async () => {
     assert.equal(await readFile(victim, 'utf8'), 'host-data');
   } finally {
     await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('xz extractAll rejects existing destination directories', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const dir = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+  const victim = path.join(dir, 'victim.txt');
+  try {
+    await mkdir(victim, { recursive: true });
+    await assert.rejects(
+      async () => {
+        await extractAll(payload, dir, { filename: 'victim.txt.xz' });
+      },
+      (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_NAME_COLLISION'
+    );
+    const stats = await stat(victim);
+    assert.ok(stats.isDirectory());
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('xz extractAll rejects existing destination symlinks', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const root = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+  const dest = path.join(root, 'dest');
+  const external = path.join(root, 'external');
+  const victim = path.join(dest, 'victim.txt');
+  try {
+    await mkdir(dest, { recursive: true });
+    await mkdir(external, { recursive: true });
+    await symlink(external, victim);
+    await assert.rejects(
+      async () => {
+        await extractAll(payload, dest, { filename: 'victim.txt.xz' });
+      },
+      (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_NAME_COLLISION'
+    );
+    assert.deepEqual(await readdir(external), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
   }
 });
 

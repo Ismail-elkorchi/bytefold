@@ -2,7 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { ZipReader, ZipWriter, ZipError } from '@ismail-elkorchi/bytefold/node/zip';
 import * as zlib from 'node:zlib';
 
@@ -247,6 +247,47 @@ test('extractAll rejects existing destination files', async () => {
     (err: unknown) => err instanceof ZipError && err.code === 'ZIP_NAME_COLLISION'
   );
   assert.equal(await readFile(victim, 'utf8'), 'host-data');
+});
+
+test('extractAll rejects existing destination directories', async () => {
+  const zip = await writeZip([{ name: 'victim.txt', data: new TextEncoder().encode('archive-data'), method: 0 }]);
+  const reader = await ZipReader.fromUint8Array(zip);
+  const dir = await makeTempDir();
+  const victim = path.join(dir, 'victim.txt');
+  await mkdir(victim, { recursive: true });
+
+  await assert.rejects(
+    async () => {
+      await reader.extractAll(dir);
+    },
+    (err: unknown) => err instanceof ZipError && err.code === 'ZIP_NAME_COLLISION'
+  );
+  const stats = await stat(victim);
+  assert.ok(stats.isDirectory());
+});
+
+test('extractAll rejects existing destination symlinks', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'bytefold-zip-existing-link-'));
+  const dest = path.join(root, 'dest');
+  const external = path.join(root, 'external');
+  const victim = path.join(dest, 'victim.txt');
+  try {
+    await mkdir(dest, { recursive: true });
+    await mkdir(external, { recursive: true });
+    await symlink(external, victim);
+    const zip = await writeZip([{ name: 'victim.txt', data: new TextEncoder().encode('archive-data'), method: 0 }]);
+    const reader = await ZipReader.fromUint8Array(zip);
+
+    await assert.rejects(
+      async () => {
+        await reader.extractAll(dest);
+      },
+      (err: unknown) => err instanceof ZipError && err.code === 'ZIP_PATH_TRAVERSAL'
+    );
+    assert.deepEqual(await readdir(external), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 function findSequence(buffer: Uint8Array, needle: Uint8Array): number {
