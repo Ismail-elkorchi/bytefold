@@ -101,10 +101,10 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
-    const isUrl = input instanceof URL || isHttpUrl(input);
+    const remoteUrl = resolveHttpUrl(input);
     const formatOption = options?.format ?? 'auto';
-    if (isUrl && isHttpUrl(input)) {
-      const url = typeof input === 'string' ? input : input.toString();
+    if (remoteUrl) {
+      const url = remoteUrl.toString();
       const filename = options?.filename ?? inferFilenameFromUrl(url);
       if (shouldPreflightZip(formatOption, filename)) {
         const detection = buildZipDetection(
@@ -244,18 +244,18 @@ function isBlobInput(input: unknown): input is Blob {
   return typeof Blob !== 'undefined' && input instanceof Blob;
 }
 
-function isHttpUrl(value: string | URL): boolean {
-  const url = typeof value === 'string' ? safeParseUrl(value) : value;
-  if (!url) return false;
-  return url.protocol === 'http:' || url.protocol === 'https:';
-}
-
 function safeParseUrl(value: string): URL | null {
   try {
     return new URL(value);
   } catch {
     return null;
   }
+}
+
+function resolveHttpUrl(value: string | URL): URL | null {
+  const url = typeof value === 'string' ? safeParseUrl(value) : value;
+  if (!url) return null;
+  return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
 }
 
 function inferFilenameFromUrl(value: string): string {
@@ -506,13 +506,9 @@ async function resolveNodeInputBytes(input: NodeArchiveInput, options?: ArchiveO
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   if (typeof input === 'string' || input instanceof URL) {
-    if (isHttpUrl(input)) {
-      const url = typeof input === 'string' ? input : input.toString();
-      const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
-      if (!response.ok) {
-        throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
-      }
-      return readResponseBytes(response, options);
+    const remoteUrl = resolveHttpUrl(input);
+    if (remoteUrl) {
+      return readHttpUrlBytes(remoteUrl, options);
     }
     const filePath = typeof input === 'string' ? input : fileURLToPath(input);
     return readFileBytes(filePath, options);
@@ -523,6 +519,14 @@ async function resolveNodeInputBytes(input: NodeArchiveInput, options?: ArchiveO
   }
   const webStream = toWebReadable(input as NodeJS.ReadableStream);
   return readAllBytes(webStream, readOptions);
+}
+
+async function readHttpUrlBytes(url: URL, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
+  if (!response.ok) {
+    throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
+  }
+  return readResponseBytes(response, options);
 }
 
 function resolveInputReadOptions(options?: ArchiveOpenOptions): { signal?: AbortSignal; maxBytes?: bigint | number } {
