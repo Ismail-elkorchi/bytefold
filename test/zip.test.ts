@@ -190,12 +190,7 @@ test('extractAll rejects relative symlink targets that escape destination', asyn
   }
 });
 
-test('extractAll allows contained symlink targets when enabled', async (t) => {
-  if (process.platform === 'win32') {
-    t.skip('symbolic link privileges vary by environment');
-    return;
-  }
-
+test('extractAll allows contained symlink targets when enabled', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'bytefold-symlink-'));
   const dest = path.join(root, 'dest');
   const encoder = new TextEncoder();
