@@ -18,8 +18,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/archive",
       "dtsPath": "dist/archive/index.d.ts",
-      "sha256": "47abd4ceb58c5e79ceb6a7cbde3bd3eaf96fa61cf4c78bb6d91fb940870a0eaa",
-      "bytes": 2190
+      "sha256": "393aeb1b7de680d0acffebf934327afe445f03c98259e57cd1e6684384653654",
+      "bytes": 4141
     },
     "./bun": {
       "registries": [
@@ -73,8 +73,8 @@
       ],
       "npmSpecifier": "@ismail-elkorchi/bytefold/support",
       "dtsPath": "dist/support.d.ts",
-      "sha256": "bd52492585b63fd29b821989607b09963f438475a2f61744b744db9fdcd262b6",
-      "bytes": 1519
+      "sha256": "8c3e8db186df156fc09eccd77e8face892475e31015bf1e5119d2931e3dd6cd3",
+      "bytes": 1644
     },
     "./tar": {
       "registries": [

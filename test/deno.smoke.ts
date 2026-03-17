@@ -1,5 +1,5 @@
 import {
-  openArchive,
+  openArchive as openArchiveBase,
   tarToFile,
   zipToFile,
   TarWriter,
@@ -30,6 +30,23 @@ const ZIP_ETAG_V2 = '"bytefold-etag-v2"';
 const ZIP_WEAK_ETAG_V1 = 'W/"bytefold-etag-v1"';
 const ZIP_WEAK_ETAG_V2 = 'W/"bytefold-etag-v2"';
 const ZIP_LAST_MODIFIED = new Date(0).toUTCString();
+
+type DenoOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: DenoOpenOptions): DenoOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
 
 function concatChunks(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -1454,6 +1471,27 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     const details = issue.details as Record<string, string> | undefined;
     if (!details?.requiredIndexBytes || !details?.limitIndexBytes) {
       throw new Error('xz index byte issue missing details');
+    }
+  }
+
+  {
+    const bytes = await Deno.readFile(new URL('../test/fixtures/concat-two.xz', import.meta.url));
+    const server = await startRangeServer(bytes, 'concat-two.xz');
+    try {
+      let error: unknown;
+      try {
+        await openArchiveBase(server.url, { format: 'xz' });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof ArchiveError) || error.code !== 'ARCHIVE_UNSUPPORTED_FEATURE') {
+        throw new Error('expected insecure http url rejection without opt-in');
+      }
+      if (server.stats.requests !== 0) {
+        throw new Error(`http url rejection must happen before fetch, got ${server.stats.requests} requests`);
+      }
+    } finally {
+      server.close();
     }
   }
 

@@ -13,6 +13,18 @@ const ETAG_V2 = '"bytefold-xz-etag-v2"';
 const WEAK_ETAG_V1 = 'W/"bytefold-xz-etag-v1"';
 const LAST_MODIFIED = new Date(0).toUTCString();
 
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchive>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
 type MappingMode =
   | 'no-range'
   | 'bad-content-range'
@@ -91,10 +103,13 @@ test('xz seekable preflight maps HTTP failures to archive HTTP codes', async () 
     try {
       await assert.rejects(
         () =>
-          openArchive(url, {
-            format: 'xz',
-            ...(testCase.options ?? {})
-          }),
+          openArchive(
+            url,
+            allowLocalHttp({
+              format: 'xz',
+              ...(testCase.options ?? {})
+            })
+          ),
         (err: unknown) => {
           if (!(err instanceof ArchiveError)) return false;
           assert.equal(err.code, testCase.expectedArchiveCode, `${testCase.name} archive code mismatch`);

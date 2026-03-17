@@ -158,6 +158,11 @@ export type ArchiveOpenOptions = {
   password?: string;
   /** Filename hint used when byte-level detection is ambiguous. */
   filename?: string;
+  /** URL admission policy for runtime adapters. */
+  url?: {
+    /** Allow insecure `http:` archive URLs outside the web runtime. */
+    allowHttp?: boolean;
+  };
   /** Explicit input kind override for reporting. */
   inputKind?: ArchiveInputKind;
   /** ZIP-reader specific passthrough options. */
