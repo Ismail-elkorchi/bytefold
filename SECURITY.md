@@ -15,6 +15,8 @@
 ## Mitigations
 - Size and ratio limits for decompression and extraction.
 - Audit and `assertSafe` checks for structural issues and unsafe entries.
+- ZIP password support is provided for compatibility and interoperability, not as a confidentiality guarantee.
+- Traditional ZipCrypto is weak and should not be treated as secure secrecy.
 - Node ZIP extraction keeps symlink targets and follow-on writes contained under the destination root when symlink materialization is enabled.
 - Node full-fetch non-ZIP file and URL inputs enforce raw input byte ceilings, and Node XZ single-file extraction sanitizes inferred output names to stay contained.
 - Node ZIP and XZ extraction helpers fail closed on pre-existing destination files instead of replacing host files in place.

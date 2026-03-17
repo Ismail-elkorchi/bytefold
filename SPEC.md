@@ -85,6 +85,7 @@ Snapshot enforced by `test/export-surface.test.ts` and `test/support-matrix.test
 55. Node adapter full-fetch non-ZIP file and URL inputs enforce raw input byte ceilings (`maxInputBytes`, `maxTotalDecompressedBytes`, `maxTotalUncompressedBytes`) and cancel over-limit URL reads with bounded transfer. (tests: `test/node-input-limits.test.ts`)
 56. Node XZ single-file extraction sanitizes inferred output names; degenerate stems such as `.` and `..` fall back to `data` instead of targeting the extraction root or its parent. (tests: `test/xz-utils-conformance.test.ts`)
 57. Node extraction helpers do not overwrite pre-existing destination files: ZIP extraction fails with `ZIP_NAME_COLLISION`, XZ single-file extraction fails with `ARCHIVE_NAME_COLLISION`, and the existing file remains unchanged. (tests: `test/zip.test.ts`, `test/xz-utils-conformance.test.ts`)
+58. Public docs warn that ZIP password support is provided for format compatibility, not as a confidentiality guarantee; traditional ZipCrypto is weak. (tests: `test/encryption-docs.test.ts`)
 
 ## Gzip support details
 - Header CRC (FHCRC) is validated per RFC 1952 (`https://www.rfc-editor.org/rfc/rfc1952`). (tests: `test/gzip-fhcrc.test.ts`, `test/deno.smoke.ts`, `test/bun.smoke.ts`)

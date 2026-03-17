@@ -53,6 +53,12 @@ for await (const entry of reader.entries()) {
 - Web entrypoint means `@ismail-elkorchi/bytefold/web` (browser runtime with `Uint8Array`/`Blob`/`ReadableStream`/HTTPS URL inputs).
 - The quickstart snippet above is Node-oriented; Deno/Bun can pass `Uint8Array` from their runtime file APIs.
 
+## Security note
+
+- ZIP password support exists for format compatibility and interoperability.
+- `bytefold` does not make a confidentiality guarantee for password-protected ZIP workflows.
+- Traditional ZipCrypto is weak and should not be treated as secure secrecy.
+
 ## Documentation
 
 - [Docs index](https://github.com/Ismail-elkorchi/bytefold/blob/main/docs/index.md)
