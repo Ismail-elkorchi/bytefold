@@ -41,6 +41,13 @@ test('security simulation: web adapter URL input rejects non-https schemes', asy
 
     await assert.rejects(
       async () => {
+        await openArchiveWeb('http://127.0.0.1/archive.zip', { url: { allowHttp: true } });
+      },
+      (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+    );
+
+    await assert.rejects(
+      async () => {
         await openArchiveWeb('file:///tmp/archive.zip');
       },
       (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'

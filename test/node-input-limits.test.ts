@@ -5,7 +5,19 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as zlib from 'node:zlib';
-import { openArchive } from '@ismail-elkorchi/bytefold/node';
+import { ArchiveError, openArchive } from '@ismail-elkorchi/bytefold/node';
+
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchive>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
 
 function buildGzipPayload(size = 256 * 1024): Uint8Array {
   const source = new Uint8Array(size);
@@ -74,7 +86,21 @@ test('node adapter: URL full fetch cancels slow responses once maxInputBytes is 
 
   await assert.rejects(
     async () => {
-      await openArchive(url, { format: 'gz', limits: { maxInputBytes } });
+      await openArchive(url, { format: 'gz' });
+    },
+    (error: unknown) => error instanceof ArchiveError && error.code === 'ARCHIVE_UNSUPPORTED_FEATURE'
+  );
+  assert.equal(served, 0, 'http url inputs must reject before any transfer without opt-in');
+
+  await assert.rejects(
+    async () => {
+      await openArchive(
+        url,
+        allowLocalHttp({
+          format: 'gz',
+          limits: { maxInputBytes }
+        })
+      );
     },
     (error: unknown) => error instanceof RangeError
   );

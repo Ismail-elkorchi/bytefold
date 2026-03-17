@@ -101,7 +101,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
-    const remoteUrl = resolveHttpUrl(input);
+    const remoteUrl = resolveRemoteArchiveUrl(input, options);
     const formatOption = options?.format ?? 'auto';
     if (remoteUrl) {
       const url = remoteUrl.toString();
@@ -252,10 +252,18 @@ function safeParseUrl(value: string): URL | null {
   }
 }
 
-function resolveHttpUrl(value: string | URL): URL | null {
+function resolveRemoteArchiveUrl(value: string | URL, options?: ArchiveOpenOptions): URL | null {
   const url = typeof value === 'string' ? safeParseUrl(value) : value;
   if (!url) return null;
-  return url.protocol === 'http:' || url.protocol === 'https:' ? url : null;
+  if (url.protocol === 'https:') return url;
+  if (url.protocol === 'http:') {
+    if (options?.url?.allowHttp) return url;
+    throw new ArchiveError(
+      'ARCHIVE_UNSUPPORTED_FEATURE',
+      'HTTP URL inputs require { url: { allowHttp: true } } in the Node adapter'
+    );
+  }
+  return null;
 }
 
 function inferFilenameFromUrl(value: string): string {
@@ -506,7 +514,7 @@ async function resolveNodeInputBytes(input: NodeArchiveInput, options?: ArchiveO
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   if (typeof input === 'string' || input instanceof URL) {
-    const remoteUrl = resolveHttpUrl(input);
+    const remoteUrl = resolveRemoteArchiveUrl(input, options);
     if (remoteUrl) {
       return readHttpUrlBytes(remoteUrl, options);
     }

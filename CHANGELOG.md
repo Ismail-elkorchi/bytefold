@@ -2,7 +2,17 @@
 
 ## Unreleased
 
-_No entries yet._
+### Changed
+
+- require explicit `url.allowHttp` opt-in for insecure `http:` archive URLs in Node, Bun, and Deno adapters; web remains HTTPS-only.
+- carry-forward release-truth theme continuity:
+  - web adapter URL hardening (non-HTTPS rejection and maxInputBytes abort constraints)
+  - security simulation corpus (`security-audit-simulation`)
+  - browser smoke matrix coverage (Chromium, Firefox, WebKit)
+  - Zip64 boundary and Zip64 writer structural proof suites
+  - fixture integrity manifest enforcement (`fixtures:hashes:check`, `security-fixture-hashes`)
+  - deterministic property-based parser boundary coverage (`fuzz-property-boundaries`)
+  - unicode trojan source guard (`unicode:check`, bidi override scanner)
 
 ## 0.8.1
 

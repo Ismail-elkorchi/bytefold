@@ -2,10 +2,27 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { openArchive } from '@ismail-elkorchi/bytefold/node';
+import { openArchive as openArchiveBase } from '@ismail-elkorchi/bytefold/node';
 import { createDecompressor } from '@ismail-elkorchi/bytefold/compress';
 
 const FIXTURE_ROOT = new URL('../test/fixtures/', import.meta.url);
+
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
 
 test('xz multi-byte VLI parsing survives chunk boundaries', async () => {
   const bytes = new Uint8Array(await readFile(new URL('xz-vli/vli-uncompressed-128.xz', FIXTURE_ROOT)));

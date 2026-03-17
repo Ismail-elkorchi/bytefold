@@ -2,12 +2,29 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import http from 'node:http';
 import { readFile } from 'node:fs/promises';
-import { openArchive } from '@ismail-elkorchi/bytefold/node';
+import { openArchive as openArchiveBase } from '@ismail-elkorchi/bytefold/node';
 import { ZipError } from '@ismail-elkorchi/bytefold/zip';
 import { validateSchema, type JsonSchema } from './schema-validator.js';
 
 const FIXTURE_ROOT = new URL('../test/fixtures/', import.meta.url);
 const ERROR_SCHEMA = new URL('../schemas/error.schema.json', import.meta.url);
+
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
 
 type ServerStats = { bytes: number; rangeBytes: number; requests: number; ranges: string[] };
 

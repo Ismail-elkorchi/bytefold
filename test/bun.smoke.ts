@@ -4,7 +4,7 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
-  openArchive,
+  openArchive as openArchiveBase,
   TarWriter,
   tarToFile,
   zipToFile,
@@ -37,6 +37,23 @@ type AuditOptions = {
 const runtimeVersions = JSON.parse(
   await readFile(new URL('../tools/runtime-versions.json', import.meta.url), 'utf8')
 ) as { bun?: { floor?: string } };
+
+type BunOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: BunOpenOptions): BunOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
 
 function concatChunks(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
@@ -1394,6 +1411,29 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
       const details = issue.details as Record<string, string> | undefined;
       if (!details?.requiredIndexBytes || !details?.limitIndexBytes) {
         throw new Error('xz index byte issue missing details');
+      }
+    }
+
+    {
+      const bytes = new Uint8Array(
+        await Bun.file(fileURLToPath(new URL('../test/fixtures/concat-two.xz', import.meta.url))).arrayBuffer()
+      );
+      const server = await startRangeServer(bytes, 'concat-two.xz');
+      try {
+        let error: unknown;
+        try {
+          await openArchiveBase(server.url, { format: 'xz' });
+        } catch (err) {
+          error = err;
+        }
+        if (!(error instanceof ArchiveError) || error.code !== 'ARCHIVE_UNSUPPORTED_FEATURE') {
+          throw new Error('expected insecure http url rejection without opt-in');
+        }
+        if (server.stats.requests !== 0) {
+          throw new Error(`http url rejection must happen before fetch, got ${server.stats.requests} requests`);
+        }
+      } finally {
+        server.stop();
       }
     }
 
