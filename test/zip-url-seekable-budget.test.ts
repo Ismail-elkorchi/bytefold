@@ -4,7 +4,7 @@ import http from 'node:http';
 import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
-import { openArchive } from '@ismail-elkorchi/bytefold/node';
+import { openArchive as openArchiveBase } from '@ismail-elkorchi/bytefold/node';
 import { ZipWriter } from '@ismail-elkorchi/bytefold/node/zip';
 import { ZipError } from '@ismail-elkorchi/bytefold/zip';
 import { validateSchema, type JsonSchema } from './schema-validator.js';
@@ -25,6 +25,23 @@ const ETAG_V2 = '"bytefold-etag-v2"';
 const WEAK_ETAG_V1 = 'W/"bytefold-etag-v1"';
 const WEAK_ETAG_V2 = 'W/"bytefold-etag-v2"';
 const LAST_MODIFIED = new Date(0).toUTCString();
+
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
 
 type RangeStats = {
   bytes: number;
@@ -802,7 +819,7 @@ function startRangeServer(
         stats.statuses.push(200);
         res.setHeader('Content-Length', data.length);
         addValidators();
-        sendInChunks(res, data, stats, { trackRangeBytes: false });
+        sendInChunks(res, data, stats, { trackRangeBytes: false, chunkSize: 4096, delay: true });
         return;
       }
     }

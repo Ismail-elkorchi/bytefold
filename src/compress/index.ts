@@ -153,10 +153,10 @@ export function createDecompressor(options: CompressionOptions): TransformStream
     throw mapCompressionError(options.algorithm, err);
   });
   const base = createLazyTransform(transformPromise);
-  if (resolved.maxOutputBytes !== undefined) {
-    return applyOutputLimit(base, resolved.maxOutputBytes, options.algorithm);
-  }
-  return base;
+  return applyDecompressionGuards(base, options.algorithm, {
+    ...(resolved.maxOutputBytes !== undefined ? { maxOutputBytes: resolved.maxOutputBytes } : {}),
+    ...(resolved.maxCompressionRatio !== undefined ? { maxCompressionRatio: resolved.maxCompressionRatio } : {})
+  });
 }
 
 function resolveCompressionLimits(options: CompressionOptions): {
@@ -212,37 +212,98 @@ function mapCompressionError(algorithm: CompressionAlgorithm, err: unknown): Com
   });
 }
 
-function applyOutputLimit(
+function applyDecompressionGuards(
   transform: TransformStream<Uint8Array, Uint8Array>,
-  maxBytes: bigint | number,
-  algorithm: CompressionAlgorithm
+  algorithm: CompressionAlgorithm,
+  limits: {
+    maxOutputBytes?: bigint | number;
+    maxCompressionRatio?: number;
+  }
 ): TransformStream<Uint8Array, Uint8Array> {
-  const limit = toBigInt(maxBytes);
-  const limiterState = { total: 0n };
+  const outputLimit = limits.maxOutputBytes !== undefined ? toBigInt(limits.maxOutputBytes) : undefined;
+  const ratioLimit = limits.maxCompressionRatio;
+  if (outputLimit === undefined && ratioLimit === undefined) {
+    return transform;
+  }
+
+  const guardState = { inputTotal: 0n, outputTotal: 0n };
+  const writer = transform.writable.getWriter();
+  const guardedWritable = new WritableStream<Uint8Array>({
+    async write(chunk) {
+      guardState.inputTotal += BigInt(chunk.length);
+      await writer.write(chunk);
+    },
+    async close() {
+      await writer.close();
+      writer.releaseLock();
+    },
+    async abort(reason) {
+      await writer.abort(reason);
+      writer.releaseLock();
+    }
+  });
+
   const limiter = new TransformStream<Uint8Array, Uint8Array>({
     transform(chunk, controller) {
-      const nextTotal = limiterState.total + BigInt(chunk.length);
-      if (nextTotal > limit) {
+      const nextTotal = guardState.outputTotal + BigInt(chunk.length);
+      if (outputLimit !== undefined && nextTotal > outputLimit) {
         throw new CompressionError('COMPRESSION_RESOURCE_LIMIT', 'Decompressed output exceeds limit', {
           algorithm,
           context: {
-            limitBytes: limit.toString(),
+            limitBytes: outputLimit.toString(),
             observedBytes: nextTotal.toString()
           }
         });
       }
-      limiterState.total = nextTotal;
+      if (ratioLimit !== undefined && Number.isFinite(ratioLimit) && ratioLimit > 0) {
+        const allowedBytes = computeRatioLimitBytes(guardState.inputTotal, ratioLimit);
+        if (nextTotal > allowedBytes) {
+          throw new CompressionError(
+            'COMPRESSION_RESOURCE_LIMIT',
+            'Decompressed output exceeds maxCompressionRatio',
+            {
+              algorithm,
+              context: {
+                limitRatio: String(ratioLimit),
+                inputBytes: guardState.inputTotal.toString(),
+                allowedBytes: allowedBytes.toString(),
+                observedBytes: nextTotal.toString()
+              }
+            }
+          );
+        }
+      }
+      guardState.outputTotal = nextTotal;
       controller.enqueue(chunk);
     }
   });
   return {
     readable: transform.readable.pipeThrough(limiter),
-    writable: transform.writable
+    writable: guardedWritable
   } as TransformStream<Uint8Array, Uint8Array>;
 }
 
 function toBigInt(value: bigint | number): bigint {
   return typeof value === 'bigint' ? value : BigInt(value);
+}
+
+function computeRatioLimitBytes(inputBytes: bigint, ratio: number): bigint {
+  if (inputBytes === 0n) return 0n;
+  const ratioText = normalizePositiveFiniteNumber(ratio);
+  const [wholePart, fractionalPart = ''] = ratioText.split('.');
+  const scale = 10n ** BigInt(fractionalPart.length);
+  const numerator = BigInt(`${wholePart}${fractionalPart}`);
+  return ceilDivide(inputBytes * numerator, scale);
+}
+
+function normalizePositiveFiniteNumber(value: number): string {
+  const text = value.toString();
+  if (!/[eE]/u.test(text)) return text;
+  return value.toFixed(12).replace(/\.?0+$/u, '');
+}
+
+function ceilDivide(dividend: bigint, divisor: bigint): bigint {
+  return (dividend + divisor - 1n) / divisor;
 }
 
 type CompressionMode = 'compress' | 'decompress';

@@ -24,6 +24,7 @@ needs hard ceilings.
 - `inputKind`: optional hint for source kind (`bytes | stream | file | url | blob`) in adapters that support it
 - `signal`: `AbortSignal` for cancellation
 - `password`: password for encrypted ZIP where supported
+- `url.allowHttp`: opt into insecure `http:` archive URLs in Node, Bun, and Deno; web remains HTTPS-only
 - `zip`: ZIP-reader tuning options for advanced read/audit flows
 - `tar`: TAR-reader tuning options for advanced read/audit flows
 - Brotli ambiguity: when no filename hint is available, set `format: "br"` for single-file Brotli input or `format: "tar.br"` for TAR+Brotli input

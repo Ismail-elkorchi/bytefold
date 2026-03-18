@@ -1,4 +1,4 @@
-import { mkdir, symlink, mkdtemp, rm } from 'node:fs/promises';
+import { lstat, mkdir, realpath, symlink, mkdtemp, rm } from 'node:fs/promises';
 import { createReadStream, createWriteStream } from 'node:fs';
 import { pipeline } from 'node:stream/promises';
 import { Readable } from 'node:stream';
@@ -286,6 +286,7 @@ export class ZipReader {
     const seenNfc = new Map<string, { original: string; normalized: string }>();
     const seenCase = new Map<string, { original: string; nfc: string }>();
     await mkdir(baseDir, { recursive: true });
+    const baseRealDir = await realpath(baseDir);
 
     const iterOptions = signal ? { signal } : undefined;
     for await (const entry of this.iterEntries(iterOptions)) {
@@ -339,7 +340,10 @@ export class ZipReader {
 
       const targetPath = resolveEntryPath(baseDir, entry.name);
       if (entry.isDirectory) {
+        await ensureContainedParent(baseRealDir, targetPath, entry.name);
+        await assertPathIsNotSymlink(targetPath, entry.name);
         await mkdir(targetPath, { recursive: true });
+        await ensureExistingPathContained(baseRealDir, targetPath, entry.name, 'Directory path escapes destination directory');
         continue;
       }
 
@@ -349,7 +353,8 @@ export class ZipReader {
             entryName: entry.name
           });
         }
-        await mkdir(path.dirname(targetPath), { recursive: true });
+        const parentRealPath = await ensureContainedParent(baseRealDir, targetPath, entry.name);
+        await assertPathIsNotSymlink(targetPath, entry.name);
         const stream = await openEntryStream(this.reader, entry as ZipEntryRecord, {
           strict,
           onWarning: (warning) => this.warningsList.push(warning),
@@ -361,11 +366,20 @@ export class ZipReader {
         });
         const buf = await new Response(stream).arrayBuffer();
         const target = new TextDecoder('utf-8').decode(buf);
-        await symlink(target, targetPath);
+        assertSymlinkTargetContained(baseRealDir, parentRealPath, target, entry.name);
+        try {
+          await symlink(target, targetPath);
+        } catch (err) {
+          if (isExistingPathError(err)) {
+            throw buildExistingTargetCollision(entry.name, targetPath);
+          }
+          throw err;
+        }
         continue;
       }
 
-      await mkdir(path.dirname(targetPath), { recursive: true });
+      await ensureContainedParent(baseRealDir, targetPath, entry.name);
+      await assertPathIsNotSymlink(targetPath, entry.name);
       const stream = await openEntryStream(this.reader, entry as ZipEntryRecord, {
         strict,
         onWarning: (warning) => this.warningsList.push(warning),
@@ -376,7 +390,14 @@ export class ZipReader {
         totals
       });
       const nodeReadable = Readable.fromWeb(stream as unknown as NodeReadableStream);
-      await pipeline(nodeReadable, createWriteStream(targetPath));
+      try {
+        await pipeline(nodeReadable, createWriteStream(targetPath, { flags: 'wx' }));
+      } catch (err) {
+        if (isExistingPathError(err)) {
+          throw buildExistingTargetCollision(entry.name, targetPath);
+        }
+        throw err;
+      }
     }
   }
 
@@ -1380,6 +1401,30 @@ function buildCollisionContext(
   };
 }
 
+function buildExistingTargetCollision(entryName: string, targetPath: string): ZipError {
+  return new ZipError(
+    'ZIP_NAME_COLLISION',
+    'Destination already contains the extracted entry. Rename or remove the existing path first.',
+    {
+      entryName,
+      context: {
+        collisionType: 'existing',
+        collisionKind: 'existing',
+        nameA: targetPath,
+        nameB: entryName,
+        key: entryName,
+        format: 'zip'
+      }
+    }
+  );
+}
+
+function isExistingPathError(err: unknown): err is NodeJS.ErrnoException {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'EEXIST' || code === 'EISDIR';
+}
+
 async function spoolCompressedEntry(options: {
   source: ReadableStream<Uint8Array>;
   method: number;
@@ -1574,6 +1619,76 @@ function progressParams(options?: ZipProgressOptions): Partial<ZipProgressOption
 function toBigInt(value?: bigint | number): bigint | undefined {
   if (value === undefined) return undefined;
   return typeof value === 'bigint' ? value : BigInt(value);
+}
+
+function assertPathContained(
+  baseRealDir: string,
+  candidatePath: string,
+  entryName: string,
+  message: string,
+  context?: Record<string, string>
+): void {
+  const candidateResolved = path.resolve(candidatePath);
+  if (candidateResolved !== baseRealDir && !candidateResolved.startsWith(baseRealDir + path.sep)) {
+    throw new ZipError('ZIP_PATH_TRAVERSAL', message, { entryName, ...(context ? { context } : {}) });
+  }
+}
+
+async function ensureContainedParent(baseRealDir: string, targetPath: string, entryName: string): Promise<string> {
+  const parentPath = path.dirname(targetPath);
+  await mkdir(parentPath, { recursive: true });
+  const parentRealPath = await realpath(parentPath);
+  assertPathContained(baseRealDir, parentRealPath, entryName, 'Parent path escapes destination directory');
+  return parentRealPath;
+}
+
+async function assertPathIsNotSymlink(targetPath: string, entryName: string): Promise<void> {
+  try {
+    const stats = await lstat(targetPath);
+    if (stats.isSymbolicLink()) {
+      throw new ZipError('ZIP_PATH_TRAVERSAL', 'Extraction target is an existing symbolic link', { entryName });
+    }
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+}
+
+async function ensureExistingPathContained(
+  baseRealDir: string,
+  targetPath: string,
+  entryName: string,
+  message: string
+): Promise<void> {
+  try {
+    const targetRealPath = await realpath(targetPath);
+    assertPathContained(baseRealDir, targetRealPath, entryName, message);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+}
+
+function assertSymlinkTargetContained(
+  baseRealDir: string,
+  parentRealPath: string,
+  symlinkTarget: string,
+  entryName: string
+): void {
+  if (symlinkTarget.includes('\u0000')) {
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Symlink target contains NUL byte', { entryName });
+  }
+  const normalized = symlinkTarget.replace(/\\/g, '/');
+  if (normalized.startsWith('/') || /^[a-zA-Z]:/.test(normalized)) {
+    throw new ZipError('ZIP_PATH_TRAVERSAL', 'Absolute symlink targets are not allowed during extraction', {
+      entryName,
+      context: { symlinkTarget }
+    });
+  }
+  const resolvedTarget = path.resolve(parentRealPath, symlinkTarget);
+  assertPathContained(baseRealDir, resolvedTarget, entryName, 'Symlink target escapes destination directory', {
+    symlinkTarget
+  });
 }
 
 function resolveEntryPath(baseDir: string, entryName: string): string {

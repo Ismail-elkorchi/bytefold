@@ -58,6 +58,30 @@ test('unicode safety scanner passes for safe text', async () => {
   }
 });
 
+test('unicode safety scanner fails on Trojan Source bidi controls even when a file contains NUL bytes', async () => {
+  const tempRoot = await mkdtemp(path.join(tmpdir(), 'bytefold-unicode-nul-bidi-'));
+  const suspiciousFile = path.join(tempRoot, 'nul-bidi.ts');
+
+  try {
+    const bytes = Buffer.from(`export const text = "safe${String.fromCodePoint(0x202e)}unsafe";\u0000\n`, 'utf8');
+    await writeFile(suspiciousFile, bytes);
+
+    const result = spawnSync(process.execPath, [CHECK_SCRIPT_PATH, '--root', tempRoot], {
+      cwd: ROOT_PATH,
+      encoding: 'utf8'
+    });
+
+    assert.equal(result.error, undefined, `spawn failed: ${result.error?.message ?? 'unknown error'}`);
+    assert.equal(result.status, 1, `expected failure, got status=${result.status}\n${result.stdout}\n${result.stderr}`);
+    assert.match(result.stderr, /unicode-safety/);
+    assert.match(result.stderr, /U\+202E/);
+    assert.match(result.stderr, /RIGHT-TO-LEFT OVERRIDE/);
+    assert.match(result.stderr, /nul-bidi\.ts:1:/);
+  } finally {
+    await rm(tempRoot, { recursive: true, force: true });
+  }
+});
+
 test('check pipeline includes unicode safety gate', async () => {
   const pkgText = await readFile(new URL('../package.json', import.meta.url), 'utf8');
   const pkg = JSON.parse(pkgText) as { scripts?: Record<string, string> };

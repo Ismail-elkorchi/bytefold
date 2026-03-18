@@ -1,5 +1,5 @@
 import {
-  openArchive,
+  openArchive as openArchiveBase,
   tarToFile,
   zipToFile,
   TarWriter,
@@ -31,6 +31,23 @@ const ZIP_WEAK_ETAG_V1 = 'W/"bytefold-etag-v1"';
 const ZIP_WEAK_ETAG_V2 = 'W/"bytefold-etag-v2"';
 const ZIP_LAST_MODIFIED = new Date(0).toUTCString();
 
+type DenoOpenOptions = NonNullable<Parameters<typeof openArchiveBase>[1]>;
+
+function allowLocalHttp(options: DenoOpenOptions): DenoOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
+const openArchive = (
+  input: Parameters<typeof openArchiveBase>[0],
+  options?: Parameters<typeof openArchiveBase>[1]
+) => openArchiveBase(input, allowLocalHttp(options ?? {}));
+
 function concatChunks(chunks: Uint8Array[]): Uint8Array {
   const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
   const out = new Uint8Array(total);
@@ -61,6 +78,22 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
     reader.releaseLock();
   }
   return concatChunks(chunks);
+}
+
+function buildDeterministicBytes(size: number): Uint8Array {
+  const source = new Uint8Array(size);
+  let state = 0x12345678;
+  for (let index = 0; index < source.length; index += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    source[index] = state & 0xff;
+  }
+  return source;
+}
+
+async function buildGzipPayload(size = 256 * 1024): Promise<Uint8Array> {
+  return collect(new Blob([blobPartFromBytes(buildDeterministicBytes(size))]).stream().pipeThrough(
+    createCompressor({ algorithm: 'gzip' })
+  ));
 }
 
 function chunkReadable(input: Uint8Array, sizes: number[]): ReadableStream<Uint8Array> {
@@ -1032,6 +1065,81 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   }
 
   {
+    const hostileCaps = getCompressionCapabilities();
+    const hostilePayload = new Uint8Array(1024 * 1024);
+    const hostileAlgorithms = ['gzip', 'deflate', 'brotli', 'zstd'] as const;
+    let testedAlgorithms = 0;
+
+    for (const algorithm of hostileAlgorithms) {
+      const support = hostileCaps.algorithms[algorithm];
+      if (!support.compress || !support.decompress) continue;
+      testedAlgorithms += 1;
+      const ratioCompressed = await collect(
+        readableFromBytes(hostilePayload).pipeThrough(createCompressor({ algorithm }))
+      );
+
+      let ratioError: unknown;
+      try {
+        await collect(
+          chunkReadable(ratioCompressed, [64]).pipeThrough(
+            createDecompressor({
+              algorithm,
+              limits: { maxCompressionRatio: 200 }
+            })
+          )
+        );
+      } catch (err) {
+        ratioError = err;
+      }
+      if (!(ratioError instanceof CompressionError) || ratioError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
+        throw new Error(`expected ${algorithm} maxCompressionRatio failure`);
+      }
+    }
+
+    if (testedAlgorithms === 0) {
+      throw new Error('expected at least one Deno runtime-backed hostile ratio algorithm');
+    }
+  }
+
+  {
+    const hostileTarChunks: Uint8Array[] = [];
+    const hostileTarWritable = new WritableStream<Uint8Array>({
+      write(chunk) {
+        hostileTarChunks.push(chunk);
+      }
+    });
+    const hostileTarWriter = createArchiveWriter('tar', hostileTarWritable);
+    await hostileTarWriter.add('ratio.bin', new Uint8Array(512 * 1024));
+    await hostileTarWriter.close();
+    const hostileTgzBytes = await collect(
+      readableFromBytes(concatChunks(hostileTarChunks)).pipeThrough(createCompressor({ algorithm: 'gzip' }))
+    );
+
+    let tgzError: unknown;
+    try {
+      await openArchive(hostileTgzBytes, {
+        format: 'tgz',
+        profile: 'agent',
+        limits: { maxEntries: 10_000 }
+      });
+    } catch (err) {
+      tgzError = err;
+    }
+    if (!(tgzError instanceof CompressionError) || tgzError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
+      throw new Error('expected tgz profile-agent ratio rejection');
+    }
+
+    const relaxedTgz = await openArchive(hostileTgzBytes, {
+      format: 'tgz',
+      profile: 'agent',
+      limits: { maxCompressionRatio: 1_000_000 }
+    });
+    if (relaxedTgz.format !== 'tgz') {
+      throw new Error('expected tgz archive after explicit ratio override');
+    }
+  }
+
+  {
     const ratioChunks: Uint8Array[] = [];
     const ratioWritable = new WritableStream<Uint8Array>({
       write(chunk) {
@@ -1454,6 +1562,69 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
     const details = issue.details as Record<string, string> | undefined;
     if (!details?.requiredIndexBytes || !details?.limitIndexBytes) {
       throw new Error('xz index byte issue missing details');
+    }
+  }
+
+  {
+    const bytes = await Deno.readFile(new URL('../test/fixtures/concat-two.xz', import.meta.url));
+    const server = await startRangeServer(bytes, 'concat-two.xz');
+    try {
+      let error: unknown;
+      try {
+        await openArchiveBase(server.url, { format: 'xz' });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof ArchiveError) || error.code !== 'ARCHIVE_UNSUPPORTED_FEATURE') {
+        throw new Error('expected insecure http url rejection without opt-in');
+      }
+      if (server.stats.requests !== 0) {
+        throw new Error(`http url rejection must happen before fetch, got ${server.stats.requests} requests`);
+      }
+    } finally {
+      server.close();
+    }
+  }
+
+  {
+    const payload = await buildGzipPayload();
+    const server = await startZipRangeServer(payload, 'payload.gz', { mode: 'no-range' });
+    try {
+      let error: unknown;
+      try {
+        await openArchive(server.url, { format: 'gz', limits: { maxInputBytes: 64 } });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof RangeError)) {
+        throw new Error('expected maxInputBytes content-length rejection for Deno URL full fetch');
+      }
+    } finally {
+      server.close();
+    }
+  }
+
+  {
+    const payload = await buildGzipPayload();
+    const maxInputBytes = 512;
+    const budget = maxInputBytes + 512 * 8;
+    const server = await startZipRangeServer(payload, 'payload.gz', { mode: 'no-range-slow' });
+    try {
+      let error: unknown;
+      try {
+        await openArchive(server.url, { format: 'gz', limits: { maxInputBytes } });
+      } catch (err) {
+        error = err;
+      }
+      if (!(error instanceof RangeError)) {
+        throw new Error('expected maxInputBytes overflow rejection for Deno URL full fetch');
+      }
+      await new Promise((resolve) => setTimeout(resolve, 50));
+      if (server.stats.bytes > budget) {
+        throw new Error(`expected bounded transfer <= ${budget}, got ${server.stats.bytes}`);
+      }
+    } finally {
+      server.close();
     }
   }
 

@@ -14,6 +14,7 @@ import { ZipReader } from '../reader/ZipReader.js';
 import { ZipWriter } from '../writer/ZipWriter.js';
 import { TarReader } from '../tar/TarReader.js';
 import { TarWriter } from '../tar/TarWriter.js';
+import { readResponseBytes, resolveInputMaxBytes } from '../streams/response.js';
 import type { ZipProfile, ZipReaderOptions } from '../types.js';
 
 type DenoFile = {
@@ -151,8 +152,9 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
-    const isHttp = isHttpUrl(input);
-    const path = typeof input === 'string' ? input : input.toString();
+    const remoteUrl = resolveRemoteArchiveUrl(input, options);
+    const isHttp = remoteUrl !== null;
+    const path = isHttp ? remoteUrl.toString() : typeof input === 'string' ? input : input.toString();
     const filename = options?.filename ?? (isHttp ? inferFilenameFromUrl(path) : path);
     const formatOption = options?.format ?? 'auto';
     if (isHttp) {
@@ -190,7 +192,11 @@ export async function openArchive(input: DenoArchiveInput, options?: ArchiveOpen
       if (!response.ok) {
         throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
       }
-      const data = new Uint8Array(await response.arrayBuffer());
+      const maxBytes = resolveInputMaxBytes(options?.limits);
+      const data = await readResponseBytes(response, {
+        ...(options?.signal ? { signal: options.signal } : {}),
+        ...(maxBytes !== undefined ? { maxBytes } : {})
+      });
       return openArchiveCore(data, {
         ...options,
         ...(preflight ? { __preflight: preflight } : {}),
@@ -296,10 +302,18 @@ export async function tarToFile(
   return writer;
 }
 
-function isHttpUrl(value: string | URL): boolean {
+function resolveRemoteArchiveUrl(value: string | URL, options?: ArchiveOpenOptions): URL | null {
   const url = typeof value === 'string' ? safeParseUrl(value) : value;
-  if (!url) return false;
-  return url.protocol === 'http:' || url.protocol === 'https:';
+  if (!url) return null;
+  if (url.protocol === 'https:') return url;
+  if (url.protocol === 'http:') {
+    if (options?.url?.allowHttp) return url;
+    throw new ArchiveError(
+      'ARCHIVE_UNSUPPORTED_FEATURE',
+      'HTTP URL inputs require { url: { allowHttp: true } } in the Deno adapter'
+    );
+  }
+  return null;
 }
 
 function isBlobInput(input: unknown): input is Blob {

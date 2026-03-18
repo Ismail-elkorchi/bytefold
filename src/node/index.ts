@@ -1,5 +1,5 @@
-import { createWriteStream } from 'node:fs';
-import { mkdir, mkdtemp, readFile, rename, rm } from 'node:fs/promises';
+import { createReadStream, createWriteStream } from 'node:fs';
+import { link, mkdir, mkdtemp, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { ReadableStream as NodeReadableStream } from 'node:stream/web';
@@ -11,6 +11,7 @@ import { createDecompressor } from '../compress/index.js';
 import { CompressionError } from '../compress/errors.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { toWebReadable } from '../streams/adapters.js';
+import { throwIfResponseContentLengthExceedsLimit } from '../streams/response.js';
 import { readableFromBytes } from '../streams/web.js';
 import { preflightXzIndexLimits } from '../compression/xzIndexPreflight.js';
 import { HttpRandomAccess, type RandomAccess } from '../reader/RandomAccess.js';
@@ -101,10 +102,10 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
     });
   }
   if (typeof input === 'string' || input instanceof URL) {
-    const isUrl = input instanceof URL || isHttpUrl(input);
+    const remoteUrl = resolveRemoteArchiveUrl(input, options);
     const formatOption = options?.format ?? 'auto';
-    if (isUrl && isHttpUrl(input)) {
-      const url = typeof input === 'string' ? input : input.toString();
+    if (remoteUrl) {
+      const url = remoteUrl.toString();
       const filename = options?.filename ?? inferFilenameFromUrl(url);
       if (shouldPreflightZip(formatOption, filename)) {
         const detection = buildZipDetection(
@@ -136,11 +137,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
         await reader.close();
       }
       const preflight = await preflightSeekableXz(url, filename, options);
-      const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
-      if (!response.ok) {
-        throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
-      }
-      const data = new Uint8Array(await response.arrayBuffer());
+      const data = await resolveNodeInputBytes(url, options);
       return openArchiveCore(data, {
         ...options,
         ...(preflight ? { __preflight: preflight } : {}),
@@ -173,7 +170,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
       await reader.close();
     }
     const preflight = await preflightSeekableXzFile(filePath, filename, options);
-    const data = new Uint8Array(await readFile(filePath));
+    const data = await readFileBytes(filePath, options);
     return openArchiveCore(data, {
       ...options,
       ...(preflight ? { __preflight: preflight } : {}),
@@ -234,7 +231,7 @@ export async function extractAll(
   const nodeReadable = Readable.fromWeb(stream as unknown as NodeReadableStream);
   try {
     await pipeline(nodeReadable, createWriteStream(tempPath));
-    await rename(tempPath, targetPath);
+    await installExtractedFile(tempPath, targetPath, entryName);
   } finally {
     await rm(tempDir, { recursive: true, force: true }).catch(() => {});
   }
@@ -248,18 +245,26 @@ function isBlobInput(input: unknown): input is Blob {
   return typeof Blob !== 'undefined' && input instanceof Blob;
 }
 
-function isHttpUrl(value: string | URL): boolean {
-  const url = typeof value === 'string' ? safeParseUrl(value) : value;
-  if (!url) return false;
-  return url.protocol === 'http:' || url.protocol === 'https:';
-}
-
 function safeParseUrl(value: string): URL | null {
   try {
     return new URL(value);
   } catch {
     return null;
   }
+}
+
+function resolveRemoteArchiveUrl(value: string | URL, options?: ArchiveOpenOptions): URL | null {
+  const url = typeof value === 'string' ? safeParseUrl(value) : value;
+  if (!url) return null;
+  if (url.protocol === 'https:') return url;
+  if (url.protocol === 'http:') {
+    if (options?.url?.allowHttp) return url;
+    throw new ArchiveError(
+      'ARCHIVE_UNSUPPORTED_FEATURE',
+      'HTTP URL inputs require { url: { allowHttp: true } } in the Node adapter'
+    );
+  }
+  return null;
 }
 
 function inferFilenameFromUrl(value: string): string {
@@ -510,49 +515,125 @@ async function resolveNodeInputBytes(input: NodeArchiveInput, options?: ArchiveO
   if (input instanceof Uint8Array) return input;
   if (input instanceof ArrayBuffer) return new Uint8Array(input);
   if (typeof input === 'string' || input instanceof URL) {
-    const filePath = typeof input === 'string' ? input : fileURLToPath(input);
-    return new Uint8Array(await readFile(filePath));
-  }
-  if (isReadableStream(input)) {
-    const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
-    if (options?.signal) readOptions.signal = options.signal;
-    if (options?.limits?.maxInputBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxInputBytes;
-    } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
-    } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
+    const remoteUrl = resolveRemoteArchiveUrl(input, options);
+    if (remoteUrl) {
+      return readHttpUrlBytes(remoteUrl, options);
     }
+    const filePath = typeof input === 'string' ? input : fileURLToPath(input);
+    return readFileBytes(filePath, options);
+  }
+  const readOptions = resolveInputReadOptions(options);
+  if (isReadableStream(input)) {
     return readAllBytes(input, readOptions);
   }
   const webStream = toWebReadable(input as NodeJS.ReadableStream);
-  const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
-  if (options?.signal) readOptions.signal = options.signal;
-  if (options?.limits?.maxInputBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxInputBytes;
-  } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
-  } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
-    readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
-  }
   return readAllBytes(webStream, readOptions);
 }
 
+async function readHttpUrlBytes(url: URL, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
+  if (!response.ok) {
+    throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
+  }
+  return readResponseBytes(response, options);
+}
+
+function resolveInputReadOptions(options?: ArchiveOpenOptions): { signal?: AbortSignal; maxBytes?: bigint | number } {
+  const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
+  if (options?.signal) readOptions.signal = options.signal;
+  const maxBytes = resolveInputMaxBytes(options);
+  if (maxBytes !== undefined) readOptions.maxBytes = maxBytes;
+  return readOptions;
+}
+
+function resolveInputMaxBytes(options?: ArchiveOpenOptions): bigint | number | undefined {
+  if (options?.limits?.maxInputBytes !== undefined) {
+    return options.limits.maxInputBytes;
+  }
+  if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
+    return options.limits.maxTotalDecompressedBytes;
+  }
+  if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
+    return options.limits.maxTotalUncompressedBytes;
+  }
+  return undefined;
+}
+
+async function readResponseBytes(response: Response, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  const maxBytes = resolveInputMaxBytes(options);
+  await throwIfResponseContentLengthExceedsLimit(response, maxBytes);
+  const body = response.body;
+  if (!body) return new Uint8Array(0);
+  return readAllBytes(body, resolveInputReadOptions(options));
+}
+
+async function readFileBytes(filePath: string, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  return readAllBytes(toWebReadable(createReadStream(filePath)), resolveInputReadOptions(options));
+}
+
+async function installExtractedFile(tempPath: string, targetPath: string, entryName: string): Promise<void> {
+  try {
+    await link(tempPath, targetPath);
+  } catch (err) {
+    if (isExistingPathError(err)) {
+      throw new ArchiveError(
+        'ARCHIVE_NAME_COLLISION',
+        'Destination already contains the extracted file. Rename or remove the existing file first.',
+        {
+          entryName,
+          context: buildExistingCollisionContext(entryName, targetPath, 'xz')
+        }
+      );
+    }
+    throw err;
+  }
+}
+
 function inferXzEntryName(filename?: string): string {
-  if (!filename) return 'data';
-  const base = filename.split(/[\\/]/).pop() ?? filename;
+  const base = sanitizeSingleFileName(filename);
+  if (!base) return 'data';
   const lower = base.toLowerCase();
   if (lower.endsWith('.tar.xz')) {
-    const stem = base.slice(0, -7);
+    const stem = sanitizeSingleFileName(base.slice(0, -7));
     return stem ? `${stem}.tar` : 'data';
   }
   if (lower.endsWith('.txz')) {
-    const stem = base.slice(0, -4);
+    const stem = sanitizeSingleFileName(base.slice(0, -4));
     return stem ? `${stem}.tar` : 'data';
   }
   if (lower.endsWith('.xz')) {
-    const stem = base.slice(0, -3);
+    const stem = sanitizeSingleFileName(base.slice(0, -3));
     return stem || 'data';
   }
   return 'data';
+}
+
+function sanitizeSingleFileName(name?: string): string | undefined {
+  if (!name) return undefined;
+  if (name.includes('\u0000')) return undefined;
+  const base = name.split(/[\\/]/).pop() ?? name;
+  const trimmed = base.trim();
+  if (!trimmed || trimmed === '.' || trimmed === '..') return undefined;
+  return trimmed;
+}
+
+function isExistingPathError(err: unknown): err is NodeJS.ErrnoException {
+  if (!err || typeof err !== 'object') return false;
+  const code = (err as NodeJS.ErrnoException).code;
+  return code === 'EEXIST' || code === 'EISDIR';
+}
+
+function buildExistingCollisionContext(
+  entryName: string,
+  targetPath: string,
+  format: 'xz'
+): Record<string, string> {
+  return {
+    collisionType: 'existing',
+    collisionKind: 'existing',
+    nameA: targetPath,
+    nameB: entryName,
+    key: entryName,
+    format
+  };
 }

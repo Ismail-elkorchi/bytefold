@@ -1,13 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtemp, readFile, rm, stat } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createHash } from 'node:crypto';
 import { CompressionError, createDecompressor, type CompressionOptions } from '@ismail-elkorchi/bytefold/compress';
-import { extractAll } from '@ismail-elkorchi/bytefold/node';
+import { ArchiveError, extractAll } from '@ismail-elkorchi/bytefold/node';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
 const FIXTURE_ROOT = new URL('../test/fixtures/xz-utils/', import.meta.url);
+const HELLO_XZ = new URL('../test/fixtures/hello.txt.xz', import.meta.url);
 const GOOD_1_X86_PREPARED_SHA256 = 'dee7bc599bfc07147a302f44d1e994140bc812029baa4394d703e73e29117113';
 const GOOD_1_X86_PREPARED_BYTES = 1388;
 
@@ -198,6 +199,81 @@ test('xz extractAll is atomic for corrupted streams', async () => {
     await stat(target);
   });
   await rm(dir, { recursive: true, force: true });
+});
+
+test('xz extractAll sanitizes degenerate inferred output names to data', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const expected = 'hello from bytefold\n';
+
+  for (const filename of ['..xz', '...xz']) {
+    const dir = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+    try {
+      await extractAll(payload, dir, { filename });
+      assert.deepEqual(await readdir(dir), ['data']);
+      assert.equal(await readFile(path.join(dir, 'data'), 'utf8'), expected);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+});
+
+test('xz extractAll rejects existing destination files', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const dir = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+  const victim = path.join(dir, 'victim.txt');
+  try {
+    await writeFile(victim, 'host-data', 'utf8');
+    await assert.rejects(
+      async () => {
+        await extractAll(payload, dir, { filename: 'victim.txt.xz' });
+      },
+      (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_NAME_COLLISION'
+    );
+    assert.equal(await readFile(victim, 'utf8'), 'host-data');
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('xz extractAll rejects existing destination directories', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const dir = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+  const victim = path.join(dir, 'victim.txt');
+  try {
+    await mkdir(victim, { recursive: true });
+    await assert.rejects(
+      async () => {
+        await extractAll(payload, dir, { filename: 'victim.txt.xz' });
+      },
+      (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_NAME_COLLISION'
+    );
+    const stats = await stat(victim);
+    assert.ok(stats.isDirectory());
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test('xz extractAll rejects existing destination symlinks', async () => {
+  const payload = new Uint8Array(await readFile(HELLO_XZ));
+  const root = await mkdtemp(path.join(tmpdir(), 'bytefold-xz-'));
+  const dest = path.join(root, 'dest');
+  const external = path.join(root, 'external');
+  const victim = path.join(dest, 'victim.txt');
+  try {
+    await mkdir(dest, { recursive: true });
+    await mkdir(external, { recursive: true });
+    await symlink(external, victim);
+    await assert.rejects(
+      async () => {
+        await extractAll(payload, dest, { filename: 'victim.txt.xz' });
+      },
+      (err: unknown) => err instanceof ArchiveError && err.code === 'ARCHIVE_NAME_COLLISION'
+    );
+    assert.deepEqual(await readdir(external), []);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });
 
 async function readFixture(name: string): Promise<Uint8Array> {

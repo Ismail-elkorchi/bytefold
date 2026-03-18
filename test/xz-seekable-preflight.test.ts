@@ -9,6 +9,18 @@ import { validateSchema, type JsonSchema } from './schema-validator.js';
 const FIXTURE_ROOT = new URL('../test/fixtures/', import.meta.url);
 const ERROR_SCHEMA = new URL('../schemas/error.schema.json', import.meta.url);
 
+type NodeOpenOptions = NonNullable<Parameters<typeof openArchive>[1]>;
+
+function allowLocalHttp(options: NodeOpenOptions): NodeOpenOptions {
+  return {
+    ...options,
+    url: {
+      ...(options.url ?? {}),
+      allowHttp: true
+    }
+  };
+}
+
 type ServerStats = { bytes: number; rangeBytes: number; requests: number; ranges: string[] };
 
 function expectedTailRanges(size: number, blockSize: number, tailSize: number): string[] {
@@ -109,7 +121,11 @@ test('xz seekable preflight fails fast for index byte limit', async (t) => {
 
   const errorSchema = await loadSchema();
   await assert.rejects(
-    () => openArchive(serverUrl(server, 'concat-two.xz'), { format: 'xz', limits: { maxXzIndexBytes: 1 } }),
+    () =>
+      openArchive(
+        serverUrl(server, 'concat-two.xz'),
+        allowLocalHttp({ format: 'xz', limits: { maxXzIndexBytes: 1 } })
+      ),
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
@@ -131,7 +147,11 @@ test('xz seekable preflight fails fast for index record limit', async (t) => {
 
   const errorSchema = await loadSchema();
   await assert.rejects(
-    () => openArchive(serverUrl(server, 'concat-two.xz'), { format: 'xz', limits: { maxXzIndexRecords: 1 } }),
+    () =>
+      openArchive(
+        serverUrl(server, 'concat-two.xz'),
+        allowLocalHttp({ format: 'xz', limits: { maxXzIndexRecords: 1 } })
+      ),
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
@@ -154,7 +174,11 @@ test('xz seekable preflight fails fast for dictionary limit', async (t) => {
 
   const errorSchema = await loadSchema();
   await assert.rejects(
-    () => openArchive(serverUrl(server, 'xz-dict-huge.xz'), { format: 'xz', limits: { maxXzDictionaryBytes: 1024 } }),
+    () =>
+      openArchive(
+        serverUrl(server, 'xz-dict-huge.xz'),
+        allowLocalHttp({ format: 'xz', limits: { maxXzDictionaryBytes: 1024 } })
+      ),
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
@@ -182,7 +206,11 @@ test('xz seekable preflight parses BCJ block headers', async (t) => {
 
   const errorSchema = await loadSchema();
   await assert.rejects(
-    () => openArchive(serverUrl(server, 'xz-bcj/x86.xz'), { format: 'xz', limits: { maxXzDictionaryBytes: 1024 } }),
+    () =>
+      openArchive(
+        serverUrl(server, 'xz-bcj/x86.xz'),
+        allowLocalHttp({ format: 'xz', limits: { maxXzDictionaryBytes: 1024 } })
+      ),
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
@@ -208,10 +236,13 @@ test('xz seekable preflight parses mixed filter block headers', async (t) => {
   const errorSchema = await loadSchema();
   await assert.rejects(
     () =>
-      openArchive(serverUrl(server, 'xz-mixed/delta-x86-lzma2.xz'), {
-        format: 'xz',
-        limits: { maxXzDictionaryBytes: 1024 }
-      }),
+      openArchive(
+        serverUrl(server, 'xz-mixed/delta-x86-lzma2.xz'),
+        allowLocalHttp({
+          format: 'xz',
+          limits: { maxXzDictionaryBytes: 1024 }
+        })
+      ),
     (err: unknown) => {
       if (!(err instanceof CompressionError)) return false;
       assert.equal(err.code, 'COMPRESSION_RESOURCE_LIMIT');
@@ -234,10 +265,13 @@ test('xz seekable preflight success path stays bounded', async (t) => {
   const { server, stats } = await startRangeServer(bytes, true);
   t.after(() => server.close());
 
-  const reader = await openArchive(serverUrl(server, 'hello.txt.xz'), {
-    format: 'xz',
-    limits: { maxXzPreflightBlockHeaders: 1 }
-  });
+  const reader = await openArchive(
+    serverUrl(server, 'hello.txt.xz'),
+    allowLocalHttp({
+      format: 'xz',
+      limits: { maxXzPreflightBlockHeaders: 1 }
+    })
+  );
   let sawEntry = false;
   for await (const entry of reader.entries()) {
     const data = await collect(await entry.open());
@@ -277,10 +311,13 @@ test('xz seekable preflight stops after max block headers', async (t) => {
   const { server, stats } = await startRangeServer(bytes, true);
   t.after(() => server.close());
 
-  const reader = await openArchive(serverUrl(server, 'xz-many-blocks/many-blocks.xz'), {
-    format: 'xz',
-    limits: { maxXzPreflightBlockHeaders: 1 }
-  });
+  const reader = await openArchive(
+    serverUrl(server, 'xz-many-blocks/many-blocks.xz'),
+    allowLocalHttp({
+      format: 'xz',
+      limits: { maxXzPreflightBlockHeaders: 1 }
+    })
+  );
   let payload: Uint8Array | null = null;
   for await (const entry of reader.entries()) {
     payload = await collect(await entry.open());
@@ -312,7 +349,11 @@ test('xz seekable preflight requires HTTP range support', async (t) => {
 
   const errorSchema = await loadSchema();
   await assert.rejects(
-    () => openArchive(serverUrl(server, 'concat-two.xz'), { format: 'xz', limits: { maxXzIndexRecords: 1 } }),
+    () =>
+      openArchive(
+        serverUrl(server, 'concat-two.xz'),
+        allowLocalHttp({ format: 'xz', limits: { maxXzIndexRecords: 1 } })
+      ),
     (err: unknown) => {
       if (!(err instanceof ArchiveError)) return false;
       assert.equal(err.code, 'ARCHIVE_HTTP_RANGE_UNSUPPORTED');

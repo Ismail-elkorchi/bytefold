@@ -2,6 +2,7 @@ import type { ArchiveOpenOptions } from '../archive/types.js';
 import { createArchiveWriter, openArchive as openArchiveCore, type ArchiveReader } from '../archive/index.js';
 import { ArchiveError } from '../archive/errors.js';
 import { readAllBytes } from '../streams/buffer.js';
+import { throwIfResponseContentLengthExceedsLimit } from '../streams/response.js';
 
 /** Typed archive error class for Web runtime adapters. */
 export { ArchiveError } from '../archive/errors.js';
@@ -108,20 +109,9 @@ function resolveInputMaxBytes(options?: ArchiveOpenOptions): bigint | number | u
   return undefined;
 }
 
-function toBigInt(value: bigint | number): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
-}
-
 async function readResponseBytes(response: Response, options?: ArchiveOpenOptions): Promise<Uint8Array> {
   const maxBytes = resolveInputMaxBytes(options);
-  if (maxBytes !== undefined) {
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && /^\d+$/u.test(contentLength)) {
-      if (BigInt(contentLength) > toBigInt(maxBytes)) {
-        throw new RangeError('Stream exceeds maximum allowed size');
-      }
-    }
-  }
+  await throwIfResponseContentLengthExceedsLimit(response, maxBytes);
   const body = response.body;
   if (!body) {
     return new Uint8Array(0);
