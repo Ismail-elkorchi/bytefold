@@ -42,7 +42,7 @@ import type {
   TarWriterOptions
 } from '../tar/types.js';
 import type { CompressionAlgorithm } from '../compress/types.js';
-import { DEFAULT_RESOURCE_LIMITS } from '../limits.js';
+import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import { resolveXzDictionaryLimit, resolveXzIndexLimits } from './xzPreflight.js';
 import { isZipSignature, preflightZip, resolveZipPreflightLimits, shouldPreflightZip } from './zipPreflight.js';
 import { decodeNullTerminatedUtf8 } from '../binary.js';
@@ -115,6 +115,9 @@ type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
   __zipReader?: ZipReader;
   __zipDetection?: ZipDetectionInfo;
 };
+
+const DEFAULT_LIMITS: Required<ArchiveLimits> = DEFAULT_RESOURCE_LIMITS;
+const AGENT_LIMITS: Required<ArchiveLimits> = AGENT_RESOURCE_LIMITS;
 
 /** Options for auditing archives opened via openArchive(). */
 export type ArchiveAuditOptions = {
@@ -248,6 +251,65 @@ function buildZipDetection(
     return { inputKind, confidence: 'medium', notes: ['Format inferred from filename'] };
   }
   return { inputKind, confidence: 'high', notes: ['Format inferred from magic bytes'] };
+}
+
+function resolveArchiveProfileDefaults(profile: ArchiveProfile): {
+  strict: boolean;
+  limits: Required<ArchiveLimits>;
+} {
+  if (profile === 'compat') {
+    return { strict: false, limits: DEFAULT_LIMITS };
+  }
+  if (profile === 'agent') {
+    return { strict: true, limits: AGENT_LIMITS };
+  }
+  return { strict: true, limits: DEFAULT_LIMITS };
+}
+
+function normalizeArchiveLimits(
+  limits?: ArchiveLimits,
+  defaults: Required<ArchiveLimits> = DEFAULT_LIMITS
+): Required<ArchiveLimits> {
+  const maxTotalDecompressedBytes =
+    limits?.maxTotalDecompressedBytes ?? limits?.maxTotalUncompressedBytes ?? defaults.maxTotalDecompressedBytes;
+  const maxTotalUncompressedBytes =
+    limits?.maxTotalUncompressedBytes ?? limits?.maxTotalDecompressedBytes ?? defaults.maxTotalUncompressedBytes;
+  return {
+    maxEntries: limits?.maxEntries ?? defaults.maxEntries,
+    maxUncompressedEntryBytes: limits?.maxUncompressedEntryBytes ?? defaults.maxUncompressedEntryBytes,
+    maxTotalUncompressedBytes,
+    maxTotalDecompressedBytes,
+    maxCompressionRatio: limits?.maxCompressionRatio ?? defaults.maxCompressionRatio,
+    maxDictionaryBytes: limits?.maxDictionaryBytes ?? defaults.maxDictionaryBytes,
+    maxXzDictionaryBytes: limits?.maxXzDictionaryBytes ?? limits?.maxDictionaryBytes ?? defaults.maxXzDictionaryBytes,
+    maxXzBufferedBytes: limits?.maxXzBufferedBytes ?? defaults.maxXzBufferedBytes,
+    maxXzIndexRecords: limits?.maxXzIndexRecords ?? defaults.maxXzIndexRecords,
+    maxXzIndexBytes: limits?.maxXzIndexBytes ?? defaults.maxXzIndexBytes,
+    maxXzPreflightBlockHeaders: limits?.maxXzPreflightBlockHeaders ?? defaults.maxXzPreflightBlockHeaders,
+    maxZipCentralDirectoryBytes: limits?.maxZipCentralDirectoryBytes ?? defaults.maxZipCentralDirectoryBytes,
+    maxZipCommentBytes: limits?.maxZipCommentBytes ?? defaults.maxZipCommentBytes,
+    maxZipEocdSearchBytes: limits?.maxZipEocdSearchBytes ?? defaults.maxZipEocdSearchBytes,
+    maxBzip2BlockSize: limits?.maxBzip2BlockSize ?? defaults.maxBzip2BlockSize,
+    maxInputBytes: limits?.maxInputBytes ?? defaults.maxInputBytes
+  };
+}
+
+function resolveArchiveReaderSettings(options?: {
+  profile?: ArchiveProfile;
+  isStrict?: boolean;
+  limits?: ArchiveLimits;
+}): {
+  profile: ArchiveProfile;
+  strict: boolean;
+  limits: Required<ArchiveLimits>;
+} {
+  const profile = options?.profile ?? 'strict';
+  const defaults = resolveArchiveProfileDefaults(profile);
+  return {
+    profile,
+    strict: options?.isStrict ?? defaults.strict,
+    limits: normalizeArchiveLimits(options?.limits, defaults.limits)
+  };
 }
 
 function resolveZipStrict(options?: ArchiveOpenOptions): boolean {
@@ -486,6 +548,7 @@ async function openWithFormat(
 ): Promise<{ reader: ArchiveReader; format: ArchiveFormat; notes: string[] }> {
   const internalOptions = options as ArchiveOpenOptionsInternal | undefined;
   const notes: string[] = [];
+  const resolved = resolveArchiveReaderSettings(options);
   if (format === 'zip') {
     const zipOptions: ZipReaderOptions = { ...(options?.zip ?? {}) };
     const profile = options?.profile;
@@ -524,7 +587,13 @@ async function openWithFormat(
   }
   if (format === 'gz' || format === 'tgz' || format === 'tar.gz') {
     const header = parseGzipHeader(data);
-    const decompressed = await gunzipToBytes(data, options);
+    const gzipOptions: ArchiveOpenOptions = {
+      ...(options ?? {}),
+      profile: resolved.profile,
+      isStrict: resolved.strict,
+      limits: resolved.limits
+    };
+    const decompressed = await gunzipToBytes(data, gzipOptions);
     if (format !== 'gz' || detectFormat(decompressed) === 'tar') {
       if (format === 'gz') {
         notes.push('TAR layer detected inside gzip payload');
@@ -547,7 +616,15 @@ async function openWithFormat(
       };
     }
     const name = inferGzipEntryName(header, options?.filename);
-    return { reader: new GzipArchiveReader(decompressed, header, name), format: 'gz', notes };
+    return {
+      reader: new GzipArchiveReader(decompressed, header, name, {
+        profile: resolved.profile,
+        strict: resolved.strict,
+        limits: resolved.limits
+      }),
+      format: 'gz',
+      notes
+    };
   }
   if (format === 'zst' || format === 'tar.zst') {
     const decompressed = await decompressToBytes(data, 'zstd', options);
@@ -573,7 +650,15 @@ async function openWithFormat(
       };
     }
     const name = inferZstdEntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'zstd', name), format: 'zst', notes };
+    return {
+      reader: new CompressedArchiveReader(decompressed, 'zstd', name, undefined, {
+        profile: resolved.profile,
+        strict: resolved.strict,
+        limits: resolved.limits
+      }),
+      format: 'zst',
+      notes
+    };
   }
   if (format === 'br' || format === 'tar.br') {
     const decompressed = await decompressToBytes(data, 'brotli', options);
@@ -599,7 +684,15 @@ async function openWithFormat(
       };
     }
     const name = inferBrotliEntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'brotli', name), format: 'br', notes };
+    return {
+      reader: new CompressedArchiveReader(decompressed, 'brotli', name, undefined, {
+        profile: resolved.profile,
+        strict: resolved.strict,
+        limits: resolved.limits
+      }),
+      format: 'br',
+      notes
+    };
   }
   if (format === 'bz2' || format === 'tar.bz2') {
     const preflight: PreflightResourceInfo | undefined = (() => {
@@ -612,7 +705,7 @@ async function openWithFormat(
           }
         : undefined;
     })();
-    enforceResourceLimits(preflight, options?.limits, options?.profile);
+    enforceResourceLimits(preflight, resolved.limits, resolved.profile);
     const decompressed = await decompressToBytes(data, 'bzip2', options);
     if (format === 'tar.bz2' || detectFormat(decompressed) === 'tar') {
       if (format !== 'tar.bz2') {
@@ -637,17 +730,25 @@ async function openWithFormat(
       };
     }
     const name = inferBzip2EntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'bzip2', name, preflight), format: 'bz2', notes };
+    return {
+      reader: new CompressedArchiveReader(decompressed, 'bzip2', name, preflight, {
+        profile: resolved.profile,
+        strict: resolved.strict,
+        limits: resolved.limits
+      }),
+      format: 'bz2',
+      notes
+    };
   }
   if (format === 'xz' || format === 'tar.xz') {
-    const profile = options?.profile ?? 'strict';
+    const profile = resolved.profile;
     const checkType = readXzCheckType(data);
     if (checkType !== undefined && !isSupportedXzCheck(checkType) && profile === 'compat') {
       notes.push(`XZ check type ${formatXzCheck(checkType)} is not verified in compat profile`);
     }
     const seekablePreflight = internalOptions?.__preflight;
     const preflight: PreflightResourceInfo | undefined = (() => {
-      const indexLimits = resolveXzIndexLimits(options?.limits, profile);
+      const indexLimits = resolveXzIndexLimits(resolved.limits, profile);
       const scan = scanXzResourceRequirements(data, {
         ...(options?.signal ? { signal: options.signal } : {}),
         maxIndexBytes: indexLimits.maxIndexBytes,
@@ -673,7 +774,7 @@ async function openWithFormat(
       }
       return seekablePreflight;
     })();
-    enforceResourceLimits(preflight, options?.limits, profile);
+    enforceResourceLimits(preflight, resolved.limits, profile);
     const decompressed = await decompressToBytes(data, 'xz', options);
     if (format === 'tar.xz' || detectFormat(decompressed) === 'tar') {
       if (format !== 'tar.xz') {
@@ -698,7 +799,15 @@ async function openWithFormat(
       };
     }
     const name = inferXzEntryName(options?.filename);
-    return { reader: new CompressedArchiveReader(decompressed, 'xz', name, preflight), format: 'xz', notes };
+    return {
+      reader: new CompressedArchiveReader(decompressed, 'xz', name, preflight, {
+        profile: resolved.profile,
+        strict: resolved.strict,
+        limits: resolved.limits
+      }),
+      format: 'xz',
+      notes
+    };
   }
 
   throw new ArchiveError('ARCHIVE_UNSUPPORTED_FORMAT', `Unsupported format: ${format}`);
@@ -1234,7 +1343,8 @@ async function decompressToBytes(
   algorithm: CompressionAlgorithm,
   options?: ArchiveOpenOptions
 ): Promise<Uint8Array> {
-  const limits = options?.limits;
+  const settings = resolveArchiveReaderSettings(options);
+  const limits = settings.limits;
   const transform = createDecompressor({
     algorithm,
     ...(options?.signal ? { signal: options.signal } : {}),
@@ -1252,7 +1362,7 @@ async function decompressToBytes(
     ...(limits?.maxXzBufferedBytes !== undefined ? { maxBufferedInputBytes: limits.maxXzBufferedBytes } : {}),
     ...(limits?.maxBzip2BlockSize !== undefined ? { maxBzip2BlockSize: limits.maxBzip2BlockSize } : {}),
     ...(limits ? { limits } : {}),
-    ...(options?.profile ? { profile: options.profile } : {})
+    profile: settings.profile
   });
   const stream = readableFromBytes(data).pipeThrough(transform);
   const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
@@ -1532,7 +1642,16 @@ class GzipArchiveReader implements ArchiveReader {
   detection?: ArchiveDetectionReport;
   private readonly entry: ArchiveEntry;
 
-  constructor(private readonly data: Uint8Array, header: GzipHeader, name: string) {
+  constructor(
+    private readonly data: Uint8Array,
+    header: GzipHeader,
+    name: string,
+    private readonly auditDefaults?: {
+      profile: ArchiveProfile;
+      strict: boolean;
+      limits: Required<ArchiveLimits>;
+    }
+  ) {
     const entry: ArchiveEntry = {
       format: 'gz',
       name,
@@ -1549,7 +1668,25 @@ class GzipArchiveReader implements ArchiveReader {
     yield this.entry;
   }
 
+  private resolveAuditSettings(options?: ArchiveAuditOptions): {
+    profile: ArchiveProfile;
+    strict: boolean;
+    limits: Required<ArchiveLimits>;
+  } {
+    const profile = options?.profile ?? this.auditDefaults?.profile ?? 'strict';
+    const defaults =
+      this.auditDefaults && profile === this.auditDefaults.profile
+        ? { strict: this.auditDefaults.strict, limits: this.auditDefaults.limits }
+        : resolveArchiveProfileDefaults(profile);
+    return {
+      profile,
+      strict: options?.isStrict ?? defaults.strict,
+      limits: normalizeArchiveLimits(options?.limits, defaults.limits)
+    };
+  }
+
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
+    const settings = this.resolveAuditSettings(options);
     const issues: ArchiveAuditReport['issues'] = [];
     const summary: ArchiveAuditReport['summary'] = {
       entries: 1,
@@ -1558,8 +1695,7 @@ class GzipArchiveReader implements ArchiveReader {
     };
     const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
     if (totalBytes !== undefined) summary.totalBytes = totalBytes;
-    const maxTotal =
-      options?.limits?.maxTotalDecompressedBytes ?? options?.limits?.maxTotalUncompressedBytes;
+    const maxTotal = settings.limits.maxTotalDecompressedBytes;
     if (maxTotal !== undefined && this.entry.size > BigInt(maxTotal)) {
       issues.push({
         code: 'GZIP_LIMIT_EXCEEDED',
@@ -1610,7 +1746,12 @@ class CompressedArchiveReader implements ArchiveReader {
     private readonly data: Uint8Array,
     algorithm: 'zstd' | 'brotli' | 'bzip2' | 'xz',
     name = 'data',
-    preflight?: PreflightResourceInfo
+    preflight?: PreflightResourceInfo,
+    private readonly auditDefaults?: {
+      profile: ArchiveProfile;
+      strict: boolean;
+      limits: Required<ArchiveLimits>;
+    }
   ) {
     this.algorithm = algorithm;
     this.format = algorithm === 'zstd' ? 'zst' : algorithm === 'brotli' ? 'br' : algorithm === 'xz' ? 'xz' : 'bz2';
@@ -1629,7 +1770,25 @@ class CompressedArchiveReader implements ArchiveReader {
     yield this.entry;
   }
 
+  private resolveAuditSettings(options?: ArchiveAuditOptions): {
+    profile: ArchiveProfile;
+    strict: boolean;
+    limits: Required<ArchiveLimits>;
+  } {
+    const profile = options?.profile ?? this.auditDefaults?.profile ?? 'strict';
+    const defaults =
+      this.auditDefaults && profile === this.auditDefaults.profile
+        ? { strict: this.auditDefaults.strict, limits: this.auditDefaults.limits }
+        : resolveArchiveProfileDefaults(profile);
+    return {
+      profile,
+      strict: options?.isStrict ?? defaults.strict,
+      limits: normalizeArchiveLimits(options?.limits, defaults.limits)
+    };
+  }
+
   async audit(options?: ArchiveAuditOptions): Promise<ArchiveAuditReport> {
+    const settings = this.resolveAuditSettings(options);
     const issues: ArchiveAuditReport['issues'] = [];
     const summary: ArchiveAuditReport['summary'] = {
       entries: 1,
@@ -1638,9 +1797,7 @@ class CompressedArchiveReader implements ArchiveReader {
     };
     const totalBytes = this.entry.size > BigInt(Number.MAX_SAFE_INTEGER) ? undefined : Number(this.entry.size);
     if (totalBytes !== undefined) summary.totalBytes = totalBytes;
-
-    const maxTotal =
-      options?.limits?.maxTotalDecompressedBytes ?? options?.limits?.maxTotalUncompressedBytes;
+    const maxTotal = settings.limits.maxTotalDecompressedBytes;
     if (maxTotal !== undefined && this.entry.size > BigInt(maxTotal)) {
       const code =
         this.algorithm === 'zstd'
@@ -1674,7 +1831,7 @@ class CompressedArchiveReader implements ArchiveReader {
       toJSON: () => ({ schemaVersion: BYTEFOLD_REPORT_SCHEMA_VERSION, ok: summary.errors === 0, summary, issues })
     };
     appendResourcePreflightIssue(report, this.preflight);
-    return appendResourceLimitIssue(report, this.preflight, options?.limits, options?.profile);
+    return appendResourceLimitIssue(report, this.preflight, settings.limits, settings.profile);
   }
 
   async assertSafe(options?: ArchiveAuditOptions): Promise<void> {
