@@ -4,6 +4,7 @@ import http from 'node:http';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import * as zlib from 'node:zlib';
 import { createArchiveWriter } from '@ismail-elkorchi/bytefold';
 import { TarReader } from '@ismail-elkorchi/bytefold/tar';
@@ -43,6 +44,33 @@ async function buildTarPayload(size = 4096): Promise<Uint8Array> {
   await writer.close();
   return concatChunks(chunks);
 }
+
+test('shared response helper cancels oversized content-length bodies before throwing', async () => {
+  const responseModuleUrl = pathToFileURL(path.join(process.cwd(), 'dist/streams/response.js')).href;
+  const responseModule = (await import(responseModuleUrl)) as {
+    readResponseBytes(response: Response, options?: { signal?: AbortSignal; maxBytes?: bigint | number }): Promise<Uint8Array>;
+  };
+  let cancelled = false;
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      controller.enqueue(new Uint8Array([0x61, 0x62, 0x63]));
+    },
+    cancel() {
+      cancelled = true;
+    }
+  });
+  const response = new Response(body, {
+    status: 200,
+    headers: { 'content-length': '1024' }
+  });
+
+  await assert.rejects(
+    () => responseModule.readResponseBytes(response, { maxBytes: 64 }),
+    (error: unknown) => error instanceof RangeError
+  );
+  await new Promise((resolve) => setTimeout(resolve, 0));
+  assert.equal(cancelled, true);
+});
 
 test('node adapter: file full-buffer input honors maxInputBytes', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'bytefold-node-input-'));

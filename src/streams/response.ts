@@ -19,19 +19,28 @@ export function resolveInputMaxBytes(limits?: InputByteLimits): bigint | number 
   return undefined;
 }
 
+export async function throwIfResponseContentLengthExceedsLimit(
+  response: Response,
+  maxBytes?: bigint | number
+): Promise<void> {
+  if (maxBytes === undefined) {
+    return;
+  }
+  const contentLength = response.headers.get('content-length');
+  if (contentLength && /^\d+$/u.test(contentLength)) {
+    if (BigInt(contentLength) > toBigInt(maxBytes)) {
+      await response.body?.cancel().catch(() => {});
+      throw new RangeError('Stream exceeds maximum allowed size');
+    }
+  }
+}
+
 export async function readResponseBytes(
   response: Response,
   options?: { signal?: AbortSignal; maxBytes?: bigint | number }
 ): Promise<Uint8Array> {
   const maxBytes = options?.maxBytes;
-  if (maxBytes !== undefined) {
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && /^\d+$/u.test(contentLength)) {
-      if (BigInt(contentLength) > toBigInt(maxBytes)) {
-        throw new RangeError('Stream exceeds maximum allowed size');
-      }
-    }
-  }
+  await throwIfResponseContentLengthExceedsLimit(response, maxBytes);
   const body = response.body;
   if (!body) return new Uint8Array(0);
   return readAllBytes(body, {
