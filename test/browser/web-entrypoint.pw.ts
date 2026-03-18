@@ -9,6 +9,7 @@ const ROOT_DIRECTORY = fileURLToPath(new URL('../../', import.meta.url));
 const DIST_DIRECTORY = path.join(ROOT_DIRECTORY, 'dist');
 const HELLO_FIXTURE_URL = new URL('../fixtures/expected/hello.txt', import.meta.url);
 const MODULE_PATH = '/dist/web/index.js';
+const COMPRESS_MODULE_PATH = '/dist/compress/index.js';
 
 test('browser web: blob zip roundtrip open/list/extract', async ({ page }) => {
   const harness = await startBrowserHarness();
@@ -206,6 +207,225 @@ test('browser web: writer roundtrip zip store-only and tar', async ({ page }) =>
     expect(result.zipHello).toEqual(Array.from(helloBytes));
     expect(result.zipNestedHello).toEqual(Array.from(helloBytes));
     expect(result.tarHello).toEqual(Array.from(helloBytes));
+  } finally {
+    await harness.close();
+  }
+});
+
+test('browser web: runtime-backed hostile decompression ratios fail for supported algorithms', async ({ page }) => {
+  const harness = await startBrowserHarness();
+
+  try {
+    await page.goto(harness.baseUrl);
+    const result = await page.evaluate(async ({ compressModuleUrl }) => {
+      const compress = await import(compressModuleUrl);
+      const caps = compress.getCompressionCapabilities();
+      const algorithms = ['gzip', 'deflate', 'brotli', 'zstd'] as const;
+      const payload = new Uint8Array(1024 * 1024);
+
+      const collectStream = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
+        const reader = stream.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            chunks.push(value);
+            total += value.length;
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const out = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          out.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return out;
+      };
+
+      const readableFromBytes = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
+        new ReadableStream<Uint8Array>({
+          start(controller: ReadableStreamDefaultController<Uint8Array>) {
+            controller.enqueue(bytes);
+            controller.close();
+          }
+        });
+
+      const results = [];
+      let tested = 0;
+      for (const algorithm of algorithms) {
+        const support = caps.algorithms[algorithm];
+        if (!support?.compress || !support?.decompress) {
+          results.push({ algorithm, supported: false });
+          continue;
+        }
+        tested += 1;
+        const compressed = await collectStream(
+          readableFromBytes(payload).pipeThrough(compress.createCompressor({ algorithm }))
+        );
+
+        let error = null;
+        try {
+          await collectStream(
+            readableFromBytes(compressed).pipeThrough(
+              compress.createDecompressor({
+                algorithm,
+                limits: { maxCompressionRatio: 200 }
+              })
+            )
+          );
+        } catch (err) {
+          if (err && typeof err === 'object') {
+            error = {
+              code: 'code' in err ? String(err.code) : null,
+              message: 'message' in err ? String(err.message) : String(err)
+            };
+          } else {
+            error = { code: null, message: String(err) };
+          }
+        }
+
+        results.push({
+          algorithm,
+          supported: true,
+          code: error?.code ?? null,
+          message: error?.message ?? null
+        });
+      }
+
+      return { runtime: caps.runtime, tested, results };
+    }, {
+      compressModuleUrl: `${harness.baseUrl}${COMPRESS_MODULE_PATH}`
+    });
+
+    expect(result.tested).toBeGreaterThan(0);
+    for (const entry of result.results) {
+      if (!entry.supported) continue;
+      expect(entry.code, `${entry.algorithm} should fail with a typed ratio error`).toBe('COMPRESSION_RESOURCE_LIMIT');
+    }
+  } finally {
+    await harness.close();
+  }
+});
+
+test('browser web: tgz agent profile rejects hostile gzip ratios unless explicitly relaxed', async ({ page }) => {
+  const harness = await startBrowserHarness();
+
+  try {
+    await page.goto(harness.baseUrl);
+    const caps = await page.evaluate(async ({ compressModuleUrl }) => {
+      const compress = await import(compressModuleUrl);
+      return compress.getCompressionCapabilities();
+    }, {
+      compressModuleUrl: `${harness.baseUrl}${COMPRESS_MODULE_PATH}`
+    });
+
+    test.skip(!caps.algorithms.gzip?.compress || !caps.algorithms.gzip?.decompress, 'gzip unavailable in this browser runtime');
+
+    const result = await page.evaluate(async ({ moduleUrl, compressModuleUrl }) => {
+      const bytefold = await import(moduleUrl);
+      const compress = await import(compressModuleUrl);
+
+      const collectStream = async (stream: ReadableStream<Uint8Array>): Promise<Uint8Array> => {
+        const reader = stream.getReader();
+        const chunks: Uint8Array[] = [];
+        let total = 0;
+        try {
+          while (true) {
+            const { value, done } = await reader.read();
+            if (done) break;
+            if (!value) continue;
+            chunks.push(value);
+            total += value.length;
+          }
+        } finally {
+          reader.releaseLock();
+        }
+
+        const out = new Uint8Array(total);
+        let offset = 0;
+        for (const chunk of chunks) {
+          out.set(chunk, offset);
+          offset += chunk.length;
+        }
+        return out;
+      };
+
+      const readableFromBytes = (bytes: Uint8Array): ReadableStream<Uint8Array> =>
+        new ReadableStream<Uint8Array>({
+          start(controller: ReadableStreamDefaultController<Uint8Array>) {
+            controller.enqueue(bytes);
+            controller.close();
+          }
+        });
+
+      const tarChunks: Uint8Array[] = [];
+      const tarWritable = new WritableStream<Uint8Array>({
+        write(chunk: Uint8Array) {
+          const copy = new Uint8Array(chunk.length);
+          copy.set(chunk);
+          tarChunks.push(copy);
+        }
+      });
+      const tarWriter = bytefold.createArchiveWriter('tar', tarWritable, {
+        tar: { isDeterministic: true }
+      });
+      await tarWriter.add('ratio.bin', new Uint8Array(512 * 1024));
+      await tarWriter.close();
+
+      let tarSize = 0;
+      for (const chunk of tarChunks) tarSize += chunk.length;
+      const tarBytes = new Uint8Array(tarSize);
+      let tarOffset = 0;
+      for (const chunk of tarChunks) {
+        tarBytes.set(chunk, tarOffset);
+        tarOffset += chunk.length;
+      }
+
+      const tgzBytes = await collectStream(
+        readableFromBytes(tarBytes).pipeThrough(compress.createCompressor({ algorithm: 'gzip' }))
+      );
+
+      let rejection = null;
+      try {
+        await bytefold.openArchive(tgzBytes, {
+          format: 'tgz',
+          profile: 'agent',
+          limits: { maxEntries: 10_000 }
+        });
+      } catch (err) {
+        if (err && typeof err === 'object') {
+          rejection = {
+            code: 'code' in err ? String(err.code) : null,
+            message: 'message' in err ? String(err.message) : String(err)
+          };
+        } else {
+          rejection = { code: null, message: String(err) };
+        }
+      }
+
+      const relaxed = await bytefold.openArchive(tgzBytes, {
+        format: 'tgz',
+        profile: 'agent',
+        limits: { maxCompressionRatio: 1_000_000 }
+      });
+
+      return {
+        rejection,
+        relaxedFormat: relaxed.format
+      };
+    }, {
+      moduleUrl: `${harness.baseUrl}${MODULE_PATH}`,
+      compressModuleUrl: `${harness.baseUrl}${COMPRESS_MODULE_PATH}`
+    });
+
+    expect(result.rejection?.code).toBe('COMPRESSION_RESOURCE_LIMIT');
+    expect(result.relaxedFormat).toBe('tgz');
   } finally {
     await harness.close();
   }
