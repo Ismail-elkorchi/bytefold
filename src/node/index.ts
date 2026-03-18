@@ -11,6 +11,7 @@ import { createDecompressor } from '../compress/index.js';
 import { CompressionError } from '../compress/errors.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { toWebReadable } from '../streams/adapters.js';
+import { throwIfResponseContentLengthExceedsLimit } from '../streams/response.js';
 import { readableFromBytes } from '../streams/web.js';
 import { preflightXzIndexLimits } from '../compression/xzIndexPreflight.js';
 import { HttpRandomAccess, type RandomAccess } from '../reader/RandomAccess.js';
@@ -560,14 +561,7 @@ function resolveInputMaxBytes(options?: ArchiveOpenOptions): bigint | number | u
 
 async function readResponseBytes(response: Response, options?: ArchiveOpenOptions): Promise<Uint8Array> {
   const maxBytes = resolveInputMaxBytes(options);
-  if (maxBytes !== undefined) {
-    const contentLength = response.headers.get('content-length');
-    if (contentLength && /^\d+$/u.test(contentLength)) {
-      if (BigInt(contentLength) > toBigInt(maxBytes)) {
-        throw new RangeError('Stream exceeds maximum allowed size');
-      }
-    }
-  }
+  await throwIfResponseContentLengthExceedsLimit(response, maxBytes);
   const body = response.body;
   if (!body) return new Uint8Array(0);
   return readAllBytes(body, resolveInputReadOptions(options));
@@ -593,10 +587,6 @@ async function installExtractedFile(tempPath: string, targetPath: string, entryN
     }
     throw err;
   }
-}
-
-function toBigInt(value: bigint | number): bigint {
-  return typeof value === 'bigint' ? value : BigInt(value);
 }
 
 function inferXzEntryName(filename?: string): string {
