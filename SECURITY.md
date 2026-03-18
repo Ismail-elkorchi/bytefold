@@ -13,12 +13,14 @@
 - Agent usage: treat external inputs as hostile and prefer audit/normalize before extract.
 
 ## Mitigations
-- Size and ratio limits for decompression and extraction.
+- Size and ratio limits for decompression and extraction, including high-level gzip/tgz profile ceilings before inflate.
 - Audit and `assertSafe` checks for structural issues and unsafe entries.
 - ZIP password support is provided for compatibility and interoperability, not as a confidentiality guarantee.
 - Traditional ZipCrypto is weak and should not be treated as secure secrecy.
 - Node ZIP extraction keeps symlink targets and follow-on writes contained under the destination root when symlink materialization is enabled.
-- Node full-fetch non-ZIP file and URL inputs enforce raw input byte ceilings, and Node XZ single-file extraction sanitizes inferred output names to stay contained.
+- Node, Bun, and Deno runtime URL inputs are HTTPS-by-default; insecure `http:` requires explicit `url.allowHttp` opt-in outside the web adapter.
+- Node full-fetch file inputs, Node/Bun/Deno full-fetch URL inputs, and `TarReader.fromUrl(...)` enforce raw input byte ceilings and cancel oversized `Content-Length` bodies before throwing.
+- Node XZ single-file extraction sanitizes inferred output names to stay contained.
 - Node ZIP and XZ extraction helpers fail closed on pre-existing destination files instead of replacing host files in place.
 - Typed errors for corruption and unsupported features.
 - Atomic extraction for XZ-backed single-file paths to prevent partial outputs.
