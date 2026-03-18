@@ -3,6 +3,7 @@ import { normalizePathForCollision, toCollisionKey } from '../text/caseFold.js';
 import type { ArchiveLimits, ArchiveProfile } from '../archive/types.js';
 import { readAllBytes } from '../streams/buffer.js';
 import { readableFromBytes } from '../streams/web.js';
+import { readResponseBytes, resolveInputMaxBytes } from '../streams/response.js';
 import { BYTEFOLD_REPORT_SCHEMA_VERSION } from '../reportSchema.js';
 import { AGENT_RESOURCE_LIMITS, DEFAULT_RESOURCE_LIMITS } from '../limits.js';
 import type {
@@ -102,13 +103,8 @@ export class TarReader {
   static async fromStream(stream: ReadableStream<Uint8Array>, options?: TarReaderOptions): Promise<TarReader> {
     const readOptions: { signal?: AbortSignal; maxBytes?: bigint | number } = {};
     if (options?.signal) readOptions.signal = options.signal;
-    if (options?.limits?.maxInputBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxInputBytes;
-    } else if (options?.limits?.maxTotalDecompressedBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxTotalDecompressedBytes;
-    } else if (options?.limits?.maxTotalUncompressedBytes !== undefined) {
-      readOptions.maxBytes = options.limits.maxTotalUncompressedBytes;
-    }
+    const maxBytes = resolveInputMaxBytes(options?.limits);
+    if (maxBytes !== undefined) readOptions.maxBytes = maxBytes;
     const data = await readAllBytes(stream, readOptions);
     return TarReader.fromUint8Array(data, options);
   }
@@ -121,7 +117,11 @@ export class TarReader {
     if (!response.ok) {
       throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
     }
-    const data = new Uint8Array(await response.arrayBuffer());
+    const maxBytes = resolveInputMaxBytes(options?.limits);
+    const data = await readResponseBytes(response, {
+      ...(options?.signal ? { signal: options.signal } : {}),
+      ...(maxBytes !== undefined ? { maxBytes } : {})
+    });
     return TarReader.fromUint8Array(data, options);
   }
 
