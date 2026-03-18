@@ -29,6 +29,31 @@ test('openArchive: gzip maxTotalUncompressedBytes aliases the high-level output 
   );
 });
 
+test('openArchive: tgz profile agent rejects over-ratio payloads before tar detection', async () => {
+  const tar = await buildArchiveBytes('tar', [['ratio.bin', new Uint8Array(512 * 1024)]]);
+  const tgz = zlib.gzipSync(tar);
+
+  await assert.rejects(
+    () =>
+      openArchive(tgz, {
+        format: 'tgz',
+        profile: 'agent',
+        limits: { maxEntries: 10_000 }
+      }),
+    (err: unknown) =>
+      err instanceof CompressionError &&
+      err.code === 'COMPRESSION_RESOURCE_LIMIT' &&
+      err.algorithm === 'gzip'
+  );
+
+  const relaxed = await openArchive(tgz, {
+    format: 'tgz',
+    profile: 'agent',
+    limits: { maxCompressionRatio: 1_000_000 }
+  });
+  assert.equal(relaxed.format, 'tgz');
+});
+
 test('openArchive: zip maxEntries fails with typed context', async () => {
   const zip = await buildArchiveBytes('zip', [
     ['a.txt', new Uint8Array([0x61])],

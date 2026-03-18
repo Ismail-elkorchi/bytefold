@@ -1,6 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import * as zlib from 'node:zlib';
 import { ArchiveError, createArchiveWriter, openArchive } from '@ismail-elkorchi/bytefold';
 import { CompressionError, createDecompressor } from '@ismail-elkorchi/bytefold/compress';
 import { TarReader } from '@ismail-elkorchi/bytefold/tar';
@@ -86,6 +87,31 @@ test('TarReader construction: explicit limit override is honored and strictness 
   );
 });
 
+test('openArchive: gzip profile defaults apply and explicit limits override only the specified field', async () => {
+  const gzipBytes = buildHighRatioGzip();
+
+  await assert.rejects(
+    () =>
+      openArchive(gzipBytes, {
+        format: 'gz',
+        profile: 'agent',
+        limits: { maxEntries: 10_000 }
+      }),
+    (err: unknown) =>
+      err instanceof CompressionError &&
+      err.code === 'COMPRESSION_RESOURCE_LIMIT' &&
+      err.algorithm === 'gzip'
+  );
+
+  const relaxedReader = await openArchive(gzipBytes, {
+    format: 'gz',
+    profile: 'agent',
+    limits: { maxCompressionRatio: 1_000_000 }
+  });
+  const relaxedAudit = await relaxedReader.audit();
+  assert.equal(findIssue(relaxedAudit.issues, 'GZIP_LIMIT_EXCEEDED'), undefined);
+});
+
 test('createDecompressor: explicit options override limits, profile behavior remains independent', async () => {
   const helloXzBytes = new Uint8Array(await readFile(HELLO_XZ));
   const unsupportedCheckBytes = new Uint8Array(await readFile(UNSUPPORTED_CHECK_XZ));
@@ -154,6 +180,10 @@ async function buildHighRatioZip(): Promise<Uint8Array> {
   await writer.add('ratio.bin', new Uint8Array(512 * 1024));
   await writer.close();
   return concatChunks(chunks);
+}
+
+function buildHighRatioGzip(): Uint8Array {
+  return new Uint8Array(zlib.gzipSync(new Uint8Array(512 * 1024).fill(0x61)));
 }
 
 async function buildTarArchive(entryNames: string[]): Promise<Uint8Array> {
