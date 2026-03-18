@@ -11,6 +11,7 @@ import { validateSchema, type JsonSchema } from './schema-validator.js';
 
 const ERROR_SCHEMA = new URL('../schemas/error.schema.json', import.meta.url);
 const LIMIT_BYTES = 4096;
+const RATIO_LIMIT = 100;
 
 const PAYLOAD = (() => {
   const bytes = new Uint8Array(256 * 1024);
@@ -44,6 +45,32 @@ test('maxTotalDecompressedBytes enforces resource ceilings for native codecs', a
 
     assert.ok(result.error, `expected limit error for ${algorithm}`);
     assert.ok(result.bytes <= LIMIT_BYTES, `${algorithm} exceeded output ceiling`);
+    assert.ok(result.error instanceof CompressionError, `unexpected error type for ${algorithm}`);
+    assert.equal(result.error.code, 'COMPRESSION_RESOURCE_LIMIT');
+    const validation = validateSchema(errorSchema, result.error.toJSON());
+    assert.ok(validation.ok, validation.errors.join('\n'));
+  }
+});
+
+test('maxCompressionRatio enforces resource ceilings for native codecs', async () => {
+  const errorSchema = await loadSchema(ERROR_SCHEMA);
+  const caps = getCompressionCapabilities();
+
+  for (const { algorithm } of CASES) {
+    const support = caps.algorithms[algorithm];
+    if (!support.compress || !support.decompress) continue;
+
+    const compressed = await collect(
+      readableFromBytes(PAYLOAD).pipeThrough(createCompressor({ algorithm }))
+    );
+    const allowedBytes = BigInt(Math.ceil(compressed.length * RATIO_LIMIT));
+    const stream = readableFromBytes(compressed).pipeThrough(
+      createDecompressor({ algorithm, limits: { maxCompressionRatio: RATIO_LIMIT } })
+    );
+    const result = await collectUntilError(stream);
+
+    assert.ok(result.error, `expected ratio error for ${algorithm}`);
+    assert.ok(BigInt(result.bytes) <= allowedBytes, `${algorithm} exceeded ratio ceiling`);
     assert.ok(result.error instanceof CompressionError, `unexpected error type for ${algorithm}`);
     assert.equal(result.error.code, 'COMPRESSION_RESOURCE_LIMIT');
     const validation = validateSchema(errorSchema, result.error.toJSON());

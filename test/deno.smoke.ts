@@ -1049,6 +1049,35 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   }
 
   {
+    const ratioPayload = new Uint8Array(5 * 1024 * 1024);
+    const ratioCompressed = await collect(
+      new ReadableStream<Uint8Array>({
+        start(controller) {
+          controller.enqueue(ratioPayload);
+          controller.close();
+        }
+      }).pipeThrough(new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
+    );
+
+    let ratioError: unknown;
+    try {
+      await collect(
+        chunkReadable(ratioCompressed, [64]).pipeThrough(
+          createDecompressor({
+            algorithm: 'gzip',
+            limits: { maxCompressionRatio: 200 }
+          })
+        )
+      );
+    } catch (err) {
+      ratioError = err;
+    }
+    if (!(ratioError instanceof CompressionError) || ratioError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
+      throw new Error('expected gzip maxCompressionRatio failure');
+    }
+  }
+
+  {
     const ratioChunks: Uint8Array[] = [];
     const ratioWritable = new WritableStream<Uint8Array>({
       write(chunk) {
