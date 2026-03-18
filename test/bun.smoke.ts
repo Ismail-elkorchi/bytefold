@@ -81,6 +81,28 @@ async function collect(stream: ReadableStream<Uint8Array>): Promise<Uint8Array> 
   return concatChunks(chunks);
 }
 
+function blobPartFromBytes(bytes: Uint8Array): ArrayBuffer {
+  const owned = new Uint8Array(bytes.length);
+  owned.set(bytes);
+  return owned.buffer;
+}
+
+function buildDeterministicBytes(size: number): Uint8Array {
+  const source = new Uint8Array(size);
+  let state = 0x12345678;
+  for (let index = 0; index < source.length; index += 1) {
+    state = (Math.imul(state, 1664525) + 1013904223) >>> 0;
+    source[index] = state & 0xff;
+  }
+  return source;
+}
+
+async function buildGzipPayload(size = 256 * 1024): Promise<Uint8Array> {
+  return collect(new Blob([blobPartFromBytes(buildDeterministicBytes(size))]).stream().pipeThrough(
+    createCompressor({ algorithm: 'gzip' })
+  ));
+}
+
 function chunkReadable(input: Uint8Array, sizes: number[]): ReadableStream<Uint8Array> {
   let offset = 0;
   let index = 0;
@@ -1460,6 +1482,48 @@ bunTest('bun smoke: zip, tar, tgz', async () => {
         }
         if (server.stats.requests !== 0) {
           throw new Error(`http url rejection must happen before fetch, got ${server.stats.requests} requests`);
+        }
+      } finally {
+        server.stop();
+      }
+    }
+
+    {
+      const payload = await buildGzipPayload();
+      const server = await startZipRangeServer(payload, 'payload.gz', { mode: 'no-range' });
+      try {
+        let error: unknown;
+        try {
+          await openArchive(server.url, { format: 'gz', limits: { maxInputBytes: 64 } });
+        } catch (err) {
+          error = err;
+        }
+        if (!(error instanceof RangeError)) {
+          throw new Error('expected maxInputBytes content-length rejection for Bun URL full fetch');
+        }
+      } finally {
+        server.stop();
+      }
+    }
+
+    {
+      const payload = await buildGzipPayload();
+      const maxInputBytes = 512;
+      const budget = maxInputBytes + 512 * 8;
+      const server = await startZipRangeServer(payload, 'payload.gz', { mode: 'no-range-slow' });
+      try {
+        let error: unknown;
+        try {
+          await openArchive(server.url, { format: 'gz', limits: { maxInputBytes } });
+        } catch (err) {
+          error = err;
+        }
+        if (!(error instanceof RangeError)) {
+          throw new Error('expected maxInputBytes overflow rejection for Bun URL full fetch');
+        }
+        await new Promise((resolve) => setTimeout(resolve, 50));
+        if (server.stats.bytes > budget) {
+          throw new Error(`expected bounded transfer <= ${budget}, got ${server.stats.bytes}`);
         }
       } finally {
         server.stop();

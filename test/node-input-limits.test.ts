@@ -5,6 +5,8 @@ import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import * as zlib from 'node:zlib';
+import { createArchiveWriter } from '@ismail-elkorchi/bytefold';
+import { TarReader } from '@ismail-elkorchi/bytefold/tar';
 import { ArchiveError, openArchive } from '@ismail-elkorchi/bytefold/node';
 
 type NodeOpenOptions = NonNullable<Parameters<typeof openArchive>[1]>;
@@ -27,6 +29,19 @@ function buildGzipPayload(size = 256 * 1024): Uint8Array {
     source[i] = state & 0xff;
   }
   return zlib.gzipSync(source);
+}
+
+async function buildTarPayload(size = 4096): Promise<Uint8Array> {
+  const chunks: Uint8Array[] = [];
+  const writable = new WritableStream<Uint8Array>({
+    write(chunk) {
+      chunks.push(new Uint8Array(chunk));
+    }
+  });
+  const writer = createArchiveWriter('tar', writable);
+  await writer.add('payload.bin', new Uint8Array(size).fill(0x61));
+  await writer.close();
+  return concatChunks(chunks);
 }
 
 test('node adapter: file full-buffer input honors maxInputBytes', async () => {
@@ -109,3 +124,103 @@ test('node adapter: URL full fetch cancels slow responses once maxInputBytes is 
   const budget = maxInputBytes + chunkSize * 8;
   assert.ok(served <= budget, `expected bounded transfer <= ${budget}, received ${served}`);
 });
+
+test('TarReader.fromUrl honors content-length maxInputBytes before reading the body', async (t) => {
+  const payload = await buildTarPayload();
+  const chunkSize = 1024;
+
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/payload.tar') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+    res.writeHead(200, { 'content-length': String(payload.length) });
+    let offset = 0;
+    const timer = setInterval(() => {
+      if (res.destroyed) {
+        clearInterval(timer);
+        return;
+      }
+      const next = payload.subarray(offset, Math.min(offset + chunkSize, payload.length));
+      if (next.length === 0) {
+        clearInterval(timer);
+        res.end();
+        return;
+      }
+      offset += next.length;
+      res.write(next);
+    }, 2);
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  t.after(() => server.close());
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}/payload.tar`;
+
+  await assert.rejects(
+    () => TarReader.fromUrl(url, { limits: { maxInputBytes: 64 } }),
+    (error: unknown) => error instanceof RangeError
+  );
+});
+
+test('TarReader.fromUrl cancels slow responses once maxInputBytes is exceeded', async (t) => {
+  const payload = await buildTarPayload(16 * 1024);
+  const chunkSize = 1024;
+  const maxInputBytes = 512;
+  let served = 0;
+
+  const server = http.createServer((req, res) => {
+    if (req.url !== '/payload.tar') {
+      res.statusCode = 404;
+      res.end();
+      return;
+    }
+
+    let offset = 0;
+    const timer = setInterval(() => {
+      if (res.destroyed) {
+        clearInterval(timer);
+        return;
+      }
+      const end = Math.min(offset + chunkSize, payload.length);
+      const chunk = payload.subarray(offset, end);
+      served += chunk.length;
+      res.write(chunk);
+      offset = end;
+      if (offset >= payload.length) {
+        clearInterval(timer);
+        res.end();
+      }
+    }, 2);
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', () => resolve()));
+  t.after(() => server.close());
+
+  const address = server.address();
+  assert.ok(address && typeof address !== 'string');
+  const url = `http://127.0.0.1:${address.port}/payload.tar`;
+
+  await assert.rejects(
+    () => TarReader.fromUrl(url, { limits: { maxInputBytes } }),
+    (error: unknown) => error instanceof RangeError
+  );
+
+  await new Promise((resolve) => setTimeout(resolve, 50));
+  const budget = maxInputBytes + chunkSize * 8;
+  assert.ok(served <= budget, `expected bounded transfer <= ${budget}, received ${served}`);
+});
+
+function concatChunks(chunks: Uint8Array[]): Uint8Array {
+  const total = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.length;
+  }
+  return out;
+}
