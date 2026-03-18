@@ -76,7 +76,8 @@ for (const filePath of files) {
     if (isMissingFileError(error)) continue;
     throw error;
   }
-  if (bytes.includes(0)) continue;
+  // Keep scanning text-like tracked files even when they contain NUL bytes so
+  // Trojan Source controls cannot hide inside mixed-content sources.
   const text = bytes.toString('utf8');
   findings.push(...scanText(text, relativePath));
 }
