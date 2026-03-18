@@ -435,6 +435,9 @@ type DynamicState = {
   table: HuffmanTable | null;
 };
 
+const EMPTY_CHUNK = new Uint8Array(0);
+const CHUNK_COMPACTION_THRESHOLD = 64;
+
 class BitReader {
   private chunks: Uint8Array[] = [];
   private chunkIndex = 0;
@@ -495,15 +498,28 @@ class BitReader {
   private readByte(): number | null {
     while (this.chunkIndex < this.chunks.length) {
       const chunk = this.chunks[this.chunkIndex]!;
-      if (this.chunkOffset < chunk.length) {
-        const value = chunk[this.chunkOffset]!;
-        this.chunkOffset += 1;
-        return value;
+      if (this.chunkOffset >= chunk.length) {
+        this.releaseConsumedChunk();
+        continue;
       }
-      this.chunkIndex += 1;
-      this.chunkOffset = 0;
+      const value = chunk[this.chunkOffset]!;
+      this.chunkOffset += 1;
+      if (this.chunkOffset >= chunk.length) {
+        this.releaseConsumedChunk();
+      }
+      return value;
     }
     return this.finished ? null : null;
+  }
+
+  private releaseConsumedChunk(): void {
+    this.chunks[this.chunkIndex] = EMPTY_CHUNK;
+    this.chunkIndex += 1;
+    this.chunkOffset = 0;
+    if (this.chunkIndex >= CHUNK_COMPACTION_THRESHOLD && this.chunkIndex * 2 >= this.chunks.length) {
+      this.chunks = this.chunks.slice(this.chunkIndex);
+      this.chunkIndex = 0;
+    }
   }
 }
 

@@ -11,6 +11,7 @@ import './abort-progress.test.js';
 import './dispose.test.js';
 import './deflate64.test.js';
 import './deflate64-aliasing.test.js';
+import './deflate64-retention.test.js';
 import './normalize.test.js';
 import './archive.test.js';
 import './compress.test.js';
