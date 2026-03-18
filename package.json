@@ -122,6 +122,9 @@
     "pack:smoke": "node ./scripts/smoke-pack.mjs",
     "version:check": "node ./scripts/sync-version.mjs"
   },
+  "overrides": {
+    "flatted": "3.4.1"
+  },
   "devDependencies": {
     "@playwright/test": "1.58.2",
     "@types/node": "^25.2.1",
