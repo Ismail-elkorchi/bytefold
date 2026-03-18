@@ -1065,31 +1065,77 @@ Deno.test('deno smoke: zip, tar, tgz', async () => {
   }
 
   {
-    const ratioPayload = new Uint8Array(5 * 1024 * 1024);
-    const ratioCompressed = await collect(
-      new ReadableStream<Uint8Array>({
-        start(controller) {
-          controller.enqueue(ratioPayload);
-          controller.close();
-        }
-      }).pipeThrough(new CompressionStream('gzip') as unknown as ReadableWritablePair<Uint8Array, Uint8Array>)
+    const hostileCaps = getCompressionCapabilities();
+    const hostilePayload = new Uint8Array(1024 * 1024);
+    const hostileAlgorithms = ['gzip', 'deflate', 'brotli', 'zstd'] as const;
+    let testedAlgorithms = 0;
+
+    for (const algorithm of hostileAlgorithms) {
+      const support = hostileCaps.algorithms[algorithm];
+      if (!support.compress || !support.decompress) continue;
+      testedAlgorithms += 1;
+      const ratioCompressed = await collect(
+        readableFromBytes(hostilePayload).pipeThrough(createCompressor({ algorithm }))
+      );
+
+      let ratioError: unknown;
+      try {
+        await collect(
+          chunkReadable(ratioCompressed, [64]).pipeThrough(
+            createDecompressor({
+              algorithm,
+              limits: { maxCompressionRatio: 200 }
+            })
+          )
+        );
+      } catch (err) {
+        ratioError = err;
+      }
+      if (!(ratioError instanceof CompressionError) || ratioError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
+        throw new Error(`expected ${algorithm} maxCompressionRatio failure`);
+      }
+    }
+
+    if (testedAlgorithms === 0) {
+      throw new Error('expected at least one Deno runtime-backed hostile ratio algorithm');
+    }
+  }
+
+  {
+    const hostileTarChunks: Uint8Array[] = [];
+    const hostileTarWritable = new WritableStream<Uint8Array>({
+      write(chunk) {
+        hostileTarChunks.push(chunk);
+      }
+    });
+    const hostileTarWriter = createArchiveWriter('tar', hostileTarWritable);
+    await hostileTarWriter.add('ratio.bin', new Uint8Array(512 * 1024));
+    await hostileTarWriter.close();
+    const hostileTgzBytes = await collect(
+      readableFromBytes(concatChunks(hostileTarChunks)).pipeThrough(createCompressor({ algorithm: 'gzip' }))
     );
 
-    let ratioError: unknown;
+    let tgzError: unknown;
     try {
-      await collect(
-        chunkReadable(ratioCompressed, [64]).pipeThrough(
-          createDecompressor({
-            algorithm: 'gzip',
-            limits: { maxCompressionRatio: 200 }
-          })
-        )
-      );
+      await openArchive(hostileTgzBytes, {
+        format: 'tgz',
+        profile: 'agent',
+        limits: { maxEntries: 10_000 }
+      });
     } catch (err) {
-      ratioError = err;
+      tgzError = err;
     }
-    if (!(ratioError instanceof CompressionError) || ratioError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
-      throw new Error('expected gzip maxCompressionRatio failure');
+    if (!(tgzError instanceof CompressionError) || tgzError.code !== 'COMPRESSION_RESOURCE_LIMIT') {
+      throw new Error('expected tgz profile-agent ratio rejection');
+    }
+
+    const relaxedTgz = await openArchive(hostileTgzBytes, {
+      format: 'tgz',
+      profile: 'agent',
+      limits: { maxCompressionRatio: 1_000_000 }
+    });
+    if (relaxedTgz.format !== 'tgz') {
+      throw new Error('expected tgz archive after explicit ratio override');
     }
   }
 
