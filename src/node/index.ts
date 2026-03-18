@@ -81,6 +81,11 @@ type ZipDetectionInfo = {
   notes: string[];
 };
 
+type RemoteArchiveUrl = {
+  href: string;
+  protocol: 'http:' | 'https:';
+};
+
 type ArchiveOpenOptionsInternal = ArchiveOpenOptions & {
   __preflight?: XzPreflightInfo;
   __zipReader?: ZipReader;
@@ -105,7 +110,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
     const remoteUrl = resolveRemoteArchiveUrl(input, options);
     const formatOption = options?.format ?? 'auto';
     if (remoteUrl) {
-      const url = remoteUrl.toString();
+      const url = remoteUrl.href;
       const filename = options?.filename ?? inferFilenameFromUrl(url);
       if (shouldPreflightZip(formatOption, filename)) {
         const detection = buildZipDetection(
@@ -137,7 +142,7 @@ export async function openArchive(input: NodeArchiveInput, options?: ArchiveOpen
         await reader.close();
       }
       const preflight = await preflightSeekableXz(url, filename, options);
-      const data = await resolveNodeInputBytes(url, options);
+      const data = await readHttpUrlBytes(remoteUrl, options);
       return openArchiveCore(data, {
         ...options,
         ...(preflight ? { __preflight: preflight } : {}),
@@ -253,18 +258,30 @@ function safeParseUrl(value: string): URL | null {
   }
 }
 
-function resolveRemoteArchiveUrl(value: string | URL, options?: ArchiveOpenOptions): URL | null {
-  const url = typeof value === 'string' ? safeParseUrl(value) : value;
-  if (!url) return null;
-  if (url.protocol === 'https:') return url;
+function isExplicitRemoteArchiveString(value: string): boolean {
+  return /^https?:\/\//i.test(value);
+}
+
+function toRemoteArchiveUrl(url: URL, options?: ArchiveOpenOptions): RemoteArchiveUrl | null {
+  if (url.protocol === 'https:') return { href: url.href, protocol: 'https:' };
   if (url.protocol === 'http:') {
-    if (options?.url?.allowHttp) return url;
+    if (options?.url?.allowHttp) return { href: url.href, protocol: 'http:' };
     throw new ArchiveError(
       'ARCHIVE_UNSUPPORTED_FEATURE',
       'HTTP URL inputs require { url: { allowHttp: true } } in the Node adapter'
     );
   }
   return null;
+}
+
+function resolveRemoteArchiveUrl(value: string | URL, options?: ArchiveOpenOptions): RemoteArchiveUrl | null {
+  if (typeof value === 'string') {
+    if (!isExplicitRemoteArchiveString(value)) return null;
+    const parsed = safeParseUrl(value);
+    if (!parsed) return null;
+    return toRemoteArchiveUrl(parsed, options);
+  }
+  return toRemoteArchiveUrl(value, options);
 }
 
 function inferFilenameFromUrl(value: string): string {
@@ -530,8 +547,8 @@ async function resolveNodeInputBytes(input: NodeArchiveInput, options?: ArchiveO
   return readAllBytes(webStream, readOptions);
 }
 
-async function readHttpUrlBytes(url: URL, options?: ArchiveOpenOptions): Promise<Uint8Array> {
-  const response = await fetch(url, options?.signal ? { signal: options.signal } : undefined);
+async function readHttpUrlBytes(remoteUrl: RemoteArchiveUrl, options?: ArchiveOpenOptions): Promise<Uint8Array> {
+  const response = await fetch(remoteUrl.href, options?.signal ? { signal: options.signal } : undefined);
   if (!response.ok) {
     throw new ArchiveError('ARCHIVE_BAD_HEADER', `Unexpected HTTP status ${response.status}`);
   }

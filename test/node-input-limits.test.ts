@@ -72,10 +72,16 @@ test('shared response helper cancels oversized content-length bodies before thro
   assert.equal(cancelled, true);
 });
 
-test('node adapter: file full-buffer input honors maxInputBytes', async () => {
+test('node adapter: file full-buffer input honors maxInputBytes without reaching fetch', async () => {
   const root = await mkdtemp(path.join(tmpdir(), 'bytefold-node-input-'));
   const file = path.join(root, 'payload.gz');
   await writeFile(file, buildGzipPayload());
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  (globalThis as { fetch: typeof fetch }).fetch = async (...args: Parameters<typeof fetch>) => {
+    fetchCalls += 1;
+    return originalFetch(...args);
+  };
 
   try {
     await assert.rejects(
@@ -84,7 +90,34 @@ test('node adapter: file full-buffer input honors maxInputBytes', async () => {
       },
       (error: unknown) => error instanceof RangeError
     );
+    assert.equal(fetchCalls, 0, 'local file path strings must not be classified as remote URLs');
   } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test('node adapter: file URL inputs stay on local path reads and never fetch', async () => {
+  const root = await mkdtemp(path.join(tmpdir(), 'bytefold-node-file-url-'));
+  const file = path.join(root, 'payload.gz');
+  await writeFile(file, buildGzipPayload());
+  const originalFetch = globalThis.fetch;
+  let fetchCalls = 0;
+  (globalThis as { fetch: typeof fetch }).fetch = async (...args: Parameters<typeof fetch>) => {
+    fetchCalls += 1;
+    return originalFetch(...args);
+  };
+
+  try {
+    await assert.rejects(
+      async () => {
+        await openArchive(pathToFileURL(file), { format: 'gz', limits: { maxInputBytes: 64 } });
+      },
+      (error: unknown) => error instanceof RangeError
+    );
+    assert.equal(fetchCalls, 0, 'file: URL inputs must stay on the local file path branch');
+  } finally {
+    (globalThis as { fetch: typeof fetch }).fetch = originalFetch;
     await rm(root, { recursive: true, force: true });
   }
 });
